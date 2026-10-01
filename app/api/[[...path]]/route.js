@@ -188,6 +188,37 @@ export async function POST(request, context) {
   }
 }
 
+// ---------------------------------------------------------------- PUT
+export async function PUT(request, context) {
+  const params = await context.params;
+  const path = pathOf(params);
+  try {
+    const session = getSession(request);
+    if (!session) return err('unauthenticated', 401);
+    const db = await getDb();
+
+    // Agency onboarding setup — updates the session's own agency only.
+    if (path === '/agency') {
+      if (!can(session.role, 'agency:manage')) return err('forbidden', 403);
+      const b = await readBody(request);
+      const fields = ['name', 'phone', 'website', 'address', 'city', 'country', 'currency', 'timezone'];
+      const update = {};
+      for (const k of fields) { if (b[k] !== undefined) update[k] = String(b[k]); }
+      if (b.email !== undefined) update.email = String(b.email).toLowerCase();
+      update.setupCompleted = true;
+      update.updatedAt = new Date().toISOString();
+      // agencyId is derived server-side from the session, never from the client.
+      await db.collection('agencies').updateOne({ id: session.agencyId }, { $set: update });
+      const agency = await db.collection('agencies').findOne({ id: session.agencyId }, { projection: { _id: 0 } });
+      return json({ agency });
+    }
+
+    return err('not found', 404);
+  } catch (e) {
+    return err(e.message || 'server error', 500);
+  }
+}
+
 // ---------------------------------------------------------------- DELETE
 export async function DELETE(request, context) {
   const params = await context.params;

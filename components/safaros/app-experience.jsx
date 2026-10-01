@@ -99,8 +99,8 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
             <a href="/" className="text-sm text-muted-foreground inline-flex items-center gap-1 mb-2 hover:text-foreground">
               <ArrowLeft className="h-4 w-4" /> Back to safaros.com
             </a>
-            <CardTitle>Welcome</CardTitle>
-            <CardDescription>Create your agency workspace or sign in to continue.</CardDescription>
+            <CardTitle>{tab === 'signup' ? 'Create your SafarOS workspace' : 'Welcome back'}</CardTitle>
+            <CardDescription>{tab === 'signup' ? 'Bring your travel business into one intelligent operating system.' : 'Sign in to continue to your workspace.'}</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs value={tab} onValueChange={setTab}>
@@ -111,17 +111,12 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
 
               <TabsContent value="signup" className="space-y-3 mt-4">
                 <div className="space-y-1.5">
-                  <Label>Agency name</Label>
-                  <Input placeholder="Wanderlust Travels" value={signup.agencyName}
-                    onChange={(e) => setSignup({ ...signup, agencyName: e.target.value })} />
-                </div>
-                <div className="space-y-1.5">
                   <Label>Your name</Label>
                   <Input placeholder="Jane Doe" value={signup.name}
                     onChange={(e) => setSignup({ ...signup, name: e.target.value })} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Work email</Label>
+                  <Label>Business email</Label>
                   <Input type="email" placeholder="jane@agency.com" value={signup.email}
                     onChange={(e) => setSignup({ ...signup, email: e.target.value })} />
                 </div>
@@ -130,9 +125,17 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                   <Input type="password" placeholder="........" value={signup.password}
                     onChange={(e) => setSignup({ ...signup, password: e.target.value })} />
                 </div>
+                <div className="space-y-1.5">
+                  <Label>Agency name</Label>
+                  <Input placeholder="Wanderlust Travels" value={signup.agencyName}
+                    onChange={(e) => setSignup({ ...signup, agencyName: e.target.value })} />
+                </div>
                 <Button className="w-full" onClick={doSignup} disabled={loading}>
-                  {loading ? 'Creating...' : 'Create agency workspace'}
+                  {loading ? 'Creating...' : 'Create Workspace'}
                 </Button>
+                <button type="button" onClick={() => setTab('login')} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">
+                  Already have an account? <span className="font-medium text-foreground">Sign in</span>
+                </button>
               </TabsContent>
 
               <TabsContent value="login" className="space-y-3 mt-4">
@@ -470,6 +473,62 @@ function Row({ label, value, icon: Icon }) {
   );
 }
 
+function AgencySetup({ session, onDone, onLogout }) {
+  const { agency, user } = session;
+  const [form, setForm] = useState({
+    name: agency?.name || '',
+    email: agency?.email || user?.email || '',
+    phone: agency?.phone || '',
+    website: agency?.website || '',
+    address: agency?.address || '',
+    city: agency?.city || '',
+    country: agency?.country || 'India',
+    currency: agency?.currency || 'INR',
+    timezone: agency?.timezone || 'Asia/Kolkata',
+  });
+  const [loading, setLoading] = useState(false);
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const save = async () => {
+    setLoading(true);
+    try {
+      await api('/agency', { method: 'PUT', body: JSON.stringify(form) });
+      toast.success('Workspace ready');
+      await onDone();
+    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="min-h-screen bg-muted/30 so-font">
+      <header className="flex h-14 items-center justify-between border-b border-border bg-background px-5">
+        <span className="flex items-center gap-2 font-bold"><Layers className="h-5 w-5 text-violet-600" /> SafarOS</span>
+        <Button variant="ghost" size="sm" onClick={onLogout}><LogOut className="h-4 w-4 mr-1" /> Sign out</Button>
+      </header>
+      <div className="mx-auto max-w-2xl px-4 py-8 sm:py-12">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold sm:text-3xl">Set up your travel business</h1>
+          <p className="mt-1 text-muted-foreground">A few details to tailor your SafarOS workspace.</p>
+        </div>
+        <Card>
+          <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2"><Label>Agency name</Label><Input value={form.name} onChange={set('name')} /></div>
+            <div className="space-y-1.5"><Label>Phone</Label><Input value={form.phone} onChange={set('phone')} placeholder="+91 98765 43210" /></div>
+            <div className="space-y-1.5"><Label>Business email</Label><Input type="email" value={form.email} onChange={set('email')} /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Website</Label><Input value={form.website} onChange={set('website')} placeholder="https://youragency.com" /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Address</Label><Input value={form.address} onChange={set('address')} /></div>
+            <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={set('city')} /></div>
+            <div className="space-y-1.5"><Label>Country</Label><Input value={form.country} onChange={set('country')} /></div>
+            <div className="space-y-1.5"><Label>Currency</Label><Input value={form.currency} onChange={set('currency')} /></div>
+            <div className="space-y-1.5"><Label>Timezone</Label><Input value={form.timezone} onChange={set('timezone')} /></div>
+          </CardContent>
+        </Card>
+        <Button className="mt-5 w-full sm:w-auto" onClick={save} disabled={loading || !form.name}>
+          {loading ? 'Saving...' : 'Enter SafarOS'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AppExperience({ initialTab = 'login' }) {
   const router = useRouter();
   const [session, setSession] = useState(null);
@@ -502,7 +561,11 @@ export function AppExperience({ initialTab = 'login' }) {
 
   return (
     <>
-      {session ? <Dashboard session={session} onLogout={logout} /> : <AuthView onAuthed={onAuthed} initialTab={initialTab} />}
+      {session
+        ? (session.agency?.setupCompleted
+            ? <Dashboard session={session} onLogout={logout} />
+            : <AgencySetup session={session} onDone={loadMe} onLogout={logout} />)
+        : <AuthView onAuthed={onAuthed} initialTab={initialTab} />}
       <Toaster richColors position="top-right" />
     </>
   );
