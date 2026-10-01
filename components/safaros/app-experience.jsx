@@ -32,6 +32,7 @@ import {
   UserPlus, BookUser, CalendarClock, ListTodo, Activity, Filter, ArrowRight, CheckCircle2,
   FileText, FilePlus, Copy, FileDown, MapPin,
   Package, Map, Clock, Utensils, Car, BedDouble,
+  ChevronDown, ChevronUp, CalendarDays,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -1911,13 +1912,14 @@ function QuotationForm({ session, mode, quotationId, onDone, onCancel }) {
   );
 }
 
-function QuotationDetail({ session, quotationId, onBack, onEdit, onChanged }) {
+function QuotationDetail({ session, quotationId, onBack, onEdit, onChanged, onNavigate }) {
   const [q, setQ] = useState(null);
   const [loading, setLoading] = useState(true);
   const role = session.user.role;
   const canUpdate = can(role, 'quotations:update');
   const canDelete = can(role, 'quotations:delete');
   const canCreate = can(role, 'quotations:create');
+  const canCreatePackage = can(role, 'packages:create');
 
   const load = async () => { setLoading(true); try { const d = await api(`/quotations/${quotationId}`); setQ(d.quotation); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
   useEffect(() => { load(); }, [quotationId]);
@@ -1942,6 +1944,7 @@ function QuotationDetail({ session, quotationId, onBack, onEdit, onChanged }) {
         <div className="flex flex-wrap gap-2">
           {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(q.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
           {canCreate && <Button variant="outline" size="sm" onClick={duplicate}><Copy className="h-4 w-4 mr-1" /> Duplicate</Button>}
+          {canCreatePackage && onNavigate && <Button variant="outline" size="sm" onClick={() => onNavigate('packages', { createFromQuotation: q })}><Package className="h-4 w-4 mr-1" /> Create package</Button>}
           <Button variant="outline" size="sm" disabled title="Available in a later phase"><FileDown className="h-4 w-4 mr-1" /> PDF (soon)</Button>
           {canDelete && q.status === 'draft' && <Button variant="outline" size="sm" onClick={remove}><Trash2 className="h-4 w-4 mr-1 text-destructive" /> Delete</Button>}
         </div>
@@ -2123,6 +2126,688 @@ function Quotations({ session, initialView = 'list', onNavigate }) {
   if (view === 'edit') return <QuotationForm session={session} mode="edit" quotationId={selectedId} onDone={(q) => openDetail(q.id)} onCancel={() => openDetail(selectedId)} />;
   if (view === 'detail') return <QuotationDetail session={session} quotationId={selectedId} onBack={() => setView('list')} onEdit={openEdit} onChanged={() => {}} onNavigate={onNavigate} />;
   return <QuotationList session={session} onCreate={() => setView('create')} onOpen={openDetail} />;
+}
+
+// ======================= PACKAGES & ITINERARIES =======================
+
+const PACKAGE_STATUS_META = {
+  draft:     { label: 'Draft',     cls: 'bg-muted text-muted-foreground border-border' },
+  active:    { label: 'Active',    cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  completed: { label: 'Completed', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  cancelled: { label: 'Cancelled', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+};
+const PACKAGE_STATUS_OPTIONS = Object.keys(PACKAGE_STATUS_META);
+function PackageStatusBadge({ status }) { return <MetaBadge meta={PACKAGE_STATUS_META[status] || PACKAGE_STATUS_META.draft} />; }
+
+function travelerSummary(p) {
+  const bits = [];
+  const a = Number(p.adults) || 0, c = Number(p.children) || 0, n = Number(p.nights) || 0;
+  if (a) bits.push(`${a} adult${a > 1 ? 's' : ''}`);
+  if (c) bits.push(`${c} child${c > 1 ? 'ren' : ''}`);
+  if (n) bits.push(`${n} night${n > 1 ? 's' : ''}`);
+  return bits.length ? bits.join(' · ') : '—';
+}
+
+// ---- Itinerary day/activity factories + client-side normalization ----
+function blankActivity() {
+  return { id: 'a' + Math.random().toString(36).slice(2), name: '', description: '', location: '', startTime: '', endTime: '', notes: '' };
+}
+function blankDay(n) {
+  return {
+    id: 'd' + Math.random().toString(36).slice(2),
+    dayNumber: n, date: '', title: '', description: '', location: '', startTime: '', endTime: '', notes: '',
+    activities: [],
+    meals: { breakfast: '', lunch: '', dinner: '' },
+    transport: { type: '', pickupLocation: '', dropLocation: '', pickupTime: '', notes: '' },
+    accommodation: { name: '', location: '', checkIn: '', checkOut: '', roomNotes: '' },
+  };
+}
+function normalizeDayClient(d) {
+  const base = blankDay(d.dayNumber || 1);
+  return {
+    ...base, ...d,
+    meals: { ...base.meals, ...(d.meals || {}) },
+    transport: { ...base.transport, ...(d.transport || {}) },
+    accommodation: { ...base.accommodation, ...(d.accommodation || {}) },
+    activities: (d.activities || []).map((a) => ({ ...blankActivity(), ...a })),
+  };
+}
+
+// ----------------------------- PACKAGE LIST -----------------------------
+function PackageList({ session, onCreate, onOpen }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const canCreate = can(session.user.role, 'packages:create');
+  useEffect(() => { (async () => { setLoading(true); try { const d = await api('/packages'); setRows(d.packages || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, []);
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter((r) => {
+    const mq = !q || [r.name, r.customerName, r.destination].some((f) => String(f || '').toLowerCase().includes(q));
+    const ms = statusFilter === 'all' || r.status === statusFilter;
+    return mq && ms;
+  });
+  const isEmpty = !loading && rows.length === 0;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-xl font-bold">Packages</h2><p className="text-sm text-muted-foreground">Build complete travel offerings for your clients and leads.</p></div>
+        {canCreate && !isEmpty && <Button onClick={onCreate} className="w-full sm:w-auto"><Plus className="h-4 w-4 mr-1.5" /> Create package</Button>}
+      </div>
+
+      {!isEmpty && !loading && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative sm:max-w-sm sm:flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, customer or destination" className="pl-9" />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="sm:w-44"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger>
+            <SelectContent><SelectItem value="all">All statuses</SelectItem>{PACKAGE_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{PACKAGE_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+
+      {isEmpty && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Package className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No packages yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Create your first travel package for a client or lead. You can start from scratch or link an existing quotation.</p></div>
+          {canCreate && <Button onClick={onCreate}><Plus className="h-4 w-4 mr-1.5" /> Create package</Button>}
+        </CardContent></Card>
+      )}
+
+      {!loading && rows.length > 0 && filtered.length === 0 && (
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No packages match your filters.</CardContent></Card>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <>
+          <Card className="hidden md:block overflow-hidden">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Package</TableHead><TableHead>Customer</TableHead><TableHead>Destination</TableHead>
+                <TableHead>Travel dates</TableHead><TableHead>Status</TableHead><TableHead>Created</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.id} className="cursor-pointer" onClick={() => onOpen(r.id)}>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell>{r.customerName}</TableCell>
+                    <TableCell className="text-muted-foreground">{r.destination}</TableCell>
+                    <TableCell className="text-muted-foreground">{travelDates(r)}</TableCell>
+                    <TableCell><PackageStatusBadge status={r.status} /></TableCell>
+                    <TableCell className="text-muted-foreground">{formatJoined(r.createdAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+          <div className="space-y-3 md:hidden">
+            {filtered.map((r) => (
+              <Card key={r.id} className="cursor-pointer" onClick={() => onOpen(r.id)}><CardContent className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><div className="truncate font-semibold">{r.name}</div><div className="truncate text-sm text-muted-foreground">{r.customerName} · {r.destination}</div></div>
+                  <PackageStatusBadge status={r.status} />
+                </div>
+                <div className="flex items-center justify-between border-t pt-3 text-sm text-muted-foreground">
+                  <span>{travelDates(r)}</span>
+                  <span>{formatJoined(r.createdAt)}</span>
+                </div>
+              </CardContent></Card>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// -------------------------- QUOTATION PICKER (optional) --------------------------
+function QuotationPicker({ value, onChange, onPick }) {
+  const [opts, setOpts] = useState([]);
+  useEffect(() => { (async () => { try { const d = await api('/quotations'); setOpts(d.quotations || []); } catch { /* non-blocking */ } })(); }, []);
+  return (
+    <Select value={value || 'none'} onValueChange={(v) => { if (v === 'none') { onChange(''); } else { onChange(v); const o = opts.find((x) => x.id === v); if (o && onPick) onPick(o); } }}>
+      <SelectTrigger><SelectValue placeholder="No quotation" /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="none">No quotation</SelectItem>
+        {opts.map((o) => <SelectItem key={o.id} value={o.id}>{o.quotationNumber} · {o.customerName}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
+}
+
+// ----------------------------- PACKAGE FORM -----------------------------
+function PackageForm({ session, mode, packageId, prefill, onDone, onCancel }) {
+  const [form, setForm] = useState({ name: '', destination: '', startDate: '', endDate: '', adults: 0, children: 0, nights: 0, description: '', quotationId: '' });
+  const [customer, setCustomer] = useState({ customerType: '', customerId: '', customerName: '' });
+  const [loading, setLoading] = useState(mode === 'edit');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (mode === 'edit' && packageId) {
+      (async () => { setLoading(true); try {
+        const { package: p } = await api(`/packages/${packageId}`);
+        setForm({ name: p.name || '', destination: p.destination || '', startDate: p.startDate || '', endDate: p.endDate || '', adults: p.adults || 0, children: p.children || 0, nights: p.nights || 0, description: p.description || '', quotationId: p.quotationId || '' });
+        setCustomer({ customerType: p.customerType, customerId: p.customerId, customerName: p.customerName });
+      } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })();
+    } else if (prefill) {
+      setForm((f) => ({ ...f, name: prefill.name || '', destination: prefill.destination || '', startDate: prefill.startDate || '', endDate: prefill.endDate || '', adults: prefill.adults || 0, children: prefill.children || 0, nights: prefill.nights || 0, quotationId: prefill.quotationId || '' }));
+      setCustomer({ customerType: prefill.customerType, customerId: prefill.customerId, customerName: prefill.customerName });
+    }
+  }, [mode, packageId]);
+
+  const applyQuotation = (qo) => {
+    setForm((f) => ({ ...f, destination: qo.destination || f.destination, startDate: qo.startDate || f.startDate, endDate: qo.endDate || f.endDate, adults: qo.adults || f.adults, children: qo.children || f.children, nights: qo.nights || f.nights }));
+    setCustomer({ customerType: qo.customerType, customerId: qo.customerId, customerName: qo.customerName });
+  };
+
+  const setNum = (k) => (e) => setForm((f) => ({ ...f, [k]: Math.max(0, Math.floor(Number(e.target.value) || 0)) }));
+  const canSubmit = form.name.trim() && customer.customerId && form.destination.trim();
+
+  const submit = async () => {
+    if (!canSubmit) { toast.error('Name, customer and destination are required'); return; }
+    setSubmitting(true);
+    try {
+      const payload = { ...form, customerType: customer.customerType, customerId: customer.customerId };
+      const res = mode === 'edit'
+        ? await api(`/packages/${packageId}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await api('/packages', { method: 'POST', body: JSON.stringify(payload) });
+      toast.success(mode === 'edit' ? 'Package updated' : 'Package created');
+      onDone(res.package);
+    } catch (e) { toast.error(friendlyError(e)); } finally { setSubmitting(false); }
+  };
+
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+
+  return (
+    <div className="space-y-5 max-w-3xl">
+      <div className="flex items-start gap-3">
+        <Button variant="ghost" size="icon" onClick={onCancel}><ArrowLeft className="h-4 w-4" /></Button>
+        <div><h2 className="text-xl font-bold">{mode === 'edit' ? 'Edit package' : 'Create package'}</h2>
+          <p className="text-sm text-muted-foreground">Reuse an existing client or lead — no duplicate customer records are created.</p></div>
+      </div>
+      <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+        <div className="space-y-1.5 sm:col-span-2"><Label>Package name</Label><Input value={form.name} placeholder="Goa Honeymoon — 5 Nights" onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Client or lead</Label><CustomerPicker value={customer} onChange={setCustomer} /></div>
+        <div className="space-y-1.5"><Label>Linked quotation <span className="text-muted-foreground">(optional)</span></Label><QuotationPicker value={form.quotationId} onChange={(v) => setForm((f) => ({ ...f, quotationId: v }))} onPick={applyQuotation} /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Destination</Label><Input value={form.destination} placeholder="Goa, India" onChange={(e) => setForm({ ...form, destination: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Start date</Label><Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>End date</Label><Input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Adults</Label><Input type="number" min="0" value={form.adults} onChange={setNum('adults')} /></div>
+        <div className="space-y-1.5"><Label>Children</Label><Input type="number" min="0" value={form.children} onChange={setNum('children')} /></div>
+        <div className="space-y-1.5"><Label>Nights</Label><Input type="number" min="0" value={form.nights} onChange={setNum('nights')} /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Description</Label><Textarea value={form.description} rows={4} placeholder="Overview of the package, inclusions, highlights…" onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+      </CardContent></Card>
+      <div className="flex gap-2">
+        <Button className="flex-1 sm:flex-none" onClick={submit} disabled={!canSubmit || submitting}>{submitting ? 'Saving…' : (mode === 'edit' ? 'Save changes' : 'Create package')}</Button>
+        <Button variant="outline" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------- PACKAGE DETAIL -----------------------------
+function PkgRow({ label, value }) {
+  return (<div className="flex items-start justify-between gap-4 py-1.5"><span className="text-sm text-muted-foreground">{label}</span><span className="text-sm font-medium text-right">{value || '—'}</span></div>);
+}
+
+function PackageDetail({ session, packageId, onBack, onEdit }) {
+  const role = session.user.role;
+  const canUpdate = can(role, 'packages:update');
+  const canDelete = can(role, 'packages:delete');
+  const canItinCreate = can(role, 'itineraries:create');
+  const [p, setP] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [itin, setItin] = useState(null);
+  const [editingItin, setEditingItin] = useState(false);
+
+  const load = async () => { setLoading(true); try { const d = await api(`/packages/${packageId}`); setP(d.package); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, [packageId]);
+
+  useEffect(() => {
+    if (p && p.itineraryId) { (async () => { try { const d = await api(`/itineraries/${p.itineraryId}`); setItin(d.itinerary); } catch { setItin(null); } })(); }
+    else setItin(null);
+  }, [p && p.itineraryId]);
+
+  const changeStatus = async (status) => { try { const d = await api(`/packages/${packageId}/status`, { method: 'PUT', body: JSON.stringify({ status }) }); setP(d.package); toast.success('Status updated'); } catch (e) { toast.error(friendlyError(e)); } };
+  const createItinerary = async () => { try { const d = await api('/itineraries', { method: 'POST', body: JSON.stringify({ packageId }) }); setItin(d.itinerary); setP((prev) => ({ ...prev, itineraryId: d.itinerary.id })); setEditingItin(true); toast.success('Itinerary created'); } catch (e) { toast.error(friendlyError(e)); } };
+  const remove = async () => { try { await api(`/packages/${packageId}`, { method: 'DELETE' }); toast.success('Draft package deleted'); onBack(); } catch (e) { toast.error(friendlyError(e)); } };
+
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+  if (!p) return <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Package not found.</CardContent></Card>;
+
+  if (editingItin && itin) {
+    return <ItineraryEditor session={session} itineraryId={itin.id} heading={`Itinerary · ${p.name}`} onBack={() => setEditingItin(false)} onSaved={(it) => { setItin(it); setEditingItin(false); }} />;
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap"><h2 className="text-xl font-bold">{p.name}</h2><PackageStatusBadge status={p.status} /></div>
+            <p className="text-sm text-muted-foreground">{p.customerName} · {p.destination}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(p.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
+          {canDelete && p.status === 'draft' && <Button variant="outline" size="sm" onClick={remove}><Trash2 className="h-4 w-4 mr-1 text-destructive" /> Delete</Button>}
+        </div>
+      </div>
+
+      {canUpdate && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Change status:</span>
+          <Select value={p.status} onValueChange={changeStatus}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>{PACKAGE_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{PACKAGE_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" disabled title="Available after the Booking module is built"><ArrowRight className="h-4 w-4 mr-1" /> Convert to Booking (soon)</Button>
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3"><CardContent className="p-5">
+          <PkgRow label="Customer" value={p.customerName} />
+          <PkgRow label="Destination" value={p.destination} />
+          <PkgRow label="Travel dates" value={travelDates(p)} />
+          <PkgRow label="Travelers" value={travelerSummary(p)} />
+          <PkgRow label="Related quotation" value={p.quotationNumber} />
+          <Separator className="my-2" />
+          <PkgRow label="Created" value={formatJoined(p.createdAt)} />
+          <PkgRow label="Updated" value={formatJoined(p.updatedAt)} />
+          {p.description && (<><Separator className="my-2" /><div className="pt-1"><div className="text-sm text-muted-foreground mb-1">Description</div><p className="text-sm whitespace-pre-wrap">{p.description}</p></div></>)}
+        </CardContent></Card>
+
+        <Card className="lg:col-span-2"><CardContent className="p-5 space-y-3">
+          <div className="flex items-center gap-2 font-semibold"><Map className="h-4 w-4 text-violet-600" /> Itinerary</div>
+          {itin ? (
+            <>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="font-medium truncate">{itin.title}</div>
+                <div className="text-sm text-muted-foreground">{(itin.days || []).length} day{(itin.days || []).length === 1 ? '' : 's'} planned</div>
+              </div>
+              {can(role, 'itineraries:update') && <Button variant="outline" size="sm" className="w-full" onClick={() => setEditingItin(true)}><Pencil className="h-4 w-4 mr-1" /> Open itinerary builder</Button>}
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">No itinerary yet. Create one to start planning day-by-day.</p>
+              {canItinCreate && <Button size="sm" className="w-full" onClick={createItinerary}><Plus className="h-4 w-4 mr-1" /> Create itinerary</Button>}
+            </>
+          )}
+        </CardContent></Card>
+      </div>
+
+      {itin && !editingItin && (
+        <Card><CardContent className="p-5"><ItineraryView itin={itin} /></CardContent></Card>
+      )}
+    </div>
+  );
+}
+
+// ----------------------------- ITINERARY EDITOR (day-by-day builder) -----------------------------
+function FieldInput({ label, ...props }) {
+  return (<div className="space-y-1"><Label className="text-xs text-muted-foreground">{label}</Label><Input {...props} /></div>);
+}
+
+function DayCard({ day, index, open, onToggle, canUpdate, onPatch, onRemove }) {
+  const upd = (fn) => onPatch(fn(day));
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
+        <button type="button" onClick={onToggle} className="flex items-center gap-2 min-w-0 text-left">
+          {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+          <span className="inline-flex h-6 items-center rounded-full bg-violet-600 px-2.5 text-xs font-semibold text-white">Day {day.dayNumber}</span>
+          <span className="truncate text-sm font-medium">{day.title || day.location || 'Untitled day'}</span>
+        </button>
+        {canUpdate && <Button variant="ghost" size="icon" onClick={onRemove} title="Remove day"><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+      </div>
+      {open && (
+        <CardContent className="space-y-4 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FieldInput label="Title" value={day.title} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, title: e.target.value }))} placeholder="Arrival & check-in" />
+            <FieldInput label="Date" type="date" value={day.date} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, date: e.target.value }))} />
+            <FieldInput label="Location" value={day.location} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, location: e.target.value }))} placeholder="Panaji" />
+            <div className="grid grid-cols-2 gap-2">
+              <FieldInput label="Start time" type="time" value={day.startTime} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, startTime: e.target.value }))} />
+              <FieldInput label="End time" type="time" value={day.endTime} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, endTime: e.target.value }))} />
+            </div>
+          </div>
+          <div className="space-y-1"><Label className="text-xs text-muted-foreground">Day description</Label><Textarea rows={2} value={day.description} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, description: e.target.value }))} placeholder="Overview of the day" /></div>
+
+          {/* Activities */}
+          <div className="rounded-lg border p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-sm font-medium"><Clock className="h-4 w-4 text-sky-600" /> Activities</span>
+              {canUpdate && <Button variant="outline" size="sm" onClick={() => upd((d) => ({ ...d, activities: [...d.activities, blankActivity()] }))}><Plus className="h-3.5 w-3.5 mr-1" /> Add</Button>}
+            </div>
+            {day.activities.length === 0 && <p className="text-xs text-muted-foreground">No activities added.</p>}
+            {day.activities.map((a) => (
+              <div key={a.id} className="rounded-md bg-muted/40 p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Input className="flex-1" value={a.name} disabled={!canUpdate} placeholder="Activity name" onChange={(e) => upd((d) => ({ ...d, activities: d.activities.map((x) => x.id === a.id ? { ...x, name: e.target.value } : x) }))} />
+                  {canUpdate && <Button variant="ghost" size="icon" onClick={() => upd((d) => ({ ...d, activities: d.activities.filter((x) => x.id !== a.id) }))}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <Input value={a.location} disabled={!canUpdate} placeholder="Location" onChange={(e) => upd((d) => ({ ...d, activities: d.activities.map((x) => x.id === a.id ? { ...x, location: e.target.value } : x) }))} />
+                  <Input type="time" value={a.startTime} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, activities: d.activities.map((x) => x.id === a.id ? { ...x, startTime: e.target.value } : x) }))} />
+                  <Input type="time" value={a.endTime} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, activities: d.activities.map((x) => x.id === a.id ? { ...x, endTime: e.target.value } : x) }))} />
+                </div>
+                <Textarea rows={1} value={a.description} disabled={!canUpdate} placeholder="Notes / description" onChange={(e) => upd((d) => ({ ...d, activities: d.activities.map((x) => x.id === a.id ? { ...x, description: e.target.value } : x) }))} />
+              </div>
+            ))}
+          </div>
+
+          {/* Meals */}
+          <div className="rounded-lg border p-3 space-y-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium"><Utensils className="h-4 w-4 text-amber-600" /> Meals</span>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <FieldInput label="Breakfast" value={day.meals.breakfast} disabled={!canUpdate} placeholder="Included / notes" onChange={(e) => upd((d) => ({ ...d, meals: { ...d.meals, breakfast: e.target.value } }))} />
+              <FieldInput label="Lunch" value={day.meals.lunch} disabled={!canUpdate} placeholder="Included / notes" onChange={(e) => upd((d) => ({ ...d, meals: { ...d.meals, lunch: e.target.value } }))} />
+              <FieldInput label="Dinner" value={day.meals.dinner} disabled={!canUpdate} placeholder="Included / notes" onChange={(e) => upd((d) => ({ ...d, meals: { ...d.meals, dinner: e.target.value } }))} />
+            </div>
+          </div>
+
+          {/* Transport */}
+          <div className="rounded-lg border p-3 space-y-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium"><Car className="h-4 w-4 text-emerald-600" /> Transport</span>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <FieldInput label="Type" value={day.transport.type} disabled={!canUpdate} placeholder="Private cab / Flight" onChange={(e) => upd((d) => ({ ...d, transport: { ...d.transport, type: e.target.value } }))} />
+              <FieldInput label="Pickup time" type="time" value={day.transport.pickupTime} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, transport: { ...d.transport, pickupTime: e.target.value } }))} />
+              <FieldInput label="Pickup location" value={day.transport.pickupLocation} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, transport: { ...d.transport, pickupLocation: e.target.value } }))} />
+              <FieldInput label="Drop location" value={day.transport.dropLocation} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, transport: { ...d.transport, dropLocation: e.target.value } }))} />
+            </div>
+          </div>
+
+          {/* Accommodation */}
+          <div className="rounded-lg border p-3 space-y-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium"><BedDouble className="h-4 w-4 text-rose-600" /> Accommodation</span>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <FieldInput label="Property name" value={day.accommodation.name} disabled={!canUpdate} placeholder="Taj Resort" onChange={(e) => upd((d) => ({ ...d, accommodation: { ...d.accommodation, name: e.target.value } }))} />
+              <FieldInput label="Location" value={day.accommodation.location} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, accommodation: { ...d.accommodation, location: e.target.value } }))} />
+              <FieldInput label="Check-in" type="date" value={day.accommodation.checkIn} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, accommodation: { ...d.accommodation, checkIn: e.target.value } }))} />
+              <FieldInput label="Check-out" type="date" value={day.accommodation.checkOut} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, accommodation: { ...d.accommodation, checkOut: e.target.value } }))} />
+            </div>
+            <div className="space-y-1"><Label className="text-xs text-muted-foreground">Room / notes</Label><Input value={day.accommodation.roomNotes} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, accommodation: { ...d.accommodation, roomNotes: e.target.value } }))} /></div>
+          </div>
+
+          <div className="space-y-1"><Label className="text-xs text-muted-foreground">Day notes</Label><Textarea rows={2} value={day.notes} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, notes: e.target.value }))} /></div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function ItineraryEditor({ session, itineraryId, heading, onBack, onSaved }) {
+  const canUpdate = can(session.user.role, 'itineraries:update');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [meta, setMeta] = useState({ title: '', destination: '', startDate: '', endDate: '', notes: '' });
+  const [days, setDays] = useState([]);
+  const [open, setOpen] = useState({});
+
+  useEffect(() => { (async () => { setLoading(true); try {
+    const { itinerary } = await api(`/itineraries/${itineraryId}`);
+    setMeta({ title: itinerary.title || '', destination: itinerary.destination || '', startDate: itinerary.startDate || '', endDate: itinerary.endDate || '', notes: itinerary.notes || '' });
+    const nd = (itinerary.days || []).map(normalizeDayClient);
+    setDays(nd);
+    setOpen(nd.length ? { [nd[0].id]: true } : {});
+  } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, [itineraryId]);
+
+  const addDay = () => { const d = blankDay(days.length + 1); setDays((x) => [...x, d]); setOpen((o) => ({ ...o, [d.id]: true })); };
+  const removeDay = (id) => { setDays((x) => x.filter((d) => d.id !== id).map((d, i) => ({ ...d, dayNumber: i + 1 }))); };
+  const patchDay = (id, nextDay) => setDays((x) => x.map((d) => d.id === id ? nextDay : d));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const { itinerary } = await api(`/itineraries/${itineraryId}`, { method: 'PUT', body: JSON.stringify({ ...meta, days }) });
+      toast.success('Itinerary saved');
+      setDays((itinerary.days || []).map(normalizeDayClient));
+      onSaved && onSaved(itinerary);
+    } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
+          <div><h2 className="text-xl font-bold">{heading || 'Itinerary builder'}</h2>
+            <p className="text-sm text-muted-foreground">Plan the trip day by day — activities, meals, transport and stays.</p></div>
+        </div>
+        <div className="flex gap-2">
+          {canUpdate && <Button variant="outline" size="sm" onClick={addDay}><Plus className="h-4 w-4 mr-1" /> Add day</Button>}
+          {canUpdate && <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save itinerary'}</Button>}
+        </div>
+      </div>
+
+      <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+        <div className="space-y-1.5 sm:col-span-2"><Label>Itinerary title</Label><Input value={meta.title} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, title: e.target.value })} /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Destination</Label><Input value={meta.destination} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, destination: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Start date</Label><Input type="date" value={meta.startDate} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, startDate: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>End date</Label><Input type="date" value={meta.endDate} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, endDate: e.target.value })} /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Overall notes</Label><Textarea rows={2} value={meta.notes} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, notes: e.target.value })} /></div>
+      </CardContent></Card>
+
+      {days.length === 0 && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><CalendarDays className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No days yet</h3><p className="text-sm text-muted-foreground">Add your first day to start building the itinerary.</p></div>
+          {canUpdate && <Button onClick={addDay}><Plus className="h-4 w-4 mr-1" /> Add day</Button>}
+        </CardContent></Card>
+      )}
+
+      <div className="space-y-3">
+        {days.map((d, i) => (
+          <DayCard key={d.id} day={d} index={i} open={!!open[d.id]} canUpdate={canUpdate}
+            onToggle={() => setOpen((o) => ({ ...o, [d.id]: !o[d.id] }))}
+            onPatch={(nd) => patchDay(d.id, nd)} onRemove={() => removeDay(d.id)} />
+        ))}
+      </div>
+
+      {days.length > 0 && canUpdate && (
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={addDay}><Plus className="h-4 w-4 mr-1" /> Add day</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save itinerary'}</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ----------------------------- ITINERARY VIEW (read-only) -----------------------------
+function ViewLine({ icon: Icon, label, value }) {
+  if (!value) return null;
+  return (<div className="flex gap-2 text-sm"><Icon className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" /><span className="text-muted-foreground">{label}:</span><span className="font-medium">{value}</span></div>);
+}
+
+function ItineraryView({ itin }) {
+  const days = itin.days || [];
+  if (days.length === 0) return <p className="text-sm text-muted-foreground">No days have been planned yet.</p>;
+  return (
+    <div className="space-y-4">
+      {days.map((day) => {
+        const meals = day.meals || {};
+        const t = day.transport || {};
+        const acc = day.accommodation || {};
+        const mealText = ['breakfast', 'lunch', 'dinner'].filter((k) => meals[k]).map((k) => `${k[0].toUpperCase()}${k.slice(1)}: ${meals[k]}`).join(' · ');
+        return (
+          <div key={day.id} className="rounded-xl border p-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-7 items-center rounded-full bg-violet-600 px-3 text-sm font-semibold text-white">Day {day.dayNumber}</span>
+                <span className="font-semibold">{day.title || 'Untitled day'}</span>
+              </div>
+              <div className="text-sm text-muted-foreground">{day.date ? formatJoined(day.date) : ''}{day.location ? `${day.date ? ' · ' : ''}${day.location}` : ''}</div>
+            </div>
+            {day.description && <p className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap">{day.description}</p>}
+
+            {(day.activities || []).length > 0 && (
+              <div className="mt-3">
+                <div className="flex items-center gap-1.5 text-sm font-medium mb-1"><Clock className="h-4 w-4 text-sky-600" /> Activities</div>
+                <ul className="space-y-1">
+                  {day.activities.map((a) => (
+                    <li key={a.id} className="text-sm pl-5">
+                      <span className="font-medium">{a.name || 'Activity'}</span>
+                      {(a.startTime || a.endTime) && <span className="text-muted-foreground"> · {[a.startTime, a.endTime].filter(Boolean).join('–')}</span>}
+                      {a.location && <span className="text-muted-foreground"> · {a.location}</span>}
+                      {a.description && <div className="text-muted-foreground">{a.description}</div>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="mt-3 grid gap-1.5">
+              {mealText && <ViewLine icon={Utensils} label="Meals" value={mealText} />}
+              {(t.type || t.pickupLocation || t.dropLocation) && <ViewLine icon={Car} label="Transport" value={[t.type, t.pickupLocation && `from ${t.pickupLocation}`, t.dropLocation && `to ${t.dropLocation}`, t.pickupTime && `at ${t.pickupTime}`].filter(Boolean).join(' ')} />}
+              {acc.name && <ViewLine icon={BedDouble} label="Stay" value={[acc.name, acc.location, acc.roomNotes].filter(Boolean).join(' · ')} />}
+              {day.notes && <ViewLine icon={MapPin} label="Notes" value={day.notes} />}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ----------------------------- PACKAGES WORKSPACE -----------------------------
+function Packages({ session, navPayload, onConsumePayload }) {
+  const [view, setView] = useState('list');
+  const [selectedId, setSelectedId] = useState(null);
+  const [prefill, setPrefill] = useState(null);
+
+  useEffect(() => {
+    if (navPayload && navPayload.createFromQuotation) {
+      const q = navPayload.createFromQuotation;
+      setPrefill({
+        name: q.destination ? `${q.destination} package` : '',
+        customerType: q.customerType, customerId: q.customerId, customerName: q.customerName,
+        destination: q.destination || '', startDate: q.startDate || '', endDate: q.endDate || '',
+        adults: q.adults || 0, children: q.children || 0, nights: q.nights || 0,
+        quotationId: q.id, quotationNumber: q.quotationNumber || '',
+      });
+      setView('create');
+      onConsumePayload && onConsumePayload();
+    }
+  }, [navPayload]);
+
+  const openDetail = (id) => { setSelectedId(id); setView('detail'); };
+  const openEdit = (id) => { setSelectedId(id); setView('edit'); };
+
+  if (view === 'create') return <PackageForm session={session} mode="create" prefill={prefill} onDone={(p) => { setPrefill(null); openDetail(p.id); }} onCancel={() => { setPrefill(null); setView('list'); }} />;
+  if (view === 'edit') return <PackageForm session={session} mode="edit" packageId={selectedId} onDone={(p) => openDetail(p.id)} onCancel={() => openDetail(selectedId)} />;
+  if (view === 'detail') return <PackageDetail session={session} packageId={selectedId} onBack={() => setView('list')} onEdit={openEdit} />;
+  return <PackageList session={session} onCreate={() => { setPrefill(null); setView('create'); }} onOpen={openDetail} />;
+}
+
+// ----------------------------- ITINERARIES WORKSPACE -----------------------------
+function ItineraryViewPage({ session, itineraryId, onBack, onEdit }) {
+  const [itin, setItin] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const canUpdate = can(session.user.role, 'itineraries:update');
+  useEffect(() => { (async () => { setLoading(true); try { const d = await api(`/itineraries/${itineraryId}`); setItin(d.itinerary); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, [itineraryId]);
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+  if (!itin) return <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Itinerary not found.</CardContent></Card>;
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
+          <div><h2 className="text-xl font-bold">{itin.title}</h2><p className="text-sm text-muted-foreground">{itin.destination} · {travelDates(itin)}</p></div>
+        </div>
+        {canUpdate && <Button variant="outline" size="sm" onClick={onEdit}><Pencil className="h-4 w-4 mr-1" /> Edit itinerary</Button>}
+      </div>
+      {itin.notes && <Card><CardContent className="p-4 text-sm whitespace-pre-wrap">{itin.notes}</CardContent></Card>}
+      <Card><CardContent className="p-5"><ItineraryView itin={itin} /></CardContent></Card>
+    </div>
+  );
+}
+
+function Itineraries({ session }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [openId, setOpenId] = useState(null);
+  const [mode, setMode] = useState('view');
+
+  const load = async () => { setLoading(true); try { const d = await api('/itineraries'); setRows(d.itineraries || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+
+  if (openId) {
+    if (mode === 'edit') return <ItineraryEditor session={session} itineraryId={openId} onBack={() => setMode('view')} onSaved={() => { setMode('view'); load(); }} />;
+    return <ItineraryViewPage session={session} itineraryId={openId} onBack={() => { setOpenId(null); load(); }} onEdit={() => setMode('edit')} />;
+  }
+
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter((r) => !q || [r.title, r.destination].some((f) => String(f || '').toLowerCase().includes(q)));
+  const isEmpty = !loading && rows.length === 0;
+
+  return (
+    <div className="space-y-5">
+      <div><h2 className="text-xl font-bold">Itineraries</h2><p className="text-sm text-muted-foreground">Day-by-day plans linked to your packages.</p></div>
+
+      {!isEmpty && !loading && (
+        <div className="relative sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search title or destination" className="pl-9" />
+        </div>
+      )}
+
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+
+      {isEmpty && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Map className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No itineraries yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Open a package and create an itinerary to start planning day by day.</p></div>
+        </CardContent></Card>
+      )}
+
+      {!loading && rows.length > 0 && filtered.length === 0 && (
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No itineraries match your search.</CardContent></Card>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <>
+          <Card className="hidden md:block overflow-hidden">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Title</TableHead><TableHead>Destination</TableHead><TableHead>Dates</TableHead><TableHead>Days</TableHead><TableHead>Created</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.id} className="cursor-pointer" onClick={() => { setOpenId(r.id); setMode('view'); }}>
+                    <TableCell className="font-medium">{r.title}</TableCell>
+                    <TableCell className="text-muted-foreground">{r.destination}</TableCell>
+                    <TableCell className="text-muted-foreground">{travelDates(r)}</TableCell>
+                    <TableCell className="text-muted-foreground">{(r.days || []).length}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatJoined(r.createdAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+          <div className="space-y-3 md:hidden">
+            {filtered.map((r) => (
+              <Card key={r.id} className="cursor-pointer" onClick={() => { setOpenId(r.id); setMode('view'); }}><CardContent className="space-y-2 p-4">
+                <div className="font-semibold truncate">{r.title}</div>
+                <div className="text-sm text-muted-foreground truncate">{r.destination} · {(r.days || []).length} day{(r.days || []).length === 1 ? '' : 's'}</div>
+                <div className="text-sm text-muted-foreground">{travelDates(r)}</div>
+              </CardContent></Card>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 function Settings({ session }) {
