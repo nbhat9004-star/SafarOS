@@ -169,6 +169,88 @@ function buildTaskFields(body, { partial = false } = {}) {
 
 
 // ---------------------------------------------------------------- GET
+// --- Quotation helpers ---
+const QUOTE_STATUSES = ['draft', 'sent', 'approved', 'rejected', 'expired'];
+function num(v, def = 0) { const n = Number(v); return Number.isFinite(n) ? n : def; }
+function round2(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
+
+// Authoritative server-side pricing. Never trust client-computed totals.
+function computeQuotation(body) {
+  const rawItems = Array.isArray(body.items) ? body.items : [];
+  const items = rawItems.map((it) => {
+    const quantity = Math.max(0, num(it.quantity, 0));
+    const unitCost = Math.max(0, num(it.unitCost, 0));
+    const sellingPrice = Math.max(0, num(it.sellingPrice, 0));
+    return {
+      id: it.id || uuidv4(),
+      category: String(it.category || 'Other').slice(0, 40),
+      description: String(it.description || '').slice(0, 300),
+      quantity, unitCost, sellingPrice,
+      total: round2(quantity * sellingPrice),
+      cost: round2(quantity * unitCost),
+    };
+  });
+  const subtotal = round2(items.reduce((s, i) => s + i.total, 0));
+  const internalCost = round2(items.reduce((s, i) => s + i.cost, 0));
+  const discount = {
+    type: body.discount && body.discount.type === 'percent' ? 'percent' : 'fixed',
+    value: Math.max(0, num(body.discount && body.discount.value, 0)),
+  };
+  let discountAmount = discount.type === 'percent'
+    ? subtotal * Math.min(discount.value, 100) / 100
+    : discount.value;
+  discountAmount = round2(Math.min(discountAmount, subtotal)); // never produce a negative total
+  const taxable = Math.max(0, round2(subtotal - discountAmount));
+  const tax = { percent: Math.min(Math.max(0, num(body.tax && body.tax.percent, 0)), 100) };
+  const taxAmount = round2(taxable * tax.percent / 100);
+  const grandTotal = round2(taxable + taxAmount);
+  const expectedProfit = round2(taxable - internalCost);
+  return { items, subtotal, internalCost, discount, discountAmount, tax, taxAmount, grandTotal, expectedProfit };
+}
+
+function validateQuotationInput(body) {
+  const customerType = body.customerType === 'lead' ? 'lead' : 'client';
+  const customerId = String(body.customerId || '').trim();
+  if (!customerId) return { error: 'Please select a client or lead' };
+  const destination = String(body.destination || '').trim();
+  if (!destination) return { error: 'Destination is required' };
+  const startDate = String(body.startDate || '').trim();
+  const endDate = String(body.endDate || '').trim();
+  if (startDate && endDate && startDate > endDate) return { error: 'Travel end date must be on or after the start date' };
+  const rawItems = Array.isArray(body.items) ? body.items : [];
+  for (const it of rawItems) {
+    if (num(it.quantity, 0) < 0) return { error: 'Item quantity cannot be negative' };
+    if (num(it.unitCost, 0) < 0 || num(it.sellingPrice, 0) < 0) return { error: 'Item prices cannot be negative' };
+  }
+  return {
+    value: {
+      customerType, customerId, destination, startDate, endDate,
+      adults: Math.max(0, Math.floor(num(body.adults, 0))),
+      children: Math.max(0, Math.floor(num(body.children, 0))),
+      rooms: Math.max(0, Math.floor(num(body.rooms, 0))),
+      nights: Math.max(0, Math.floor(num(body.nights, 0))),
+    },
+  };
+}
+
+// Resolve + verify the referenced CRM record belongs to this agency (tenant-safe).
+async function resolveQuotationCustomer(db, session, type, id) {
+  const coll = type === 'lead' ? 'leads' : 'clients';
+  const rec = await db.collection(coll).findOne(tenantFilter(session, { id }));
+  if (!rec) return null;
+  return { customerName: rec.name, customerEmail: rec.email || '' };
+}
+
+async function nextQuotationNumber(db, session) {
+  const r = await db.collection('agencies').findOneAndUpdate(
+    { id: session.agencyId }, { $inc: { quotationSeq: 1 } }, { returnDocument: 'after' },
+  );
+  const agDoc = r && r.value !== undefined ? r.value : r;
+  const seq = (agDoc && agDoc.quotationSeq) || 1;
+  return `QT-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
+}
+
+
 export async function GET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
@@ -284,6 +366,28 @@ export async function GET(request, context) {
         .find(tenantFilter(session), { projection: { _id: 0 } })
         .sort({ createdAt: -1 }).limit(50).toArray();
       return json({ activities });
+    }
+
+    if (path === '/quotations') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'quotations:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const quotations = await db.collection('quotations')
+        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).toArray();
+      return json({ quotations });
+    }
+
+    if (path.startsWith('/quotations/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'quotations:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const quotation = await db.collection('quotations')
+        .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
+      if (!quotation) return err('Quotation not found', 404);
+      return json({ quotation });
     }
 
     return err('not found', 404);
@@ -450,6 +554,52 @@ export async function POST(request, context) {
       return json({ task: safe }, 201);
     }
 
+    // ---- Quotations: create + duplicate ----
+    if (path === '/quotations') {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'quotations:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const { value, error } = validateQuotationInput(body);
+      if (error) return err(error);
+      const cust = await resolveQuotationCustomer(db, session2, value.customerType, value.customerId);
+      if (!cust) return err('The selected client or lead was not found', 404);
+      const calc = computeQuotation(body);
+      const quotationNumber = await nextQuotationNumber(db, session2);
+      const now = new Date().toISOString();
+      const doc = withAgency(session2, {
+        id: uuidv4(), quotationNumber, ...value,
+        customerName: cust.customerName, customerEmail: cust.customerEmail,
+        items: calc.items, discount: calc.discount, tax: calc.tax,
+        subtotal: calc.subtotal, discountAmount: calc.discountAmount, taxAmount: calc.taxAmount,
+        grandTotal: calc.grandTotal, internalCost: calc.internalCost, expectedProfit: calc.expectedProfit,
+        status: 'draft',
+        internalNotes: String(body.internalNotes || '').slice(0, 2000),
+        customerNotes: String(body.customerNotes || '').slice(0, 2000),
+        createdBy: session2.userId, createdAt: now, updatedAt: now,
+      });
+      await db.collection('quotations').insertOne(doc);
+      const { _id, ...safe } = doc;
+      await logActivity(db, session2, { type: 'quotation_created', message: `Quotation ${quotationNumber} created for ${cust.customerName}`, refType: 'quotation', refId: safe.id });
+      return json({ quotation: safe }, 201);
+    }
+
+    if (path.startsWith('/quotations/') && path.endsWith('/duplicate')) {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'quotations:create')) return err('forbidden', 403);
+      const src = await db.collection('quotations').findOne(tenantFilter(session2, { id: path.split('/')[2] }));
+      if (!src) return err('Quotation not found', 404);
+      const quotationNumber = await nextQuotationNumber(db, session2);
+      const now = new Date().toISOString();
+      const { _id, id, createdAt, updatedAt, status, quotationNumber: oldNum, createdBy, ...rest } = src;
+      const doc = { ...rest, id: uuidv4(), quotationNumber, status: 'draft', createdBy: session2.userId, createdAt: now, updatedAt: now };
+      await db.collection('quotations').insertOne(doc);
+      const { _id: _omit, ...safe } = doc;
+      await logActivity(db, session2, { type: 'quotation_created', message: `Quotation ${quotationNumber} duplicated from ${oldNum}`, refType: 'quotation', refId: safe.id });
+      return json({ quotation: safe }, 201);
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -544,6 +694,47 @@ export async function PUT(request, context) {
       return json({ task });
     }
 
+    // ---- Quotations: status change (specific) then full edit ----
+    if (path.startsWith('/quotations/') && path.endsWith('/status')) {
+      if (!can(session.role, 'quotations:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const { status } = await readBody(request);
+      if (!QUOTE_STATUSES.includes(status)) return err('Invalid quotation status');
+      const existing = await db.collection('quotations').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Quotation not found', 404);
+      await db.collection('quotations').updateOne(tenantFilter(session, { id }), { $set: { status, updatedAt: new Date().toISOString() } });
+      if (status !== existing.status) {
+        await logActivity(db, session, { type: 'status_changed', message: `Quotation ${existing.quotationNumber} marked ${status}`, refType: 'quotation', refId: id });
+      }
+      const quotation = await db.collection('quotations').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ quotation });
+    }
+
+    if (path.startsWith('/quotations/')) {
+      if (!can(session.role, 'quotations:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('quotations').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Quotation not found', 404);
+      const body = await readBody(request);
+      const { value, error } = validateQuotationInput(body);
+      if (error) return err(error);
+      const cust = await resolveQuotationCustomer(db, session, value.customerType, value.customerId);
+      if (!cust) return err('The selected client or lead was not found', 404);
+      const calc = computeQuotation(body);
+      const update = {
+        ...value, customerName: cust.customerName, customerEmail: cust.customerEmail,
+        items: calc.items, discount: calc.discount, tax: calc.tax,
+        subtotal: calc.subtotal, discountAmount: calc.discountAmount, taxAmount: calc.taxAmount,
+        grandTotal: calc.grandTotal, internalCost: calc.internalCost, expectedProfit: calc.expectedProfit,
+        internalNotes: String(body.internalNotes || '').slice(0, 2000),
+        customerNotes: String(body.customerNotes || '').slice(0, 2000),
+        updatedAt: new Date().toISOString(),
+      };
+      await db.collection('quotations').updateOne(tenantFilter(session, { id }), { $set: update });
+      const quotation = await db.collection('quotations').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ quotation });
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -586,6 +777,17 @@ export async function DELETE(request, context) {
       if (!can(session.role, 'tasks:delete')) return err('forbidden', 403);
       const r = await db.collection('tasks').deleteOne(tenantFilter(session, { id: path.split('/')[2] }));
       if (r.deletedCount === 0) return err('not found', 404);
+      return json({ ok: true });
+    }
+
+    // Quotations: only DRAFT quotations may be deleted.
+    if (path.startsWith('/quotations/')) {
+      if (!can(session.role, 'quotations:delete')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('quotations').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Quotation not found', 404);
+      if (existing.status !== 'draft') return err('Only draft quotations can be deleted');
+      await db.collection('quotations').deleteOne(tenantFilter(session, { id }));
       return json({ ok: true });
     }
 

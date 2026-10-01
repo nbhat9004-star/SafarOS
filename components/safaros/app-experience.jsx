@@ -30,6 +30,7 @@ import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
   Trash2, Lock, Globe, Layers, ArrowLeft, Menu, X, Search, Pencil, Eye,
   UserPlus, BookUser, CalendarClock, ListTodo, Activity, Filter, ArrowRight, CheckCircle2,
+  FileText, FilePlus, Copy, FileDown, MapPin,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -197,6 +198,13 @@ const NAV = [
       { id: 'activities', label: 'Activities', icon: Activity },
     ],
   },
+  {
+    group: 'Quotations',
+    items: [
+      { id: 'quotations', label: 'Quotations', icon: FileText },
+      { id: 'quote-create', label: 'Create Quotation', icon: FilePlus },
+    ],
+  },
   { id: 'team', label: 'Team', icon: Users },
   { id: 'settings', label: 'Settings', icon: Building2 },
 ];
@@ -204,6 +212,7 @@ const NAV = [
 const SECTION_TITLES = {
   overview: 'Overview', crm: 'CRM Dashboard', leads: 'Leads', clients: 'Clients',
   contacts: 'Contacts', followups: 'Follow-ups', tasks: 'Tasks', activities: 'Activities',
+  quotations: 'Quotations', 'quote-create': 'Create Quotation',
   team: 'Team', settings: 'Settings',
 };
 
@@ -297,6 +306,8 @@ function Dashboard({ session, onLogout }) {
           {active === 'followups' && <FollowUps session={session} />}
           {active === 'tasks' && <Tasks session={session} />}
           {active === 'activities' && <Activities session={session} />}
+          {active === 'quotations' && <Quotations key="q-list" session={session} initialView="list" />}
+          {active === 'quote-create' && <Quotations key="q-create" session={session} initialView="create" />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
         </div>
@@ -1595,6 +1606,7 @@ const ACTIVITY_META = {
   status_changed:   { icon: ArrowRight,    color: 'text-amber-600 bg-amber-50' },
   followup_created: { icon: CalendarClock, color: 'text-indigo-600 bg-indigo-50' },
   task_created:     { icon: ListTodo,      color: 'text-violet-600 bg-violet-50' },
+  quotation_created: { icon: FileText,      color: 'text-teal-600 bg-teal-50' },
 };
 
 function Activities() {
@@ -1632,6 +1644,472 @@ function Activities() {
       )}
     </div>
   );
+}
+
+// ======================= QUOTATIONS =======================
+
+const QUOTE_STATUS_META = {
+  draft:    { label: 'Draft',    cls: 'bg-muted text-muted-foreground border-border' },
+  sent:     { label: 'Sent',     cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  approved: { label: 'Approved', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  rejected: { label: 'Rejected', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  expired:  { label: 'Expired',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+};
+const QUOTE_STATUS_OPTIONS = Object.keys(QUOTE_STATUS_META);
+const QUOTE_CATEGORIES = ['Hotel', 'Transport', 'Activity', 'Meal', 'Guide', 'Other'];
+
+function QuoteStatusBadge({ status }) { return <MetaBadge meta={QUOTE_STATUS_META[status] || QUOTE_STATUS_META.draft} />; }
+function money(n) { const v = Number(n) || 0; return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function travelDates(q) {
+  if (q.startDate && q.endDate) return `${formatJoined(q.startDate)} → ${formatJoined(q.endDate)}`;
+  if (q.startDate) return formatJoined(q.startDate);
+  return '—';
+}
+
+// Mirror of the server's authoritative pricing — used for a live preview only.
+function computeTotalsFE(items, discount, tax) {
+  const norm = items.map((it) => {
+    const q = Math.max(0, Number(it.quantity) || 0);
+    const uc = Math.max(0, Number(it.unitCost) || 0);
+    const sp = Math.max(0, Number(it.sellingPrice) || 0);
+    return { total: q * sp, cost: q * uc };
+  });
+  const subtotal = norm.reduce((s, i) => s + i.total, 0);
+  const internalCost = norm.reduce((s, i) => s + i.cost, 0);
+  let discountAmount = discount.type === 'percent'
+    ? subtotal * Math.min(Number(discount.value) || 0, 100) / 100
+    : (Number(discount.value) || 0);
+  discountAmount = Math.min(discountAmount, subtotal);
+  const taxable = Math.max(0, subtotal - discountAmount);
+  const taxAmount = taxable * Math.min(Math.max(0, Number(tax.percent) || 0), 100) / 100;
+  const grandTotal = taxable + taxAmount;
+  const expectedProfit = taxable - internalCost;
+  return { subtotal, internalCost, discountAmount, taxable, taxAmount, grandTotal, expectedProfit };
+}
+
+// ---- Customer picker (reuses CRM clients + leads, no duplication) ----
+function CustomerPicker({ value, onChange }) {
+  const [opts, setOpts] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const [c, l] = await Promise.all([api('/clients'), api('/leads')]);
+        setOpts([
+          ...(c.clients || []).map((x) => ({ key: `client:${x.id}`, type: 'client', id: x.id, name: x.name })),
+          ...(l.leads || []).map((x) => ({ key: `lead:${x.id}`, type: 'lead', id: x.id, name: x.name })),
+        ]);
+      } catch { /* non-blocking */ }
+    })();
+  }, []);
+  const current = value?.customerId ? `${value.customerType}:${value.customerId}` : '';
+  return (
+    <Select value={current} onValueChange={(v) => { const o = opts.find((x) => x.key === v); if (o) onChange({ customerType: o.type, customerId: o.id, customerName: o.name }); }}>
+      <SelectTrigger><SelectValue placeholder="Select a client or lead" /></SelectTrigger>
+      <SelectContent>
+        {opts.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">No clients or leads yet</div>}
+        {opts.map((o) => <SelectItem key={o.key} value={o.key}>{o.name} · {o.type}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
+}
+
+const BLANK_ITEM = () => ({ _k: Math.random().toString(36).slice(2), category: 'Hotel', description: '', quantity: 1, unitCost: 0, markup: '', sellingPrice: 0 });
+
+function QuotationForm({ session, mode, quotationId, onDone, onCancel }) {
+  const [loading, setLoading] = useState(mode === 'edit');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    customerType: 'client', customerId: '', customerName: '',
+    destination: '', startDate: '', endDate: '', adults: 2, children: 0, rooms: 1, nights: 0,
+    internalNotes: '', customerNotes: '',
+    discount: { type: 'fixed', value: 0 }, tax: { percent: 0 },
+  });
+  const [items, setItems] = useState([BLANK_ITEM()]);
+
+  useEffect(() => {
+    if (mode === 'edit' && quotationId) {
+      (async () => {
+        try {
+          const { quotation: q } = await api(`/quotations/${quotationId}`);
+          setForm({
+            customerType: q.customerType, customerId: q.customerId, customerName: q.customerName,
+            destination: q.destination || '', startDate: q.startDate || '', endDate: q.endDate || '',
+            adults: q.adults || 0, children: q.children || 0, rooms: q.rooms || 0, nights: q.nights || 0,
+            internalNotes: q.internalNotes || '', customerNotes: q.customerNotes || '',
+            discount: q.discount || { type: 'fixed', value: 0 }, tax: q.tax || { percent: 0 },
+          });
+          setItems((q.items || []).map((it) => ({ ...it, _k: Math.random().toString(36).slice(2), markup: '' })));
+        } catch (e) { setError(friendlyError(e)); }
+        finally { setLoading(false); }
+      })();
+    }
+  }, [mode, quotationId]);
+
+  const updateItem = (k, patch) => setItems((prev) => prev.map((it) => {
+    if (it._k !== k) return it;
+    const next = { ...it, ...patch };
+    if (('unitCost' in patch || 'markup' in patch) && next.markup !== '' && next.markup != null) {
+      next.sellingPrice = Math.round((Number(next.unitCost) || 0) * (1 + (Number(next.markup) || 0) / 100) * 100) / 100;
+    }
+    return next;
+  }));
+  const addItem = () => setItems((prev) => [...prev, BLANK_ITEM()]);
+  const removeItem = (k) => setItems((prev) => (prev.length > 1 ? prev.filter((it) => it._k !== k) : prev));
+
+  // Auto-fill nights from dates (still editable).
+  const setDates = (patch) => setForm((f) => {
+    const next = { ...f, ...patch };
+    if (next.startDate && next.endDate && next.endDate >= next.startDate) {
+      const d = Math.round((new Date(next.endDate) - new Date(next.startDate)) / 86400000);
+      next.nights = d;
+    }
+    return next;
+  });
+
+  const totals = computeTotalsFE(items, form.discount, form.tax);
+  const canSubmit = !!form.customerId && !!form.destination.trim() && (!form.startDate || !form.endDate || form.endDate >= form.startDate);
+
+  const submit = async () => {
+    setError('');
+    if (!form.customerId) return setError('Please select a client or lead.');
+    if (!form.destination.trim()) return setError('Destination is required.');
+    if (form.startDate && form.endDate && form.endDate < form.startDate) return setError('Travel end date must be on or after the start date.');
+    setSubmitting(true);
+    try {
+      const payload = {
+        customerType: form.customerType, customerId: form.customerId,
+        destination: form.destination.trim(), startDate: form.startDate, endDate: form.endDate,
+        adults: form.adults, children: form.children, rooms: form.rooms, nights: form.nights,
+        internalNotes: form.internalNotes, customerNotes: form.customerNotes,
+        discount: { type: form.discount.type, value: Number(form.discount.value) || 0 },
+        tax: { percent: Number(form.tax.percent) || 0 },
+        items: items.map((it) => ({ category: it.category, description: it.description, quantity: Number(it.quantity) || 0, unitCost: Number(it.unitCost) || 0, sellingPrice: Number(it.sellingPrice) || 0 })),
+      };
+      const res = mode === 'edit'
+        ? await api(`/quotations/${quotationId}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await api('/quotations', { method: 'POST', body: JSON.stringify(payload) });
+      toast.success(mode === 'edit' ? 'Quotation updated' : 'Quotation created');
+      onDone(res.quotation);
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setSubmitting(false); }
+  };
+
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={onCancel}><ArrowLeft className="h-4 w-4" /></Button>
+        <div><h2 className="text-xl font-bold">{mode === 'edit' ? 'Edit quotation' : 'Create quotation'}</h2>
+          <p className="text-sm text-muted-foreground">Build a travel quotation for a client or lead.</p></div>
+      </div>
+      {error && <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+
+      <div className="grid gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <Card><CardContent className="space-y-4 p-4">
+            <h3 className="font-semibold">Trip details</h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5"><Label>Client / Lead</Label><CustomerPicker value={form} onChange={(c) => setForm({ ...form, ...c })} /></div>
+              <div className="space-y-1.5"><Label>Destination</Label><Input value={form.destination} placeholder="e.g. Bali, Indonesia" onChange={(e) => setForm({ ...form, destination: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label>Travel start</Label><Input type="date" value={form.startDate} onChange={(e) => setDates({ startDate: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label>Travel end</Label><Input type="date" value={form.endDate} onChange={(e) => setDates({ endDate: e.target.value })} /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="space-y-1.5"><Label>Adults</Label><Input type="number" min="0" value={form.adults} onChange={(e) => setForm({ ...form, adults: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label>Children</Label><Input type="number" min="0" value={form.children} onChange={(e) => setForm({ ...form, children: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label>Rooms</Label><Input type="number" min="0" value={form.rooms} onChange={(e) => setForm({ ...form, rooms: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label>Nights</Label><Input type="number" min="0" value={form.nights} onChange={(e) => setForm({ ...form, nights: e.target.value })} /></div>
+            </div>
+          </CardContent></Card>
+
+          <Card><CardContent className="space-y-3 p-4">
+            <div className="flex items-center justify-between"><h3 className="font-semibold">Line items</h3>
+              <Button variant="outline" size="sm" onClick={addItem}><Plus className="h-4 w-4 mr-1" /> Add item</Button></div>
+            <div className="space-y-3">
+              {items.map((it) => (
+                <div key={it._k} className="rounded-lg border border-border p-3">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-12">
+                    <div className="col-span-2 sm:col-span-3 space-y-1"><Label className="text-xs">Category</Label>
+                      <Select value={it.category} onValueChange={(v) => updateItem(it._k, { category: v })}>
+                        <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>{QUOTE_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                      </Select></div>
+                    <div className="col-span-2 sm:col-span-9 space-y-1"><Label className="text-xs">Description</Label>
+                      <Input className="h-9" value={it.description} placeholder="Describe this item" onChange={(e) => updateItem(it._k, { description: e.target.value })} /></div>
+                    <div className="space-y-1 sm:col-span-2"><Label className="text-xs">Qty</Label>
+                      <Input className="h-9" type="number" min="0" value={it.quantity} onChange={(e) => updateItem(it._k, { quantity: e.target.value })} /></div>
+                    <div className="space-y-1 sm:col-span-3"><Label className="text-xs">Unit cost</Label>
+                      <Input className="h-9" type="number" min="0" value={it.unitCost} onChange={(e) => updateItem(it._k, { unitCost: e.target.value })} /></div>
+                    <div className="space-y-1 sm:col-span-2"><Label className="text-xs">Markup %</Label>
+                      <Input className="h-9" type="number" min="0" placeholder="opt." value={it.markup} onChange={(e) => updateItem(it._k, { markup: e.target.value })} /></div>
+                    <div className="space-y-1 sm:col-span-3"><Label className="text-xs">Sell price</Label>
+                      <Input className="h-9" type="number" min="0" value={it.sellingPrice} onChange={(e) => updateItem(it._k, { sellingPrice: e.target.value, markup: '' })} /></div>
+                    <div className="flex items-end justify-between gap-2 sm:col-span-2">
+                      <div className="min-w-0"><Label className="text-xs">Total</Label><div className="h-9 flex items-center font-medium">{money((Number(it.quantity) || 0) * (Number(it.sellingPrice) || 0))}</div></div>
+                      <Button variant="ghost" size="icon" onClick={() => removeItem(it._k)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent></Card>
+
+          <Card><CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label>Internal notes (private)</Label><Textarea value={form.internalNotes} onChange={(e) => setForm({ ...form, internalNotes: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Customer notes</Label><Textarea value={form.customerNotes} onChange={(e) => setForm({ ...form, customerNotes: e.target.value })} /></div>
+          </CardContent></Card>
+        </div>
+
+        <div className="space-y-4">
+          <Card><CardContent className="space-y-3 p-4">
+            <h3 className="font-semibold">Pricing</h3>
+            <div className="space-y-1.5"><Label>Discount</Label>
+              <div className="flex gap-2">
+                <Select value={form.discount.type} onValueChange={(v) => setForm({ ...form, discount: { ...form.discount, type: v } })}>
+                  <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="fixed">Fixed</SelectItem><SelectItem value="percent">Percent</SelectItem></SelectContent>
+                </Select>
+                <Input type="number" min="0" value={form.discount.value} onChange={(e) => setForm({ ...form, discount: { ...form.discount, value: e.target.value } })} />
+              </div></div>
+            <div className="space-y-1.5"><Label>Tax %</Label>
+              <Input type="number" min="0" max="100" value={form.tax.percent} onChange={(e) => setForm({ ...form, tax: { percent: e.target.value } })} /></div>
+            <Separator />
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{money(totals.subtotal)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span>- {money(totals.discountAmount)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{money(totals.taxAmount)}</span></div>
+              <div className="flex justify-between border-t pt-1.5 text-base font-bold"><span>Grand total</span><span>{money(totals.grandTotal)}</span></div>
+            </div>
+            <div className="rounded-md bg-muted/50 p-2.5 text-sm">
+              <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Lock className="h-3 w-3" /> Internal only</div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Internal cost</span><span>{money(totals.internalCost)}</span></div>
+              <div className="flex justify-between font-medium"><span className="text-muted-foreground">Expected profit</span><span className={totals.expectedProfit < 0 ? 'text-destructive' : 'text-emerald-600'}>{money(totals.expectedProfit)}</span></div>
+            </div>
+          </CardContent></Card>
+          <div className="flex gap-2">
+            <Button className="flex-1" onClick={submit} disabled={!canSubmit || submitting}>{submitting ? 'Saving…' : (mode === 'edit' ? 'Save changes' : 'Create quotation')}</Button>
+            <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuotationDetail({ session, quotationId, onBack, onEdit, onChanged }) {
+  const [q, setQ] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const role = session.user.role;
+  const canUpdate = can(role, 'quotations:update');
+  const canDelete = can(role, 'quotations:delete');
+  const canCreate = can(role, 'quotations:create');
+
+  const load = async () => { setLoading(true); try { const d = await api(`/quotations/${quotationId}`); setQ(d.quotation); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, [quotationId]);
+
+  const changeStatus = async (status) => { try { await api(`/quotations/${quotationId}/status`, { method: 'PUT', body: JSON.stringify({ status }) }); toast.success('Status updated'); load(); onChanged && onChanged(); } catch (e) { toast.error(friendlyError(e)); } };
+  const duplicate = async () => { try { const d = await api(`/quotations/${quotationId}/duplicate`, { method: 'POST' }); toast.success(`Duplicated as ${d.quotation.quotationNumber}`); onChanged && onChanged(); onEdit(d.quotation.id); } catch (e) { toast.error(friendlyError(e)); } };
+  const remove = async () => { try { await api(`/quotations/${quotationId}`, { method: 'DELETE' }); toast.success('Draft deleted'); onBack(true); } catch (e) { toast.error(friendlyError(e)); } };
+
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+  if (!q) return <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Quotation not found.</CardContent></Card>;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <Button variant="ghost" size="icon" onClick={() => onBack(false)}><ArrowLeft className="h-4 w-4" /></Button>
+          <div>
+            <div className="flex items-center gap-2"><h2 className="text-xl font-bold">{q.quotationNumber}</h2><QuoteStatusBadge status={q.status} /></div>
+            <p className="text-sm text-muted-foreground">{q.customerName} · {q.destination}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(q.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
+          {canCreate && <Button variant="outline" size="sm" onClick={duplicate}><Copy className="h-4 w-4 mr-1" /> Duplicate</Button>}
+          <Button variant="outline" size="sm" disabled title="Available in a later phase"><FileDown className="h-4 w-4 mr-1" /> PDF (soon)</Button>
+          {canDelete && q.status === 'draft' && <Button variant="outline" size="sm" onClick={remove}><Trash2 className="h-4 w-4 mr-1 text-destructive" /> Delete</Button>}
+        </div>
+      </div>
+
+      {canUpdate && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Change status:</span>
+          <Select value={q.status} onValueChange={changeStatus}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>{QUOTE_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{QUOTE_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" disabled title="Available after the Booking module is built"><ArrowRight className="h-4 w-4 mr-1" /> Convert to Booking (soon)</Button>
+        </div>
+      )}
+
+      <div className="grid gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <Card><CardContent className="p-4">
+            <h3 className="mb-3 font-semibold">Trip</h3>
+            <div className="grid grid-cols-2 gap-x-4">
+              <ClientDetailRow label="Customer" value={q.customerName} />
+              <ClientDetailRow label="Destination" value={q.destination} />
+              <ClientDetailRow label="Travel dates" value={travelDates(q)} />
+              <ClientDetailRow label="Nights" value={q.nights || '—'} />
+              <ClientDetailRow label="Travelers" value={`${q.adults || 0} adults · ${q.children || 0} children`} />
+              <ClientDetailRow label="Rooms" value={q.rooms || '—'} />
+            </div>
+          </CardContent></Card>
+
+          <Card className="overflow-hidden"><CardContent className="p-0">
+            <div className="p-4 pb-0 font-semibold">Items</div>
+            <Table>
+              <TableHeader><TableRow><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Price</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {(q.items || []).map((it) => (
+                  <TableRow key={it.id}>
+                    <TableCell className="font-medium">{it.category}</TableCell>
+                    <TableCell className="text-muted-foreground">{it.description || '—'}</TableCell>
+                    <TableCell className="text-right">{it.quantity}</TableCell>
+                    <TableCell className="text-right">{money(it.sellingPrice)}</TableCell>
+                    <TableCell className="text-right">{money(it.total)}</TableCell>
+                  </TableRow>
+                ))}
+                {(!q.items || q.items.length === 0) && <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground">No items</TableCell></TableRow>}
+              </TableBody>
+            </Table>
+          </CardContent></Card>
+
+          {(q.customerNotes || q.internalNotes) && (
+            <Card><CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
+              <div><div className="mb-1 text-xs text-muted-foreground">Customer notes</div><p className="whitespace-pre-wrap text-sm">{q.customerNotes || '—'}</p></div>
+              <div><div className="mb-1 flex items-center gap-1 text-xs text-muted-foreground"><Lock className="h-3 w-3" /> Internal notes</div><p className="whitespace-pre-wrap text-sm">{q.internalNotes || '—'}</p></div>
+            </CardContent></Card>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <Card><CardContent className="space-y-1.5 p-4 text-sm">
+            <h3 className="mb-2 font-semibold">Totals</h3>
+            <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{money(q.subtotal)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span>- {money(q.discountAmount)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{money(q.taxAmount)}</span></div>
+            <div className="flex justify-between border-t pt-1.5 text-base font-bold"><span>Grand total</span><span>{money(q.grandTotal)}</span></div>
+          </CardContent></Card>
+          <Card><CardContent className="space-y-1.5 p-4 text-sm">
+            <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Lock className="h-3 w-3" /> Internal only</div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Internal cost</span><span>{money(q.internalCost)}</span></div>
+            <div className="flex justify-between font-medium"><span className="text-muted-foreground">Expected profit</span><span className={q.expectedProfit < 0 ? 'text-destructive' : 'text-emerald-600'}>{money(q.expectedProfit)}</span></div>
+          </CardContent></Card>
+          <Card><CardContent className="space-y-1 p-4 text-xs text-muted-foreground">
+            <div>Created {formatJoined(q.createdAt)}</div>
+            <div>Updated {formatJoined(q.updatedAt)}</div>
+          </CardContent></Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuotationList({ session, onCreate, onOpen }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const canCreate = can(session.user.role, 'quotations:create');
+  useEffect(() => { (async () => { setLoading(true); try { const d = await api('/quotations'); setRows(d.quotations || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, []);
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter((r) => {
+    const mq = !q || [r.quotationNumber, r.customerName, r.destination].some((f) => String(f || '').toLowerCase().includes(q));
+    const ms = statusFilter === 'all' || r.status === statusFilter;
+    return mq && ms;
+  });
+  const isEmpty = !loading && rows.length === 0;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-xl font-bold">Quotations</h2><p className="text-sm text-muted-foreground">Create and manage travel quotations for your customers.</p></div>
+        {canCreate && !isEmpty && <Button onClick={onCreate} className="w-full sm:w-auto"><Plus className="h-4 w-4 mr-1.5" /> Create quotation</Button>}
+      </div>
+
+      {!isEmpty && !loading && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative sm:max-w-sm sm:flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search number, customer or destination" className="pl-9" />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="sm:w-44"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger>
+            <SelectContent><SelectItem value="all">All statuses</SelectItem>{QUOTE_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{QUOTE_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+
+      {isEmpty && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><FileText className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No quotations yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Create your first quotation for a client or lead to kick off the sales workflow.</p></div>
+          {canCreate && <Button onClick={onCreate}><Plus className="h-4 w-4 mr-1.5" /> Create quotation</Button>}
+        </CardContent></Card>
+      )}
+
+      {!loading && rows.length > 0 && filtered.length === 0 && (
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No quotations match your filters.</CardContent></Card>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <>
+          <Card className="hidden md:block overflow-hidden">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Number</TableHead><TableHead>Customer</TableHead><TableHead>Destination</TableHead>
+                <TableHead>Travel dates</TableHead><TableHead className="text-right">Total</TableHead><TableHead>Status</TableHead><TableHead>Created</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.id} className="cursor-pointer" onClick={() => onOpen(r.id)}>
+                    <TableCell className="font-medium">{r.quotationNumber}</TableCell>
+                    <TableCell>{r.customerName}</TableCell>
+                    <TableCell className="text-muted-foreground">{r.destination}</TableCell>
+                    <TableCell className="text-muted-foreground">{travelDates(r)}</TableCell>
+                    <TableCell className="text-right font-medium">{money(r.grandTotal)}</TableCell>
+                    <TableCell><QuoteStatusBadge status={r.status} /></TableCell>
+                    <TableCell className="text-muted-foreground">{formatJoined(r.createdAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+          <div className="space-y-3 md:hidden">
+            {filtered.map((r) => (
+              <Card key={r.id} className="cursor-pointer" onClick={() => onOpen(r.id)}><CardContent className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><div className="truncate font-semibold">{r.quotationNumber}</div><div className="truncate text-sm text-muted-foreground">{r.customerName} · {r.destination}</div></div>
+                  <QuoteStatusBadge status={r.status} />
+                </div>
+                <div className="flex items-center justify-between border-t pt-3 text-sm">
+                  <span className="text-muted-foreground">{travelDates(r)}</span>
+                  <span className="font-semibold">{money(r.grandTotal)}</span>
+                </div>
+              </CardContent></Card>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Quotations({ session, initialView = 'list' }) {
+  const [view, setView] = useState(initialView);
+  const [selectedId, setSelectedId] = useState(null);
+  const openDetail = (id) => { setSelectedId(id); setView('detail'); };
+  const openEdit = (id) => { setSelectedId(id); setView('edit'); };
+  if (view === 'create') return <QuotationForm session={session} mode="create" onDone={(q) => openDetail(q.id)} onCancel={() => setView('list')} />;
+  if (view === 'edit') return <QuotationForm session={session} mode="edit" quotationId={selectedId} onDone={(q) => openDetail(q.id)} onCancel={() => openDetail(selectedId)} />;
+  if (view === 'detail') return <QuotationDetail session={session} quotationId={selectedId} onBack={() => setView('list')} onEdit={openEdit} onChanged={() => {}} />;
+  return <QuotationList session={session} onCreate={() => setView('create')} onOpen={openDetail} />;
 }
 
 function Settings({ session }) {

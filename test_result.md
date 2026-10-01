@@ -102,10 +102,10 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "CRM Workspace Foundation: add a dedicated CRM area (Dashboard, Leads, Clients, Contacts, Follow-ups, Tasks, Activities) reusing existing auth/RBAC/tenant/clients. Build foundations only — no quotations/bookings/finance/AI/automation."
+user_problem_statement: "Phase 4.1 — Quotation Engine Foundation: a professional quotation workspace connected to the CRM (list, create/edit, detail, pricing with markup/discount/tax, internal cost/profit, status workflow, duplicate, draft delete). Reuse auth/RBAC/tenant/CRM. Foundation only."
 
 frontend:
-  - task: "CRM workspace — nav group + Dashboard/Leads/Contacts/Follow-ups/Tasks/Activities + Clients reuse"
+  - task: "Quotation workspace — nav group, list, create/edit form, detail"
     implemented: true
     working: "NA"
     file: "components/safaros/app-experience.jsx"
@@ -115,22 +115,10 @@ frontend:
     status_history:
         -working: "NA"
         -agent: "main"
-        -comment: "Restructured sidebar+mobile-drawer NAV into a reusable NavList/NavButton with a 'CRM' group (Dashboard, Leads, Clients, Contacts, Follow-ups, Tasks, Activities). Added components: CrmDashboard (5 real-data stat cards -> totalLeads/activeLeads/totalClients/followUpsDue/openTasks, zero-states, clickable to sections), Leads (table/cards, search + status filter, add/edit dialog, detail dialog with Change status + Convert to Client, delete), Contacts (read-only directory derived from clients+leads, search), FollowUps (list + add dialog with related picker + mark complete/delete), Tasks (list + add dialog with assignee from /members + related picker + complete/delete), Activities (read-only auto-logged timeline). Existing Clients component reused inside CRM unchanged. RBAC-aware via can(). Verified manually (no testing agent): CRM dashboard shows real counts, Leads table + mobile drawer CRM group render, no horizontal overflow at 1920/390."
-
-  - task: "Team & Employee Management (PRESERVED)"
-    implemented: true
-    working: true
-    file: "components/safaros/app-experience.jsx"
-    stuck_count: 0
-    priority: "high"
-    needs_retesting: false
-    status_history:
-        -working: true
-        -agent: "main"
-        -comment: "Team module untouched; still reachable from nav (outside CRM group)."
+        -comment: "Added QUOTATIONS nav group (Quotations, Create Quotation) in sidebar + mobile drawer. New components: Quotations (orchestrates list/create/edit/detail), QuotationList (table desktop / cards mobile, search + status filter, create button, empty state), QuotationForm (create+edit: CustomerPicker reusing /clients+/leads, destination, dates with auto-nights, travelers, line items with Category/Description/Qty/UnitCost/Markup%/SellPrice/Total + add/remove, discount fixed|percent, tax %, LIVE totals preview + Internal-only cost/profit), QuotationDetail (full detail, customer-facing vs internal sections separated with Lock, actions: Edit, Change status, Duplicate, Delete draft, PDF disabled 'soon', Convert to Booking disabled 'soon'). RBAC-aware via can('quotations:*'). Status badges draft/sent/approved/rejected/expired. Verified manually (no testing agent): list/detail/create render, no horizontal overflow at 1920/390, internal cost/profit hidden from customer-facing blocks."
 
 backend:
-  - task: "CRM API — leads, followUps, tasks, activities, crm/stats (+ convert-to-client)"
+  - task: "Quotation API — list/get/create/update/status/duplicate/delete + authoritative pricing"
     implemented: true
     working: true
     file: "app/api/[[...path]]/route.js"
@@ -140,7 +128,7 @@ backend:
     status_history:
         -working: true
         -agent: "main"
-        -comment: "Added tenant-scoped, RBAC-gated endpoints: GET /crm/stats; GET/POST /leads, PUT/DELETE /leads/:id, POST /leads/:id/convert (creates client in existing clients collection, marks lead converted); GET/POST /followups, PUT/DELETE /followups/:id; GET/POST /tasks, PUT/DELETE /tasks/:id; GET /activities (latest 50). Validation helpers for lead/followup/task (name/title required, email format+lowercase, status enums). Activities auto-logged on create + lead status change. New collections: leads, followUps, tasks, activities (each stamped with agencyId via withAgency, UUID ids). RBAC matrix extended (leads/followups/tasks/activities/crm) mirroring clients. db.js adds indexes for the new collections. Manually verified via localhost curl: empty stats=all zeros (no fake data); lead create/status-change/convert work; convert produces active client; activities timeline logs all events; cross-agency access returns not-found/empty (tenant isolation intact). Auth/session/clients/members endpoints unchanged."
+        -comment: "New collection 'quotations' (UUID ids, agencyId-stamped). Endpoints (all authenticated, tenant-scoped via tenantFilter, RBAC quotations:*): GET /quotations, GET /quotations/:id, POST /quotations (create, draft), PUT /quotations/:id (full edit), PUT /quotations/:id/status (status change), POST /quotations/:id/duplicate (new draft + new number), DELETE /quotations/:id (DRAFT only). Human-readable per-agency unique number QT-YYYY-#### via atomic $inc on agencies.quotationSeq (no ObjectId exposed). Authoritative server-side pricing computeQuotation(): item total=qty*sellingPrice, subtotal, internalCost=qty*unitCost, discount fixed|percent (clamped, no negative total), tax % on taxable, grandTotal, expectedProfit=taxable-internalCost. validateQuotationInput: customer+destination required, valid date order, non-negative qty/prices. Customer resolved+verified against agency's own clients/leads (tenant-safe, reuses CRM, no duplicate records). RBAC matrix extended quotations:read/create/update/delete; db.js adds unique index {agencyId,quotationNumber} + createdAt + status. Activity logged on create/duplicate/status. Manually verified via localhost curl: pricing exact (sub 650, disc 65, tax 29.25, grand 614.25, cost 420, profit 165); sequential numbers 0001/0002/0003; status change; non-draft delete rejected; duplicate; validation errors; cross-agency list/get/delete/customer-ref all blocked (tenant isolation intact). Auth/session/CRM/clients/members unchanged."
 
 metadata:
   created_by: "main_agent"
@@ -150,12 +138,12 @@ metadata:
 
 test_plan:
   current_focus:
-    - "CRM workspace — nav group + Dashboard/Leads/Contacts/Follow-ups/Tasks/Activities + Clients reuse"
-    - "CRM API — leads, followUps, tasks, activities, crm/stats (+ convert-to-client)"
+    - "Quotation workspace — nav group, list, create/edit form, detail"
+    - "Quotation API — list/get/create/update/status/duplicate/delete + authoritative pricing"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
     -agent: "main"
-    -message: "CRM Workspace Foundation complete. Changed only: lib/rbac.js (CRM permissions), lib/db.js (indexes for new collections), app/api/[[...path]]/route.js (CRM endpoints), components/safaros/app-experience.jsx (CRM nav + components). New collections: leads, followUps, tasks, activities (all tenant-stamped, UUID ids). Existing clients collection reused (Convert-to-Client writes into clients). Per task constraints NO automated testing agents were used — verified manually via localhost curl + screenshots. No fake/demo data inserted (all test data cleaned up). Team & Clients modules preserved; auth/JWT/session/tenant/RBAC architecture intact."
+    -message: "Phase 4.1 Quotation Engine Foundation complete. Changed only: lib/rbac.js (quotations perms), lib/db.js (quotations indexes), app/api/[[...path]]/route.js (quotation endpoints + pricing), components/safaros/app-experience.jsx (QUOTATIONS nav + components). New collection: quotations (UUID ids, agencyId-stamped; per-agency unique number QT-YYYY-#### via agencies.quotationSeq). Reuses CRM clients/leads for customer selection — no duplicate records. Per task constraints NO automated testing agents were used — verified manually via localhost curl + screenshots. No fake/demo data inserted (all test data cleaned up). Tenant isolation + RBAC preserved; Team, CRM (Leads/Clients/Contacts/Follow-ups/Tasks/Activities), auth/session/landing all intact. PDF + Convert-to-Booking shown as disabled 'coming soon' (no fake implementation)."
