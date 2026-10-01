@@ -481,7 +481,7 @@ export function AppExperience({ initialTab = 'login' }) {
   };
   useEffect(() => { loadMe(); }, []);
 
-  const onAuthed = async () => { await loadMe(); router.push('/app'); };
+  const onAuthed = async () => { await loadMe(); router.push('/dashboard'); };
 
   const logout = async () => {
     try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
