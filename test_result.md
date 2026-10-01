@@ -102,20 +102,36 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "Phase 2B — Responsive dashboard navigation fix: on mobile the authenticated dashboard left sidebar disappears, leaving no way to reach Overview/Clients/Team/Settings. Add a compact mobile header (logo + hamburger) and a polished left slide-in navigation drawer, keeping desktop sidebar intact."
+user_problem_statement: "Phase 2 — Team & Employee Management: upgrade the existing SafarOS Team section into a production-ready module (responsive member list, permission-aware Add team member, status + joined date, empty state, inline errors). Reuse existing auth/RBAC/tenant/members API. Frontend-only, surgical."
 
 frontend:
-  - task: "Responsive mobile navigation for authenticated dashboard (header hamburger + slide-in drawer)"
+  - task: "Phase 2 — Team & Employee Management module upgrade (responsive list + add member)"
     implemented: true
     working: "NA"
     file: "components/safaros/app-experience.jsx"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         -working: "NA"
         -agent: "main"
-        -comment: "Added mobile-only hamburger button + SafarOS wordmark in the dashboard header (md:hidden), and a left slide-in drawer (backdrop + panel with translate-x transition). Drawer lists NAV items (Overview, Clients, Team, Settings), shows user/agency context, highlights active section, closes on item select / backdrop tap / X button, and is wrapped in overflow-hidden to avoid horizontal scroll. Desktop sidebar (hidden md:flex) is unchanged. No backend/API/route/landing changes."
+        -comment: "Upgraded Team component (frontend-only). Desktop: professional shadcn Table (Name, Email, Role badge, Status badge, Joined date). Mobile: stacked member cards (md:hidden) with role/status/joined. Added polished empty state ('No team members yet'), loading skeletons, and a new AddMemberForm dialog with inline validation (full name, valid business email, password >=6, role Manager/Agent/Finance — Owner never selectable) and friendly mapped error messages (duplicate email, forbidden, invalid role, session expired). Reuses existing GET/POST /members endpoint, existing RBAC via can(role,'members:invite') imported from lib/rbac (no parallel permission system), server-derived agency/tenant isolation unchanged. No backend/API/route/auth/landing changes. Verified manually (not via testing agent): backend endpoints return status+createdAt, owner role rejected with 'invalid role', desktop table + mobile drawer render with no horizontal overflow at 1920 and 390 widths."
+        -working: "NA"
+        -agent: "main"
+        -comment: "Environment note: repo was imported without a /app/.env; created .env (local MONGO_URL, DB_NAME=safaros, generated JWT_SECRET, NEXT_PUBLIC_BASE_URL) so the app runs. No existing env values were modified (none existed)."
+
+backend:
+  - task: "Reused existing /members API (GET list + POST create) — unchanged"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "No backend changes. Existing POST /members already validates fields, dedupes email, hashes password, blocks role=owner, enforces members:invite RBAC and server-derived agencyId. Manually confirmed via localhost curl: add agent member OK (returns status 'active' + createdAt), role=owner rejected ('invalid role'), GET /members returns agency-scoped list."
 
 metadata:
   created_by: "main_agent"
@@ -125,11 +141,11 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Responsive mobile navigation for authenticated dashboard (header hamburger + slide-in drawer)"
+    - "Phase 2 — Team & Employee Management module upgrade (responsive list + add member)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
     -agent: "main"
-    -message: "Please verify the mobile dashboard navigation fix at mobile viewport (e.g. 390x844). To reach the dashboard: open the app root/login, create a workspace via signup (name, business email, password, agency name) OR sign in; after registration complete the Agency Setup form (click 'Enter SafarOS') to land on the dashboard. On mobile: (1) a hamburger + 'SafarOS' wordmark should appear in the top header; (2) tapping the hamburger opens a left slide-in drawer with Overview/Clients/Team/Settings + user/agency context + Sign out; (3) selecting an item navigates and closes the drawer; (4) tapping the backdrop and the X both close it; (5) the active section is highlighted; (6) no horizontal page scroll appears. Also confirm the DESKTOP sidebar is unchanged at >=768px width. Do NOT test backend. Focus only on this navigation task."
+    -message: "Phase 2 Team & Employee Management complete (frontend-only, surgical). Per task constraints, NO automated testing agents were used; verified manually via localhost curl + screenshots. Only components/safaros/app-experience.jsx changed (Team upgrade). A missing /app/.env was created so the app runs locally (no existing env values modified). Backend /members endpoints, auth, RBAC, tenant isolation, landing, login, signup, dashboard, clients and settings are all unchanged."
