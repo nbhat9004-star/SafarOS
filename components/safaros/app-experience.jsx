@@ -24,7 +24,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
-  Trash2, Lock, Globe, Layers, ArrowLeft,
+  Trash2, Lock, Globe, Layers, ArrowLeft, Menu, X,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -170,7 +170,9 @@ const NAV = [
 
 function Dashboard({ session, onLogout }) {
   const [active, setActive] = useState('overview');
+  const [menuOpen, setMenuOpen] = useState(false);
   const { user, agency } = session;
+  const go = (id) => { setActive(id); setMenuOpen(false); };
 
   return (
     <div className="min-h-screen flex bg-muted/30 so-font">
@@ -200,9 +202,14 @@ function Dashboard({ session, onLogout }) {
       </aside>
 
       <main className="flex-1 flex flex-col">
-        <header className="h-16 border-b border-border bg-background flex items-center justify-between px-6">
+        <header className="h-16 border-b border-border bg-background flex items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-2">
-            <span className="font-semibold capitalize">{active}</span>
+            <button onClick={() => setMenuOpen(true)} aria-label="Open menu"
+              className="md:hidden -ml-1 flex h-9 w-9 items-center justify-center rounded-md text-foreground hover:bg-accent">
+              <Menu className="h-5 w-5" />
+            </button>
+            <span className="flex items-center gap-2 font-bold md:hidden"><Layers className="h-5 w-5 text-violet-600" /> SafarOS</span>
+            <span className="font-semibold capitalize hidden md:inline">{active}</span>
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
@@ -223,6 +230,47 @@ function Dashboard({ session, onLogout }) {
           {active === 'settings' && <Settings session={session} />}
         </div>
       </main>
+
+      {/* Mobile navigation drawer */}
+      <div className={`fixed inset-0 z-50 overflow-hidden md:hidden ${menuOpen ? '' : 'pointer-events-none'}`}>
+        <div onClick={() => setMenuOpen(false)}
+          className={`absolute inset-0 bg-black/50 transition-opacity duration-300 ${menuOpen ? 'opacity-100' : 'opacity-0'}`} />
+        <div className={`absolute left-0 top-0 flex h-full w-72 max-w-[82%] flex-col border-r border-border bg-sidebar shadow-2xl transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          <div className="flex items-center justify-between p-4">
+            <span className="flex items-center gap-2 text-lg font-bold"><Layers className="h-5 w-5 text-violet-600" /> SafarOS</span>
+            <button onClick={() => setMenuOpen(false)} aria-label="Close menu"
+              className="flex h-9 w-9 items-center justify-center rounded-md text-foreground hover:bg-accent"><X className="h-5 w-5" /></button>
+          </div>
+          <Separator />
+          <div className="flex items-center gap-3 p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-sm font-bold text-white">
+              {(user?.name || 'U').charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{user?.name}</div>
+              <div className="truncate text-xs text-muted-foreground">{agency?.name}</div>
+            </div>
+          </div>
+          <Separator />
+          <nav className="flex-1 space-y-1 p-3">
+            {NAV.map((n) => {
+              const Icon = n.icon;
+              return (
+                <button key={n.id} onClick={() => go(n.id)}
+                  className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm transition
+                  ${active === n.id ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent'}`}>
+                  <Icon className="h-4 w-4" /> {n.label}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="border-t border-border p-3">
+            <Button variant="outline" className="w-full" onClick={onLogout}>
+              <LogOut className="h-4 w-4 mr-1" /> Sign out
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
