@@ -29,6 +29,7 @@ import { can } from '@/lib/rbac';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
   Trash2, Lock, Globe, Layers, ArrowLeft, Menu, X, Search, Pencil, Eye,
+  UserPlus, BookUser, CalendarClock, ListTodo, Activity, Filter, ArrowRight, CheckCircle2,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -184,10 +185,62 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
 
 const NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'clients', label: 'Clients', icon: Contact },
+  {
+    group: 'CRM',
+    items: [
+      { id: 'crm', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'leads', label: 'Leads', icon: UserPlus },
+      { id: 'clients', label: 'Clients', icon: Contact },
+      { id: 'contacts', label: 'Contacts', icon: BookUser },
+      { id: 'followups', label: 'Follow-ups', icon: CalendarClock },
+      { id: 'tasks', label: 'Tasks', icon: ListTodo },
+      { id: 'activities', label: 'Activities', icon: Activity },
+    ],
+  },
   { id: 'team', label: 'Team', icon: Users },
   { id: 'settings', label: 'Settings', icon: Building2 },
 ];
+
+const SECTION_TITLES = {
+  overview: 'Overview', crm: 'CRM Dashboard', leads: 'Leads', clients: 'Clients',
+  contacts: 'Contacts', followups: 'Follow-ups', tasks: 'Tasks', activities: 'Activities',
+  team: 'Team', settings: 'Settings',
+};
+
+function NavButton({ item, active, onSelect, mobile }) {
+  const Icon = item.icon;
+  const base = mobile
+    ? 'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm transition'
+    : 'w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition';
+  const state = active === item.id ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent';
+  return (
+    <button onClick={() => onSelect(item.id)} className={`${base} ${state}`}>
+      {Icon && <Icon className="h-4 w-4 shrink-0" />} {item.label}
+    </button>
+  );
+}
+
+function NavList({ active, onSelect, mobile }) {
+  return (
+    <div className="space-y-1">
+      {NAV.map((n) => {
+        if (n.group) {
+          return (
+            <div key={n.group} className="pt-3">
+              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{n.group}</div>
+              <div className="space-y-1">
+                {n.items.map((it) => (
+                  <NavButton key={it.id} item={it} active={active} onSelect={onSelect} mobile={mobile} />
+                ))}
+              </div>
+            </div>
+          );
+        }
+        return <NavButton key={n.id} item={n} active={active} onSelect={onSelect} mobile={mobile} />;
+      })}
+    </div>
+  );
+}
 
 function Dashboard({ session, onLogout }) {
   const [active, setActive] = useState('overview');
@@ -202,17 +255,8 @@ function Dashboard({ session, onLogout }) {
           <Layers className="h-5 w-5 text-violet-600" /> SafarOS
         </div>
         <Separator />
-        <div className="p-3 space-y-1">
-          {NAV.map((n) => {
-            const Icon = n.icon;
-            return (
-              <button key={n.id} onClick={() => setActive(n.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition
-                ${active === n.id ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-foreground'}`}>
-                <Icon className="h-4 w-4" /> {n.label}
-              </button>
-            );
-          })}
+        <div className="flex-1 overflow-auto p-3">
+          <NavList active={active} onSelect={setActive} />
         </div>
         <div className="mt-auto p-4">
           <div className="rounded-lg border border-border p-3 bg-background">
@@ -222,7 +266,7 @@ function Dashboard({ session, onLogout }) {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col min-w-0">
         <header className="h-16 border-b border-border bg-background flex items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-2">
             <button onClick={() => setMenuOpen(true)} aria-label="Open menu"
@@ -230,7 +274,7 @@ function Dashboard({ session, onLogout }) {
               <Menu className="h-5 w-5" />
             </button>
             <span className="flex items-center gap-2 font-bold md:hidden"><Layers className="h-5 w-5 text-violet-600" /> SafarOS</span>
-            <span className="font-semibold capitalize hidden md:inline">{active}</span>
+            <span className="font-semibold hidden md:inline">{SECTION_TITLES[active] || 'SafarOS'}</span>
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
@@ -246,7 +290,13 @@ function Dashboard({ session, onLogout }) {
 
         <div className="p-6 flex-1 overflow-auto">
           {active === 'overview' && <Overview session={session} />}
+          {active === 'crm' && <CrmDashboard session={session} onGo={setActive} />}
+          {active === 'leads' && <Leads session={session} />}
           {active === 'clients' && <Clients session={session} />}
+          {active === 'contacts' && <Contacts session={session} />}
+          {active === 'followups' && <FollowUps session={session} />}
+          {active === 'tasks' && <Tasks session={session} />}
+          {active === 'activities' && <Activities session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
         </div>
@@ -273,17 +323,8 @@ function Dashboard({ session, onLogout }) {
             </div>
           </div>
           <Separator />
-          <nav className="flex-1 space-y-1 p-3">
-            {NAV.map((n) => {
-              const Icon = n.icon;
-              return (
-                <button key={n.id} onClick={() => go(n.id)}
-                  className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm transition
-                  ${active === n.id ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent'}`}>
-                  <Icon className="h-4 w-4" /> {n.label}
-                </button>
-              );
-            })}
+          <nav className="flex-1 overflow-auto p-3">
+            <NavList active={active} onSelect={go} mobile />
           </nav>
           <div className="border-t border-border p-3">
             <Button variant="outline" className="w-full" onClick={onLogout}>
@@ -866,6 +907,728 @@ function Team({ session }) {
             ))}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// ======================= CRM WORKSPACE =======================
+
+function MetaBadge({ meta }) {
+  return <Badge variant="outline" className={meta.cls}>{meta.label}</Badge>;
+}
+
+const LEAD_STATUS_META = {
+  new:       { label: 'New',       cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  contacted: { label: 'Contacted', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  qualified: { label: 'Qualified', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  converted: { label: 'Converted', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  lost:      { label: 'Lost',      cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+};
+const LEAD_STATUS_OPTIONS = Object.keys(LEAD_STATUS_META);
+const FOLLOWUP_STATUS_META = {
+  pending:   { label: 'Pending',   cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  completed: { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+};
+const TASK_STATUS_META = {
+  open:      { label: 'Open',      cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  completed: { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+};
+
+function friendlyError(e, fallback) {
+  const msg = String(e?.message || '');
+  if (/forbidden/i.test(msg)) return 'You do not have permission to do this.';
+  if (/valid email/i.test(msg)) return 'Please enter a valid email address.';
+  if (/not found/i.test(msg)) return 'This record could not be found.';
+  if (/already converted/i.test(msg)) return 'This lead was already converted.';
+  if (/required|no fields/i.test(msg)) return 'Please fill in the required fields.';
+  if (/too long/i.test(msg)) return msg;
+  if (/unauthenticated/i.test(msg)) return 'Your session has expired. Please sign in again.';
+  return fallback || 'Something went wrong. Please try again.';
+}
+
+// ---- CRM Dashboard ----
+function CrmDashboard({ session, onGo }) {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try { const d = await api('/crm/stats'); setStats(d.stats); }
+      catch (e) { toast.error(e.message); }
+      finally { setLoading(false); }
+    })();
+  }, []);
+  const cards = [
+    { key: 'totalLeads', label: 'Total Leads', icon: UserPlus, go: 'leads' },
+    { key: 'activeLeads', label: 'Active Leads', icon: Activity, go: 'leads' },
+    { key: 'totalClients', label: 'Total Clients', icon: Contact, go: 'clients' },
+    { key: 'followUpsDue', label: 'Follow-ups Due', icon: CalendarClock, go: 'followups' },
+    { key: 'openTasks', label: 'Open Tasks', icon: ListTodo, go: 'tasks' },
+  ];
+  const allZero = stats && Object.values(stats).every((v) => !v);
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-bold">CRM Dashboard</h2>
+        <p className="text-sm text-muted-foreground">A live snapshot of your agency pipeline.</p>
+      </div>
+      {loading ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {cards.map((c) => <div key={c.key} className="h-24 rounded-lg border bg-muted/30 animate-pulse" />)}
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {cards.map((c) => {
+            const Icon = c.icon;
+            return (
+              <button key={c.key} onClick={() => onGo(c.go)} className="text-left">
+                <Card className="h-full transition hover:border-primary/40 hover:shadow-sm">
+                  <CardContent className="flex items-center gap-3 p-4">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div>
+                    <div>
+                      <div className="text-2xl font-bold">{stats?.[c.key] ?? 0}</div>
+                      <div className="text-xs text-muted-foreground">{c.label}</div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {!loading && allZero && (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><LayoutDashboard className="h-6 w-6 text-muted-foreground" /></div>
+            <div className="space-y-1">
+              <h3 className="font-semibold">Your CRM is empty</h3>
+              <p className="mx-auto max-w-sm text-sm text-muted-foreground">Capture your first lead or add a client to start tracking your agency pipeline.</p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button onClick={() => onGo('leads')}><UserPlus className="h-4 w-4 mr-1.5" /> Go to Leads</Button>
+              <Button variant="outline" onClick={() => onGo('clients')}><Contact className="h-4 w-4 mr-1.5" /> Go to Clients</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ---- Shared related-record picker (leads + clients) ----
+function RelatedSelect({ value, onChange }) {
+  const [opts, setOpts] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const [c, l] = await Promise.all([api('/clients'), api('/leads')]);
+        setOpts([
+          ...(l.leads || []).map((x) => ({ key: `lead:${x.id}`, type: 'lead', id: x.id, name: x.name })),
+          ...(c.clients || []).map((x) => ({ key: `client:${x.id}`, type: 'client', id: x.id, name: x.name })),
+        ]);
+      } catch { /* non-blocking */ }
+    })();
+  }, []);
+  const current = value?.relatedId ? `${value.relatedType}:${value.relatedId}` : 'none';
+  return (
+    <Select value={current} onValueChange={(v) => {
+      if (v === 'none') { onChange({ relatedType: '', relatedId: '', relatedName: '' }); return; }
+      const o = opts.find((x) => x.key === v);
+      if (o) onChange({ relatedType: o.type, relatedId: o.id, relatedName: o.name });
+    }}>
+      <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="none">None</SelectItem>
+        {opts.map((o) => <SelectItem key={o.key} value={o.key}>{o.name} · {o.type}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
+}
+
+// ---- Leads ----
+function LeadStatusBadge({ status }) { return <MetaBadge meta={LEAD_STATUS_META[status] || LEAD_STATUS_META.new} />; }
+const EMPTY_LEAD = { name: '', email: '', phone: '', source: '', status: 'new', notes: '' };
+
+function LeadFormDialog({ mode, open, setOpen, target, onSaved }) {
+  const [form, setForm] = useState(EMPTY_LEAD);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (open) {
+      setForm(mode === 'edit'
+        ? { name: target?.name || '', email: target?.email || '', phone: target?.phone || '', source: target?.source || '', status: target?.status || 'new', notes: target?.notes || '' }
+        : { ...EMPTY_LEAD });
+      setError('');
+    }
+  }, [open, mode, target]);
+  const emailOk = !form.email.trim() || EMAIL_RE.test(form.email.trim());
+  const canSubmit = !!form.name.trim() && emailOk;
+  const submit = async () => {
+    setError('');
+    if (!form.name.trim()) return setError('Lead name is required.');
+    if (!emailOk) return setError('Please enter a valid email address.');
+    setSubmitting(true);
+    try {
+      const payload = { name: form.name.trim(), email: form.email.trim().toLowerCase(), phone: form.phone.trim(), source: form.source.trim(), status: form.status, notes: form.notes.trim() };
+      if (mode === 'edit') { await api(`/leads/${target.id}`, { method: 'PUT', body: JSON.stringify(payload) }); toast.success('Lead updated'); }
+      else { await api('/leads', { method: 'POST', body: JSON.stringify(payload) }); toast.success('Lead added'); }
+      setOpen(false); onSaved();
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setSubmitting(false); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>{mode === 'edit' ? 'Edit lead' : 'Add lead'}</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          {error && <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+          <div className="space-y-1.5"><Label>Full name</Label>
+            <Input value={form.name} placeholder="Jane Doe" onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label>Email</Label>
+              <Input type="email" value={form.email} placeholder="jane@email.com" onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Phone</Label>
+              <Input value={form.phone} placeholder="+1 555 000 1234" onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label>Source</Label>
+              <Input value={form.source} placeholder="Website, referral…" onChange={(e) => setForm({ ...form, source: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Status</Label>
+              <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{LEAD_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{LEAD_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+              </Select></div>
+          </div>
+          <div className="space-y-1.5"><Label>Notes</Label>
+            <Textarea value={form.notes} placeholder="Context, requirements, etc." onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+        </div>
+        <DialogFooter>
+          <Button onClick={submit} disabled={!canSubmit || submitting} className="w-full sm:w-auto">{submitting ? 'Saving…' : (mode === 'edit' ? 'Save changes' : 'Add lead')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LeadDetailDialog({ lead, open, setOpen, canUpdate, canConvert, onEdit, onChangeStatus, onConvert }) {
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>{lead?.name || 'Lead'}</DialogTitle></DialogHeader>
+        {lead && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2"><LeadStatusBadge status={lead.status} />{lead.source && <span className="text-xs text-muted-foreground">via {lead.source}</span>}</div>
+            <div className="rounded-lg border border-border p-3">
+              <ClientDetailRow label="Email" value={lead.email || '—'} />
+              <ClientDetailRow label="Phone" value={lead.phone || '—'} />
+              <ClientDetailRow label="Created" value={formatJoined(lead.createdAt)} />
+            </div>
+            <div><div className="mb-1 text-xs text-muted-foreground">Notes</div><p className="whitespace-pre-wrap text-sm text-foreground/90">{lead.notes || '—'}</p></div>
+            {canUpdate && lead.status !== 'converted' && (
+              <div className="space-y-1.5"><Label>Change status</Label>
+                <Select value={lead.status} onValueChange={(v) => onChangeStatus(lead, v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{LEAD_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{LEAD_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+        )}
+        {lead && (
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            {canUpdate && <Button variant="outline" className="w-full sm:w-auto" onClick={() => { setOpen(false); onEdit(lead); }}><Pencil className="h-4 w-4 mr-1.5" /> Edit</Button>}
+            {canConvert && lead.status !== 'converted' && <Button className="w-full sm:w-auto" onClick={() => onConvert(lead)}><ArrowRight className="h-4 w-4 mr-1.5" /> Convert to Client</Button>}
+          </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Leads({ session }) {
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [addOpen, setAddOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [viewTarget, setViewTarget] = useState(null);
+  const [viewOpen, setViewOpen] = useState(false);
+  const role = session.user.role;
+  const canCreate = can(role, 'leads:create');
+  const canUpdate = can(role, 'leads:update');
+  const canDelete = can(role, 'leads:delete');
+  const canConvert = can(role, 'clients:create');
+
+  const load = async () => {
+    setLoading(true);
+    try { const d = await api('/leads'); setLeads(d.leads || []); }
+    catch (e) { toast.error(e.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const remove = async (id) => { try { await api(`/leads/${id}`, { method: 'DELETE' }); toast.success('Lead deleted'); load(); } catch (e) { toast.error(e.message); } };
+  const changeStatus = async (lead, status) => { try { await api(`/leads/${lead.id}`, { method: 'PUT', body: JSON.stringify({ status }) }); toast.success('Status updated'); setViewOpen(false); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const convert = async (lead) => { try { await api(`/leads/${lead.id}/convert`, { method: 'POST' }); toast.success('Lead converted to client'); setViewOpen(false); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const openEdit = (l) => { setEditTarget(l); setEditOpen(true); };
+  const openView = (l) => { setViewTarget(l); setViewOpen(true); };
+
+  const q = query.trim().toLowerCase();
+  const filtered = leads.filter((l) => {
+    const mq = !q || [l.name, l.email, l.phone, l.source].some((f) => String(f || '').toLowerCase().includes(q));
+    const ms = statusFilter === 'all' || l.status === statusFilter;
+    return mq && ms;
+  });
+  const isEmpty = !loading && leads.length === 0;
+
+  const renderActions = (l) => (
+    <div className="flex items-center gap-1">
+      <Button variant="ghost" size="icon" title="View" onClick={() => openView(l)}><Eye className="h-4 w-4" /></Button>
+      {canUpdate && <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(l)}><Pencil className="h-4 w-4" /></Button>}
+      {canDelete && <Button variant="ghost" size="icon" title="Delete" onClick={() => remove(l.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-xl font-bold">Leads</h2><p className="text-sm text-muted-foreground">Track and qualify incoming agency leads.</p></div>
+        {canCreate && !isEmpty && <Button onClick={() => setAddOpen(true)} className="w-full sm:w-auto"><Plus className="h-4 w-4 mr-1.5" /> Add lead</Button>}
+      </div>
+
+      {!isEmpty && !loading && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative sm:max-w-sm sm:flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, email, phone or source" className="pl-9" />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="sm:w-44"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              {LEAD_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{LEAD_STATUS_META[s].label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+
+      {isEmpty && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><UserPlus className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No leads yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Capture your first lead to start building your agency pipeline.</p></div>
+          {canCreate && <Button onClick={() => setAddOpen(true)}><Plus className="h-4 w-4 mr-1.5" /> Add lead</Button>}
+        </CardContent></Card>
+      )}
+
+      {!loading && leads.length > 0 && filtered.length === 0 && (
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No leads match your filters.</CardContent></Card>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <>
+          <Card className="hidden md:block overflow-hidden">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Name</TableHead><TableHead>Contact</TableHead><TableHead>Source</TableHead>
+                <TableHead>Status</TableHead><TableHead>Created</TableHead><TableHead className="text-right">Actions</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {filtered.map((l) => (
+                  <TableRow key={l.id} className="cursor-pointer" onClick={() => openView(l)}>
+                    <TableCell className="font-medium">{l.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{l.email || l.phone || '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{l.source || '—'}</TableCell>
+                    <TableCell><LeadStatusBadge status={l.status} /></TableCell>
+                    <TableCell className="text-muted-foreground">{formatJoined(l.createdAt)}</TableCell>
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}><div className="flex justify-end">{renderActions(l)}</div></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+
+          <div className="space-y-3 md:hidden">
+            {filtered.map((l) => (
+              <Card key={l.id}>
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <button className="min-w-0 text-left" onClick={() => openView(l)}>
+                      <div className="truncate font-semibold">{l.name}</div>
+                      {(l.email || l.phone) && <div className="truncate text-sm text-muted-foreground">{l.email || l.phone}</div>}
+                      {l.source && <div className="truncate text-xs text-muted-foreground">via {l.source}</div>}
+                    </button>
+                    <LeadStatusBadge status={l.status} />
+                  </div>
+                  <div className="flex items-center justify-between border-t pt-3">
+                    <span className="text-xs text-muted-foreground">Added {formatJoined(l.createdAt)}</span>
+                    {renderActions(l)}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
+
+      {canCreate && <LeadFormDialog mode="add" open={addOpen} setOpen={setAddOpen} onSaved={load} />}
+      {canUpdate && <LeadFormDialog mode="edit" open={editOpen} setOpen={setEditOpen} target={editTarget} onSaved={load} />}
+      <LeadDetailDialog lead={viewTarget} open={viewOpen} setOpen={setViewOpen} canUpdate={canUpdate} canConvert={canConvert} onEdit={openEdit} onChangeStatus={changeStatus} onConvert={convert} />
+    </div>
+  );
+}
+
+function ContactTypeBadge({ type }) {
+  return <Badge variant="outline" className={type === 'client' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-sky-50 text-sky-700 border-sky-200'}>{type === 'client' ? 'Client' : 'Lead'}</Badge>;
+}
+
+// ---- Contacts (lightweight directory derived from clients + leads) ----
+function Contacts({ session }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [c, l] = await Promise.all([api('/clients'), api('/leads')]);
+        const list = [
+          ...(c.clients || []).map((x) => ({ id: `client:${x.id}`, name: x.name, email: x.email, phone: x.phone, type: 'client' })),
+          ...(l.leads || []).map((x) => ({ id: `lead:${x.id}`, name: x.name, email: x.email, phone: x.phone, type: 'lead' })),
+        ].filter((x) => x.email || x.phone);
+        setRows(list);
+      } catch (e) { toast.error(e.message); }
+      finally { setLoading(false); }
+    })();
+  }, []);
+  const q = query.trim().toLowerCase();
+  const filtered = q ? rows.filter((r) => [r.name, r.email, r.phone].some((f) => String(f || '').toLowerCase().includes(q))) : rows;
+  return (
+    <div className="space-y-5">
+      <div><h2 className="text-xl font-bold">Contacts</h2><p className="text-sm text-muted-foreground">Everyone with contact details across your leads and clients.</p></div>
+      {!loading && rows.length > 0 && (
+        <div className="relative max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search contacts" className="pl-9" />
+        </div>
+      )}
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+      {!loading && rows.length === 0 && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><BookUser className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No contacts yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Contacts appear automatically from your leads and clients that have an email or phone.</p></div>
+        </CardContent></Card>
+      )}
+      {!loading && filtered.length > 0 && (
+        <>
+          <Card className="hidden md:block overflow-hidden">
+            <Table>
+              <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Type</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{r.email || '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{r.phone || '—'}</TableCell>
+                    <TableCell><ContactTypeBadge type={r.type} /></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+          <div className="space-y-3 md:hidden">
+            {filtered.map((r) => (
+              <Card key={r.id}><CardContent className="flex items-start justify-between gap-3 p-4">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold">{r.name}</div>
+                  {r.email && <div className="truncate text-sm text-muted-foreground">{r.email}</div>}
+                  {r.phone && <div className="truncate text-sm text-muted-foreground">{r.phone}</div>}
+                </div>
+                <ContactTypeBadge type={r.type} />
+              </CardContent></Card>
+            ))}
+          </div>
+        </>
+      )}
+      {!loading && rows.length > 0 && filtered.length === 0 && (
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No contacts match “{query}”.</CardContent></Card>
+      )}
+    </div>
+  );
+}
+
+// ---- Follow-ups ----
+function FollowUpFormDialog({ open, setOpen, onSaved }) {
+  const [form, setForm] = useState({ title: '', dueDate: '', status: 'pending', notes: '', relatedType: '', relatedId: '', relatedName: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { if (open) { setForm({ title: '', dueDate: '', status: 'pending', notes: '', relatedType: '', relatedId: '', relatedName: '' }); setError(''); } }, [open]);
+  const submit = async () => {
+    setError('');
+    if (!form.title.trim()) return setError('A title is required.');
+    setSubmitting(true);
+    try {
+      await api('/followups', { method: 'POST', body: JSON.stringify({ ...form, title: form.title.trim() }) });
+      toast.success('Follow-up created'); setOpen(false); onSaved();
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setSubmitting(false); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Add follow-up</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          {error && <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+          <div className="space-y-1.5"><Label>Title</Label><Input value={form.title} placeholder="Call to confirm itinerary" onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Related to</Label><RelatedSelect value={form} onChange={(rel) => setForm({ ...form, ...rel })} /></div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label>Due date</Label><Input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Status</Label>
+              <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent>
+              </Select></div>
+          </div>
+          <div className="space-y-1.5"><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+        </div>
+        <DialogFooter><Button onClick={submit} disabled={!form.title.trim() || submitting} className="w-full sm:w-auto">{submitting ? 'Saving…' : 'Add follow-up'}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FollowUps({ session }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [addOpen, setAddOpen] = useState(false);
+  const role = session.user.role;
+  const canCreate = can(role, 'followups:create');
+  const canUpdate = can(role, 'followups:update');
+  const canDelete = can(role, 'followups:delete');
+  const load = async () => { setLoading(true); try { const d = await api('/followups'); setItems(d.followUps || []); } catch (e) { toast.error(e.message); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const toggle = async (f) => { try { await api(`/followups/${f.id}`, { method: 'PUT', body: JSON.stringify({ status: f.status === 'pending' ? 'completed' : 'pending' }) }); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const remove = async (id) => { try { await api(`/followups/${id}`, { method: 'DELETE' }); toast.success('Follow-up deleted'); load(); } catch (e) { toast.error(e.message); } };
+  const isEmpty = !loading && items.length === 0;
+  const renderActions = (f) => (
+    <div className="flex items-center gap-1">
+      {canUpdate && <Button variant="ghost" size="icon" title={f.status === 'pending' ? 'Mark completed' : 'Mark pending'} onClick={() => toggle(f)}><CheckCircle2 className={`h-4 w-4 ${f.status === 'completed' ? 'text-emerald-600' : 'text-muted-foreground'}`} /></Button>}
+      {canDelete && <Button variant="ghost" size="icon" title="Delete" onClick={() => remove(f.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+    </div>
+  );
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-xl font-bold">Follow-ups</h2><p className="text-sm text-muted-foreground">Keep track of what needs a nudge.</p></div>
+        {canCreate && !isEmpty && <Button onClick={() => setAddOpen(true)} className="w-full sm:w-auto"><Plus className="h-4 w-4 mr-1.5" /> Add follow-up</Button>}
+      </div>
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+      {isEmpty && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><CalendarClock className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No follow-ups yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Create a follow-up so nothing slips through the cracks.</p></div>
+          {canCreate && <Button onClick={() => setAddOpen(true)}><Plus className="h-4 w-4 mr-1.5" /> Add follow-up</Button>}
+        </CardContent></Card>
+      )}
+      {!loading && items.length > 0 && (
+        <>
+          <Card className="hidden md:block overflow-hidden">
+            <Table>
+              <TableHeader><TableRow><TableHead>Title</TableHead><TableHead>Related to</TableHead><TableHead>Due</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {items.map((f) => (
+                  <TableRow key={f.id}>
+                    <TableCell className="font-medium">{f.title}</TableCell>
+                    <TableCell className="text-muted-foreground">{f.relatedName || '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{f.dueDate ? formatJoined(f.dueDate) : '—'}</TableCell>
+                    <TableCell><MetaBadge meta={FOLLOWUP_STATUS_META[f.status] || FOLLOWUP_STATUS_META.pending} /></TableCell>
+                    <TableCell className="text-right"><div className="flex justify-end">{renderActions(f)}</div></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+          <div className="space-y-3 md:hidden">
+            {items.map((f) => (
+              <Card key={f.id}><CardContent className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><div className="truncate font-semibold">{f.title}</div>{f.relatedName && <div className="truncate text-sm text-muted-foreground">{f.relatedName}</div>}</div>
+                  <MetaBadge meta={FOLLOWUP_STATUS_META[f.status] || FOLLOWUP_STATUS_META.pending} />
+                </div>
+                <div className="flex items-center justify-between border-t pt-3"><span className="text-xs text-muted-foreground">Due {f.dueDate ? formatJoined(f.dueDate) : '—'}</span>{renderActions(f)}</div>
+              </CardContent></Card>
+            ))}
+          </div>
+        </>
+      )}
+      {canCreate && <FollowUpFormDialog open={addOpen} setOpen={setAddOpen} onSaved={load} />}
+    </div>
+  );
+}
+
+// ---- Tasks ----
+function TaskFormDialog({ open, setOpen, onSaved }) {
+  const [form, setForm] = useState({ title: '', assigneeId: '', assigneeName: '', dueDate: '', status: 'open', relatedType: '', relatedId: '', relatedName: '' });
+  const [members, setMembers] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (open) {
+      setForm({ title: '', assigneeId: '', assigneeName: '', dueDate: '', status: 'open', relatedType: '', relatedId: '', relatedName: '' });
+      setError('');
+      (async () => { try { const d = await api('/members'); setMembers(d.members || []); } catch { /* ignore */ } })();
+    }
+  }, [open]);
+  const submit = async () => {
+    setError('');
+    if (!form.title.trim()) return setError('A task title is required.');
+    setSubmitting(true);
+    try { await api('/tasks', { method: 'POST', body: JSON.stringify({ ...form, title: form.title.trim() }) }); toast.success('Task created'); setOpen(false); onSaved(); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setSubmitting(false); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Add task</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          {error && <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+          <div className="space-y-1.5"><Label>Title</Label><Input value={form.title} placeholder="Prepare quotation draft" onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Assign to</Label>
+            <Select value={form.assigneeId || 'none'} onValueChange={(v) => { if (v === 'none') { setForm({ ...form, assigneeId: '', assigneeName: '' }); return; } const m = members.find((x) => x.id === v); setForm({ ...form, assigneeId: v, assigneeName: m?.name || '' }); }}>
+              <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+              <SelectContent><SelectItem value="none">Unassigned</SelectItem>{members.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
+            </Select></div>
+          <div className="space-y-1.5"><Label>Related to</Label><RelatedSelect value={form} onChange={(rel) => setForm({ ...form, ...rel })} /></div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label>Due date</Label><Input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Status</Label>
+              <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="open">Open</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent>
+              </Select></div>
+          </div>
+        </div>
+        <DialogFooter><Button onClick={submit} disabled={!form.title.trim() || submitting} className="w-full sm:w-auto">{submitting ? 'Saving…' : 'Add task'}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Tasks({ session }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [addOpen, setAddOpen] = useState(false);
+  const role = session.user.role;
+  const canCreate = can(role, 'tasks:create');
+  const canUpdate = can(role, 'tasks:update');
+  const canDelete = can(role, 'tasks:delete');
+  const load = async () => { setLoading(true); try { const d = await api('/tasks'); setItems(d.tasks || []); } catch (e) { toast.error(e.message); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const toggle = async (t) => { try { await api(`/tasks/${t.id}`, { method: 'PUT', body: JSON.stringify({ status: t.status === 'open' ? 'completed' : 'open' }) }); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const remove = async (id) => { try { await api(`/tasks/${id}`, { method: 'DELETE' }); toast.success('Task deleted'); load(); } catch (e) { toast.error(e.message); } };
+  const isEmpty = !loading && items.length === 0;
+  const renderActions = (t) => (
+    <div className="flex items-center gap-1">
+      {canUpdate && <Button variant="ghost" size="icon" title={t.status === 'open' ? 'Mark completed' : 'Reopen'} onClick={() => toggle(t)}><CheckCircle2 className={`h-4 w-4 ${t.status === 'completed' ? 'text-emerald-600' : 'text-muted-foreground'}`} /></Button>}
+      {canDelete && <Button variant="ghost" size="icon" title="Delete" onClick={() => remove(t.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+    </div>
+  );
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-xl font-bold">Tasks</h2><p className="text-sm text-muted-foreground">Assign work to your team across the CRM.</p></div>
+        {canCreate && !isEmpty && <Button onClick={() => setAddOpen(true)} className="w-full sm:w-auto"><Plus className="h-4 w-4 mr-1.5" /> Add task</Button>}
+      </div>
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+      {isEmpty && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><ListTodo className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No tasks yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Create a task and assign it to a team member.</p></div>
+          {canCreate && <Button onClick={() => setAddOpen(true)}><Plus className="h-4 w-4 mr-1.5" /> Add task</Button>}
+        </CardContent></Card>
+      )}
+      {!loading && items.length > 0 && (
+        <>
+          <Card className="hidden md:block overflow-hidden">
+            <Table>
+              <TableHeader><TableRow><TableHead>Task</TableHead><TableHead>Assigned to</TableHead><TableHead>Related to</TableHead><TableHead>Due</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {items.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-medium">{t.title}</TableCell>
+                    <TableCell className="text-muted-foreground">{t.assigneeName || 'Unassigned'}</TableCell>
+                    <TableCell className="text-muted-foreground">{t.relatedName || '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{t.dueDate ? formatJoined(t.dueDate) : '—'}</TableCell>
+                    <TableCell><MetaBadge meta={TASK_STATUS_META[t.status] || TASK_STATUS_META.open} /></TableCell>
+                    <TableCell className="text-right"><div className="flex justify-end">{renderActions(t)}</div></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+          <div className="space-y-3 md:hidden">
+            {items.map((t) => (
+              <Card key={t.id}><CardContent className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><div className="truncate font-semibold">{t.title}</div><div className="truncate text-sm text-muted-foreground">{t.assigneeName || 'Unassigned'}{t.relatedName ? ` · ${t.relatedName}` : ''}</div></div>
+                  <MetaBadge meta={TASK_STATUS_META[t.status] || TASK_STATUS_META.open} />
+                </div>
+                <div className="flex items-center justify-between border-t pt-3"><span className="text-xs text-muted-foreground">Due {t.dueDate ? formatJoined(t.dueDate) : '—'}</span>{renderActions(t)}</div>
+              </CardContent></Card>
+            ))}
+          </div>
+        </>
+      )}
+      {canCreate && <TaskFormDialog open={addOpen} setOpen={setAddOpen} onSaved={load} />}
+    </div>
+  );
+}
+
+// ---- Activities (read-only timeline) ----
+const ACTIVITY_META = {
+  lead_created:     { icon: UserPlus,      color: 'text-sky-600 bg-sky-50' },
+  client_created:   { icon: Contact,       color: 'text-emerald-600 bg-emerald-50' },
+  status_changed:   { icon: ArrowRight,    color: 'text-amber-600 bg-amber-50' },
+  followup_created: { icon: CalendarClock, color: 'text-indigo-600 bg-indigo-50' },
+  task_created:     { icon: ListTodo,      color: 'text-violet-600 bg-violet-50' },
+};
+
+function Activities() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { (async () => { setLoading(true); try { const d = await api('/activities'); setItems(d.activities || []); } catch (e) { toast.error(e.message); } finally { setLoading(false); } })(); }, []);
+  return (
+    <div className="space-y-5">
+      <div><h2 className="text-xl font-bold">Activities</h2><p className="text-sm text-muted-foreground">A timeline of what&apos;s happening across your CRM.</p></div>
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+      {!loading && items.length === 0 && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Activity className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No activity yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Activity is recorded automatically as you create leads, clients, follow-ups and tasks.</p></div>
+        </CardContent></Card>
+      )}
+      {!loading && items.length > 0 && (
+        <Card><CardContent className="p-0">
+          <ul className="divide-y divide-border">
+            {items.map((a) => {
+              const meta = ACTIVITY_META[a.type] || { icon: Activity, color: 'text-muted-foreground bg-muted' };
+              const Icon = meta.icon;
+              return (
+                <li key={a.id} className="flex items-start gap-3 p-4">
+                  <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${meta.color}`}><Icon className="h-4 w-4" /></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm">{a.message}</div>
+                    <div className="text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleString()}</div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent></Card>
       )}
     </div>
   );

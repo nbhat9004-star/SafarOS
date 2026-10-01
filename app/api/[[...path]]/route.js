@@ -72,6 +72,102 @@ function buildClientFields(body, { partial = false } = {}) {
   return { value: out };
 }
 
+// --- CRM helpers ---
+const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'converted', 'lost'];
+const FOLLOWUP_STATUSES = ['pending', 'completed'];
+const TASK_STATUSES = ['open', 'completed'];
+
+// Fire-and-forget activity log (never block the request if it fails).
+async function logActivity(db, session, { type, message, refType = '', refId = '' }) {
+  try {
+    await db.collection('activities').insertOne(withAgency(session, {
+      id: uuidv4(), type, message, refType, refId,
+      actorId: session.userId, actorName: session.name || '',
+      createdAt: new Date().toISOString(),
+    }));
+  } catch (e) {
+    console.warn('[safaros] activity log skipped:', e.message);
+  }
+}
+
+function buildLeadFields(body, { partial = false } = {}) {
+  const out = {};
+  if (!partial || body.name !== undefined) {
+    const name = String(body.name ?? '').trim();
+    if (!name) return { error: 'Lead name is required' };
+    if (name.length > 120) return { error: 'Name is too long (max 120 characters)' };
+    out.name = name;
+  }
+  if (!partial || body.email !== undefined) {
+    const email = String(body.email ?? '').trim().toLowerCase();
+    if (email && !EMAIL_RE.test(email)) return { error: 'Please enter a valid email address' };
+    out.email = email;
+  }
+  if (!partial || body.phone !== undefined) out.phone = String(body.phone ?? '').trim().slice(0, 40);
+  if (!partial || body.source !== undefined) out.source = String(body.source ?? '').trim().slice(0, 60);
+  if (!partial || body.notes !== undefined) {
+    const notes = String(body.notes ?? '').trim();
+    if (notes.length > 2000) return { error: 'Notes are too long (max 2000 characters)' };
+    out.notes = notes;
+  }
+  if (!partial || body.status !== undefined) {
+    const status = body.status === undefined ? 'new' : String(body.status);
+    if (!LEAD_STATUSES.includes(status)) return { error: 'Invalid lead status' };
+    out.status = status;
+  }
+  return { value: out };
+}
+
+function buildFollowUpFields(body, { partial = false } = {}) {
+  const out = {};
+  if (!partial || body.title !== undefined) {
+    const title = String(body.title ?? '').trim();
+    if (!title) return { error: 'Follow-up title is required' };
+    out.title = title.slice(0, 160);
+  }
+  if (!partial || body.relatedType !== undefined) {
+    const rt = String(body.relatedType ?? '').trim();
+    if (rt && !['lead', 'client'].includes(rt)) return { error: 'Invalid related record type' };
+    out.relatedType = rt;
+  }
+  if (!partial || body.relatedId !== undefined) out.relatedId = String(body.relatedId ?? '').trim();
+  if (!partial || body.relatedName !== undefined) out.relatedName = String(body.relatedName ?? '').trim().slice(0, 160);
+  if (!partial || body.dueDate !== undefined) out.dueDate = String(body.dueDate ?? '').trim();
+  if (!partial || body.notes !== undefined) out.notes = String(body.notes ?? '').trim().slice(0, 2000);
+  if (!partial || body.status !== undefined) {
+    const status = body.status === undefined ? 'pending' : String(body.status);
+    if (!FOLLOWUP_STATUSES.includes(status)) return { error: 'Invalid follow-up status' };
+    out.status = status;
+  }
+  return { value: out };
+}
+
+function buildTaskFields(body, { partial = false } = {}) {
+  const out = {};
+  if (!partial || body.title !== undefined) {
+    const title = String(body.title ?? '').trim();
+    if (!title) return { error: 'Task title is required' };
+    out.title = title.slice(0, 160);
+  }
+  if (!partial || body.assigneeId !== undefined) out.assigneeId = String(body.assigneeId ?? '').trim();
+  if (!partial || body.assigneeName !== undefined) out.assigneeName = String(body.assigneeName ?? '').trim().slice(0, 120);
+  if (!partial || body.relatedType !== undefined) {
+    const rt = String(body.relatedType ?? '').trim();
+    if (rt && !['lead', 'client'].includes(rt)) return { error: 'Invalid related record type' };
+    out.relatedType = rt;
+  }
+  if (!partial || body.relatedId !== undefined) out.relatedId = String(body.relatedId ?? '').trim();
+  if (!partial || body.relatedName !== undefined) out.relatedName = String(body.relatedName ?? '').trim().slice(0, 160);
+  if (!partial || body.dueDate !== undefined) out.dueDate = String(body.dueDate ?? '').trim();
+  if (!partial || body.status !== undefined) {
+    const status = body.status === undefined ? 'open' : String(body.status);
+    if (!TASK_STATUSES.includes(status)) return { error: 'Invalid task status' };
+    out.status = status;
+  }
+  return { value: out };
+}
+
+
 // ---------------------------------------------------------------- GET
 export async function GET(request, context) {
   const params = await context.params;
@@ -127,6 +223,67 @@ export async function GET(request, context) {
         .find(tenantFilter(session), { projection: { _id: 0 } })
         .sort({ createdAt: -1 }).toArray();
       return json({ clients });
+    }
+
+    // ---- CRM reads (all agency-scoped via tenantFilter) ----
+    if (path === '/crm/stats') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'crm:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const f = tenantFilter(session);
+      const [totalLeads, activeLeads, totalClients, followUpsDue, openTasks] = await Promise.all([
+        db.collection('leads').countDocuments(f),
+        db.collection('leads').countDocuments(tenantFilter(session, { status: { $in: ['new', 'contacted', 'qualified'] } })),
+        db.collection('clients').countDocuments(f),
+        db.collection('followUps').countDocuments(tenantFilter(session, { status: 'pending' })),
+        db.collection('tasks').countDocuments(tenantFilter(session, { status: 'open' })),
+      ]);
+      return json({ stats: { totalLeads, activeLeads, totalClients, followUpsDue, openTasks } });
+    }
+
+    if (path === '/leads') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'leads:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const leads = await db.collection('leads')
+        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).toArray();
+      return json({ leads });
+    }
+
+    if (path === '/followups') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'followups:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const followUps = await db.collection('followUps')
+        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).toArray();
+      return json({ followUps });
+    }
+
+    if (path === '/tasks') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'tasks:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const tasks = await db.collection('tasks')
+        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).toArray();
+      return json({ tasks });
+    }
+
+    if (path === '/activities') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'activities:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const activities = await db.collection('activities')
+        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).limit(50).toArray();
+      return json({ activities });
     }
 
     return err('not found', 404);
@@ -218,7 +375,79 @@ export async function POST(request, context) {
       });
       await db.collection('clients').insertOne(doc);
       const { _id, ...safe } = doc;
+      await logActivity(db, session, { type: 'client_created', message: `Client "${safe.name}" created`, refType: 'client', refId: safe.id });
       return json({ client: safe }, 201);
+    }
+
+    // ---- CRM creates ----
+    if (path === '/leads') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'leads:create')) return err('forbidden', 403);
+      const { value, error } = buildLeadFields(await readBody(request), { partial: false });
+      if (error) return err(error);
+      const doc = withAgency(session, {
+        id: uuidv4(), ...value, convertedClientId: '',
+        createdBy: session.userId, createdAt: new Date().toISOString(),
+      });
+      await db.collection('leads').insertOne(doc);
+      const { _id, ...safe } = doc;
+      await logActivity(db, session, { type: 'lead_created', message: `Lead "${safe.name}" created`, refType: 'lead', refId: safe.id });
+      return json({ lead: safe }, 201);
+    }
+
+    if (path.startsWith('/leads/') && path.endsWith('/convert')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'clients:create')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const lead = await db.collection('leads').findOne(tenantFilter(session, { id }));
+      if (!lead) return err('lead not found', 404);
+      if (lead.convertedClientId) return err('lead already converted', 409);
+      const clientDoc = withAgency(session, {
+        id: uuidv4(), name: lead.name, email: lead.email || '', phone: lead.phone || '',
+        notes: lead.notes || '', status: 'active',
+        createdBy: session.userId, createdAt: new Date().toISOString(), fromLeadId: lead.id,
+      });
+      await db.collection('clients').insertOne(clientDoc);
+      await db.collection('leads').updateOne(tenantFilter(session, { id }),
+        { $set: { status: 'converted', convertedClientId: clientDoc.id, updatedAt: new Date().toISOString() } });
+      const { _id, ...client } = clientDoc;
+      await logActivity(db, session, { type: 'client_created', message: `Client "${client.name}" created from lead`, refType: 'client', refId: client.id });
+      await logActivity(db, session, { type: 'status_changed', message: `Lead "${lead.name}" converted to client`, refType: 'lead', refId: lead.id });
+      return json({ client }, 201);
+    }
+
+    if (path === '/followups') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'followups:create')) return err('forbidden', 403);
+      const { value, error } = buildFollowUpFields(await readBody(request), { partial: false });
+      if (error) return err(error);
+      const doc = withAgency(session, {
+        id: uuidv4(), ...value,
+        createdBy: session.userId, createdAt: new Date().toISOString(),
+      });
+      await db.collection('followUps').insertOne(doc);
+      const { _id, ...safe } = doc;
+      await logActivity(db, session, { type: 'followup_created', message: `Follow-up "${safe.title}" created`, refType: 'followup', refId: safe.id });
+      return json({ followUp: safe }, 201);
+    }
+
+    if (path === '/tasks') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'tasks:create')) return err('forbidden', 403);
+      const { value, error } = buildTaskFields(await readBody(request), { partial: false });
+      if (error) return err(error);
+      const doc = withAgency(session, {
+        id: uuidv4(), ...value,
+        createdBy: session.userId, createdAt: new Date().toISOString(),
+      });
+      await db.collection('tasks').insertOne(doc);
+      const { _id, ...safe } = doc;
+      await logActivity(db, session, { type: 'task_created', message: `Task "${safe.title}" created`, refType: 'task', refId: safe.id });
+      return json({ task: safe }, 201);
     }
 
     return err('not found', 404);
@@ -268,6 +497,53 @@ export async function PUT(request, context) {
       return json({ client });
     }
 
+    // ---- CRM edits ----
+    if (path.startsWith('/leads/')) {
+      if (!can(session.role, 'leads:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('leads').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('lead not found', 404);
+      const body = await readBody(request);
+      const { value, error } = buildLeadFields(body, { partial: true });
+      if (error) return err(error);
+      if (Object.keys(value).length === 0) return err('no fields to update');
+      value.updatedAt = new Date().toISOString();
+      await db.collection('leads').updateOne(tenantFilter(session, { id }), { $set: value });
+      if (value.status && value.status !== existing.status) {
+        await logActivity(db, session, { type: 'status_changed', message: `Lead "${existing.name}" status changed to ${value.status}`, refType: 'lead', refId: id });
+      }
+      const lead = await db.collection('leads').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ lead });
+    }
+
+    if (path.startsWith('/followups/')) {
+      if (!can(session.role, 'followups:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const body = await readBody(request);
+      const { value, error } = buildFollowUpFields(body, { partial: true });
+      if (error) return err(error);
+      if (Object.keys(value).length === 0) return err('no fields to update');
+      value.updatedAt = new Date().toISOString();
+      const r = await db.collection('followUps').updateOne(tenantFilter(session, { id }), { $set: value });
+      if (r.matchedCount === 0) return err('follow-up not found', 404);
+      const followUp = await db.collection('followUps').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ followUp });
+    }
+
+    if (path.startsWith('/tasks/')) {
+      if (!can(session.role, 'tasks:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const body = await readBody(request);
+      const { value, error } = buildTaskFields(body, { partial: true });
+      if (error) return err(error);
+      if (Object.keys(value).length === 0) return err('no fields to update');
+      value.updatedAt = new Date().toISOString();
+      const r = await db.collection('tasks').updateOne(tenantFilter(session, { id }), { $set: value });
+      if (r.matchedCount === 0) return err('task not found', 404);
+      const task = await db.collection('tasks').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ task });
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -288,6 +564,27 @@ export async function DELETE(request, context) {
       const id = path.split('/')[2];
       // filter scoped by agencyId — cannot delete another agency's record.
       const r = await db.collection('clients').deleteOne(tenantFilter(session, { id }));
+      if (r.deletedCount === 0) return err('not found', 404);
+      return json({ ok: true });
+    }
+
+    if (path.startsWith('/leads/')) {
+      if (!can(session.role, 'leads:delete')) return err('forbidden', 403);
+      const r = await db.collection('leads').deleteOne(tenantFilter(session, { id: path.split('/')[2] }));
+      if (r.deletedCount === 0) return err('not found', 404);
+      return json({ ok: true });
+    }
+
+    if (path.startsWith('/followups/')) {
+      if (!can(session.role, 'followups:delete')) return err('forbidden', 403);
+      const r = await db.collection('followUps').deleteOne(tenantFilter(session, { id: path.split('/')[2] }));
+      if (r.deletedCount === 0) return err('not found', 404);
+      return json({ ok: true });
+    }
+
+    if (path.startsWith('/tasks/')) {
+      if (!can(session.role, 'tasks:delete')) return err('forbidden', 403);
+      const r = await db.collection('tasks').deleteOne(tenantFilter(session, { id: path.split('/')[2] }));
       if (r.deletedCount === 0) return err('not found', 404);
       return json({ ok: true });
     }

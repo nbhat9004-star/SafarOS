@@ -102,10 +102,10 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "Phase 3 — CRM & Client Management: upgrade the existing Clients section into a professional travel-agency CRM foundation (responsive client list, add/edit client, client detail view, client-side search, minimal status field, validation, empty state, inline errors). Reuse existing auth/RBAC/tenant/clients API. Surgical."
+user_problem_statement: "CRM Workspace Foundation: add a dedicated CRM area (Dashboard, Leads, Clients, Contacts, Follow-ups, Tasks, Activities) reusing existing auth/RBAC/tenant/clients. Build foundations only — no quotations/bookings/finance/AI/automation."
 
 frontend:
-  - task: "Phase 3 — CRM Clients upgrade (list table/cards, add/edit, detail, search, status)"
+  - task: "CRM workspace — nav group + Dashboard/Leads/Contacts/Follow-ups/Tasks/Activities + Clients reuse"
     implemented: true
     working: "NA"
     file: "components/safaros/app-experience.jsx"
@@ -115,9 +115,9 @@ frontend:
     status_history:
         -working: "NA"
         -agent: "main"
-        -comment: "Rewrote Clients component (frontend). Desktop: compact shadcn Table (Name, Email, Phone, Status badge, Created, Actions). Mobile: stacked client cards (md:hidden). Added client-side search (name/email/phone), polished empty state ('No clients yet'), loading skeletons, 'no match' state. ClientFormDialog handles Add + Edit (shared, inline validation: name required, valid email when provided, status select active/lead/inactive) with friendly mapped errors. ClientDetailDialog shows name/email/phone/notes/created/status with Edit action. RBAC via can(role,'clients:create'|'clients:update'|'clients:delete') imported from lib/rbac (no parallel permission system). Status badge colors per status. Verified manually (no testing agent): desktop table + mobile cards render, no horizontal overflow at 1920/390."
+        -comment: "Restructured sidebar+mobile-drawer NAV into a reusable NavList/NavButton with a 'CRM' group (Dashboard, Leads, Clients, Contacts, Follow-ups, Tasks, Activities). Added components: CrmDashboard (5 real-data stat cards -> totalLeads/activeLeads/totalClients/followUpsDue/openTasks, zero-states, clickable to sections), Leads (table/cards, search + status filter, add/edit dialog, detail dialog with Change status + Convert to Client, delete), Contacts (read-only directory derived from clients+leads, search), FollowUps (list + add dialog with related picker + mark complete/delete), Tasks (list + add dialog with assignee from /members + related picker + complete/delete), Activities (read-only auto-logged timeline). Existing Clients component reused inside CRM unchanged. RBAC-aware via can(). Verified manually (no testing agent): CRM dashboard shows real counts, Leads table + mobile drawer CRM group render, no horizontal overflow at 1920/390."
 
-  - task: "Phase 2 — Team & Employee Management (PRESERVED, unchanged)"
+  - task: "Team & Employee Management (PRESERVED)"
     implemented: true
     working: true
     file: "components/safaros/app-experience.jsx"
@@ -127,10 +127,10 @@ frontend:
     status_history:
         -working: true
         -agent: "main"
-        -comment: "Team module untouched in Phase 3. Still renders responsive member table/cards + AddMemberForm."
+        -comment: "Team module untouched; still reachable from nav (outside CRM group)."
 
 backend:
-  - task: "CRM /clients API — validation, status field, PUT edit, tenant isolation"
+  - task: "CRM API — leads, followUps, tasks, activities, crm/stats (+ convert-to-client)"
     implemented: true
     working: true
     file: "app/api/[[...path]]/route.js"
@@ -140,7 +140,7 @@ backend:
     status_history:
         -working: true
         -agent: "main"
-        -comment: "Minimal backend additions: buildClientFields() validates/normalizes name(required,<=120), email(format+lowercase when provided), phone(<=40), notes(<=2000), status(active/lead/inactive, default active). POST /clients uses it. New PUT /clients/:id (RBAC clients:update, tenant-scoped via tenantFilter) for edit. Added clients:update to RBAC matrix (owner/manager/agent). Search is client-side (no backend change). Manually verified via localhost curl: valid create trims name + lowercases email + keeps status; bad email/missing name/bad status rejected with friendly messages; PUT updates fields + updatedAt; cross-tenant edit/list/delete from another agency correctly return not-found/empty (tenant isolation intact). No auth/session/db/landing changes."
+        -comment: "Added tenant-scoped, RBAC-gated endpoints: GET /crm/stats; GET/POST /leads, PUT/DELETE /leads/:id, POST /leads/:id/convert (creates client in existing clients collection, marks lead converted); GET/POST /followups, PUT/DELETE /followups/:id; GET/POST /tasks, PUT/DELETE /tasks/:id; GET /activities (latest 50). Validation helpers for lead/followup/task (name/title required, email format+lowercase, status enums). Activities auto-logged on create + lead status change. New collections: leads, followUps, tasks, activities (each stamped with agencyId via withAgency, UUID ids). RBAC matrix extended (leads/followups/tasks/activities/crm) mirroring clients. db.js adds indexes for the new collections. Manually verified via localhost curl: empty stats=all zeros (no fake data); lead create/status-change/convert work; convert produces active client; activities timeline logs all events; cross-agency access returns not-found/empty (tenant isolation intact). Auth/session/clients/members endpoints unchanged."
 
 metadata:
   created_by: "main_agent"
@@ -150,11 +150,12 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Phase 3 — CRM Clients upgrade (list table/cards, add/edit, detail, search, status)"
+    - "CRM workspace — nav group + Dashboard/Leads/Contacts/Follow-ups/Tasks/Activities + Clients reuse"
+    - "CRM API — leads, followUps, tasks, activities, crm/stats (+ convert-to-client)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
     -agent: "main"
-    -message: "Phase 3 CRM & Client Management complete (surgical). Changed only: lib/rbac.js (+clients:update), app/api/[[...path]]/route.js (client validation helper + status field + PUT /clients/:id edit), components/safaros/app-experience.jsx (Clients component upgrade). Per task constraints NO automated testing agents were used — verified manually via localhost curl + screenshots. Phase 2 Team module and all other modules (auth, overview, settings, landing) preserved untouched. Tenant isolation, RBAC, DB connection and existing indexes unchanged."
+    -message: "CRM Workspace Foundation complete. Changed only: lib/rbac.js (CRM permissions), lib/db.js (indexes for new collections), app/api/[[...path]]/route.js (CRM endpoints), components/safaros/app-experience.jsx (CRM nav + components). New collections: leads, followUps, tasks, activities (all tenant-stamped, UUID ids). Existing clients collection reused (Convert-to-Client writes into clients). Per task constraints NO automated testing agents were used — verified manually via localhost curl + screenshots. No fake/demo data inserted (all test data cleaned up). Team & Clients modules preserved; auth/JWT/session/tenant/RBAC architecture intact."
