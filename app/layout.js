@@ -2,8 +2,8 @@ import './globals.css'
 import { Providers } from './providers'
 
 export const metadata = {
-  title: 'Next.js MongoDB Template',
-  description: 'A simple template with App Router, MongoDB, and shadcn/ui',
+  title: 'SafarOS — B2B OS for Travel Agencies',
+  description: 'Multi-tenant SaaS foundation for travel agencies.',
 }
 
 export default function RootLayout({ children }) {

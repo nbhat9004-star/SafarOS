@@ -1,104 +1,213 @@
-import { MongoClient } from 'mongodb'
-import { v4 as uuidv4 } from 'uuid'
-import { NextResponse } from 'next/server'
+// SafarOS — tenant-aware API skeleton (Phase 3 foundation).
+// Modules wired: auth (agency signup/login/me/logout), agency, members, clients(demo).
+// Every tenant query is scoped to session.agencyId (server-derived, never client-trusted).
+import { NextResponse } from 'next/server';
+import { v4 as uuidv4 } from 'uuid';
+import { getDb } from '@/lib/db';
+import {
+  COOKIE_NAME, hashPassword, verifyPassword, signSession, getSession,
+} from '@/lib/auth';
+import { can, isValidRole } from '@/lib/rbac';
+import { tenantFilter, withAgency } from '@/lib/tenancy';
 
-// MongoDB connection
-let client
-let db
-
-async function connectToMongo() {
-  if (!client) {
-    client = new MongoClient(process.env.MONGO_URL)
-    await client.connect()
-    db = client.db(process.env.DB_NAME)
-  }
-  return db
+function json(data, status = 200) {
+  return NextResponse.json(data, { status });
+}
+function err(message, status = 400) {
+  return NextResponse.json({ error: message }, { status });
 }
 
-// Helper function to handle CORS
-function handleCORS(response) {
-  response.headers.set('Access-Control-Allow-Origin', process.env.CORS_ORIGINS || '*')
-  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  response.headers.set('Access-Control-Allow-Credentials', 'true')
-  return response
+function pathOf(params) {
+  const p = params?.path || [];
+  return '/' + (Array.isArray(p) ? p.join('/') : p);
 }
 
-// OPTIONS handler for CORS
-export async function OPTIONS() {
-  return handleCORS(new NextResponse(null, { status: 200 }))
+function setSessionCookie(res, token) {
+  res.cookies.set({
+    name: COOKIE_NAME, value: token, httpOnly: true, sameSite: 'lax',
+    path: '/', maxAge: 60 * 60 * 24 * 7,
+  });
+  return res;
 }
 
-// Route handler function
-async function handleRoute(request, { params }) {
-  const { path = [] } = await params
-  const route = `/${path.join('/')}`
-  const method = request.method
+async function readBody(request) {
+  try { return await request.json(); } catch { return {}; }
+}
 
+// ---------------------------------------------------------------- GET
+export async function GET(request, context) {
+  const params = await context.params;
+  const path = pathOf(params);
   try {
-    const db = await connectToMongo()
-
-    // Root endpoint - GET /api/root (since /api/ is not accessible with catch-all)
-    if (route === '/root' && method === 'GET') {
-      return handleCORS(NextResponse.json({ message: "Hello World" }))
+    if (path === '/' || path === '') {
+      return json({ app: 'SafarOS', status: 'ok', message: 'SafarOS API — B2B multi-tenant foundation' });
     }
-    // Root endpoint - GET /api/root (since /api/ is not accessible with catch-all)
-    if (route === '/' && method === 'GET') {
-      return handleCORS(NextResponse.json({ message: "Hello World" }))
+    if (path === '/health') {
+      const db = await getDb();
+      await db.command({ ping: 1 });
+      return json({ status: 'healthy', db: 'connected' });
     }
 
-    // Status endpoints - POST /api/status
-    if (route === '/status' && method === 'POST') {
-      const body = await request.json()
-      
-      if (!body.client_name) {
-        return handleCORS(NextResponse.json(
-          { error: "client_name is required" }, 
-          { status: 400 }
-        ))
-      }
-
-      const statusObj = {
-        id: uuidv4(),
-        client_name: body.client_name,
-        timestamp: new Date()
-      }
-
-      await db.collection('status_checks').insertOne(statusObj)
-      return handleCORS(NextResponse.json(statusObj))
+    if (path === '/auth/me') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      const db = await getDb();
+      const user = await db.collection('users').findOne(
+        { id: session.userId }, { projection: { _id: 0, passwordHash: 0 } });
+      const agency = await db.collection('agencies').findOne(
+        { id: session.agencyId }, { projection: { _id: 0 } });
+      if (!user || !agency) return err('unauthenticated', 401);
+      return json({ user, agency });
     }
 
-    // Status endpoints - GET /api/status
-    if (route === '/status' && method === 'GET') {
-      const statusChecks = await db.collection('status_checks')
-        .find({})
-        .limit(1000)
-        .toArray()
-
-      // Remove MongoDB's _id field from response
-      const cleanedStatusChecks = statusChecks.map(({ _id, ...rest }) => rest)
-      
-      return handleCORS(NextResponse.json(cleanedStatusChecks))
+    if (path === '/agency') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      const db = await getDb();
+      const agency = await db.collection('agencies').findOne(
+        { id: session.agencyId }, { projection: { _id: 0 } });
+      return json({ agency });
     }
 
-    // Route not found
-    return handleCORS(NextResponse.json(
-      { error: `Route ${route} not found` }, 
-      { status: 404 }
-    ))
+    if (path === '/members') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'members:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const members = await db.collection('users')
+        .find(tenantFilter(session), { projection: { _id: 0, passwordHash: 0 } })
+        .sort({ createdAt: 1 }).toArray();
+      return json({ members });
+    }
 
-  } catch (error) {
-    console.error('API Error:', error)
-    return handleCORS(NextResponse.json(
-      { error: "Internal server error" }, 
-      { status: 500 }
-    ))
+    if (path === '/clients') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'clients:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const clients = await db.collection('clients')
+        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).toArray();
+      return json({ clients });
+    }
+
+    return err('not found', 404);
+  } catch (e) {
+    return err(e.message || 'server error', 500);
   }
 }
 
-// Export all HTTP methods
-export const GET = handleRoute
-export const POST = handleRoute
-export const PUT = handleRoute
-export const DELETE = handleRoute
-export const PATCH = handleRoute
+// ---------------------------------------------------------------- POST
+export async function POST(request, context) {
+  const params = await context.params;
+  const path = pathOf(params);
+  try {
+    const db = await getDb();
+
+    // Agency onboarding: creates an agency + its owner user (REBUILD).
+    if (path === '/auth/register-agency') {
+      const { agencyName, name, email, password } = await readBody(request);
+      if (!agencyName || !name || !email || !password) return err('agencyName, name, email, password required');
+      const existing = await db.collection('users').findOne({ email: String(email).toLowerCase() });
+      if (existing) return err('email already registered', 409);
+
+      const agencyId = uuidv4();
+      const now = new Date().toISOString();
+      const slug = String(agencyName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40) || 'agency';
+      await db.collection('agencies').insertOne({
+        id: agencyId, name: agencyName, slug, plan: 'trial', createdAt: now,
+      });
+      const userId = uuidv4();
+      await db.collection('users').insertOne({
+        id: userId, agencyId, name, email: String(email).toLowerCase(),
+        passwordHash: await hashPassword(password), role: 'owner', status: 'active', createdAt: now,
+      });
+      const token = signSession({ userId, agencyId, role: 'owner' });
+      const res = json({
+        user: { id: userId, name, email: String(email).toLowerCase(), role: 'owner' },
+        agency: { id: agencyId, name: agencyName, slug, plan: 'trial' },
+      }, 201);
+      return setSessionCookie(res, token);
+    }
+
+    if (path === '/auth/login') {
+      const { email, password } = await readBody(request);
+      if (!email || !password) return err('email and password required');
+      const user = await db.collection('users').findOne({ email: String(email).toLowerCase() });
+      if (!user || !(await verifyPassword(password, user.passwordHash))) return err('invalid credentials', 401);
+      const token = signSession({ userId: user.id, agencyId: user.agencyId, role: user.role });
+      const res = json({ ok: true });
+      return setSessionCookie(res, token);
+    }
+
+    if (path === '/auth/logout') {
+      const res = json({ ok: true });
+      res.cookies.set({ name: COOKIE_NAME, value: '', httpOnly: true, path: '/', maxAge: 0 });
+      return res;
+    }
+
+    // Invite/add a team member — agency-scoped, RBAC-gated.
+    if (path === '/members') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'members:invite')) return err('forbidden', 403);
+      const { name, email, password, role } = await readBody(request);
+      if (!name || !email || !password || !role) return err('name, email, password, role required');
+      if (!isValidRole(role) || role === 'owner') return err('invalid role');
+      const existing = await db.collection('users').findOne({ email: String(email).toLowerCase() });
+      if (existing) return err('email already registered', 409);
+      const doc = withAgency(session, {
+        id: uuidv4(), name, email: String(email).toLowerCase(),
+        passwordHash: await hashPassword(password), role, status: 'active',
+        createdAt: new Date().toISOString(),
+      });
+      await db.collection('users').insertOne(doc);
+      const { passwordHash, _id, ...safe } = doc;
+      return json({ member: safe }, 201);
+    }
+
+    // Demo tenant-scoped resource proving isolation.
+    if (path === '/clients') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'clients:create')) return err('forbidden', 403);
+      const { name, email, phone, notes } = await readBody(request);
+      if (!name) return err('name required');
+      const doc = withAgency(session, {
+        id: uuidv4(), name, email: email || '', phone: phone || '', notes: notes || '',
+        createdBy: session.userId, createdAt: new Date().toISOString(),
+      });
+      await db.collection('clients').insertOne(doc);
+      const { _id, ...safe } = doc;
+      return json({ client: safe }, 201);
+    }
+
+    return err('not found', 404);
+  } catch (e) {
+    return err(e.message || 'server error', 500);
+  }
+}
+
+// ---------------------------------------------------------------- DELETE
+export async function DELETE(request, context) {
+  const params = await context.params;
+  const path = pathOf(params);
+  try {
+    const session = getSession(request);
+    if (!session) return err('unauthenticated', 401);
+    const db = await getDb();
+
+    if (path.startsWith('/clients/')) {
+      if (!can(session.role, 'clients:delete')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      // filter scoped by agencyId — cannot delete another agency's record.
+      const r = await db.collection('clients').deleteOne(tenantFilter(session, { id }));
+      if (r.deletedCount === 0) return err('not found', 404);
+      return json({ ok: true });
+    }
+
+    return err('not found', 404);
+  } catch (e) {
+    return err(e.message || 'server error', 500);
+  }
+}
