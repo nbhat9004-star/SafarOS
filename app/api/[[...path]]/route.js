@@ -321,6 +321,36 @@ function normalizeItineraryDays(rawDays) {
 }
 
 
+// --- Supplier helpers ---
+const SUPPLIER_TYPES = ['hotel', 'houseboat', 'transport', 'activity', 'guide', 'restaurant', 'other'];
+const SUPPLIER_STATUSES = ['active', 'inactive'];
+const SUPPLIER_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateSupplierInput(body) {
+  const name = String(body.name || '').trim();
+  if (!name) return { error: 'Supplier name is required' };
+  const type = String(body.type || '').trim().toLowerCase();
+  if (!SUPPLIER_TYPES.includes(type)) return { error: 'Please select a valid supplier type' };
+  const email = String(body.email || '').trim();
+  if (email && !SUPPLIER_EMAIL_RE.test(email)) return { error: 'Please enter a valid email address' };
+  let status = String(body.status || 'active').trim().toLowerCase();
+  if (!SUPPLIER_STATUSES.includes(status)) status = 'active';
+  return {
+    value: {
+      name: name.slice(0, 160), type, email: email.slice(0, 160), status,
+      contactPerson: str(body.contactPerson, 160),
+      phone: str(body.phone, 40),
+      website: str(body.website, 200),
+      address: str(body.address, 300),
+      city: str(body.city, 120),
+      state: str(body.state, 120),
+      country: str(body.country, 120),
+      description: str(body.description, 4000),
+      notes: str(body.notes, 4000),
+    },
+  };
+}
+
 export async function GET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
@@ -502,6 +532,28 @@ export async function GET(request, context) {
         .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
       if (!itinerary) return err('Itinerary not found', 404);
       return json({ itinerary });
+    }
+
+    if (path === '/suppliers') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const suppliers = await db.collection('suppliers')
+        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).toArray();
+      return json({ suppliers });
+    }
+
+    if (path.startsWith('/suppliers/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const supplier = await db.collection('suppliers')
+        .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
+      if (!supplier) return err('Supplier not found', 404);
+      return json({ supplier });
     }
 
     return err('not found', 404);
@@ -771,6 +823,25 @@ export async function POST(request, context) {
       return json({ itinerary: safe }, 201);
     }
 
+    // ---- Suppliers ----
+    if (path === '/suppliers') {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'suppliers:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const { value, error } = validateSupplierInput(body);
+      if (error) return err(error);
+      const now = new Date().toISOString();
+      const doc = withAgency(session2, {
+        id: uuidv4(), ...value,
+        createdBy: session2.userId, createdAt: now, updatedAt: now,
+      });
+      await db.collection('suppliers').insertOne(doc);
+      const { _id, ...safe } = doc;
+      await logActivity(db, session2, { type: 'supplier_created', message: `Supplier "${safe.name}" added`, refType: 'supplier', refId: safe.id });
+      return json({ supplier: safe }, 201);
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -965,6 +1036,35 @@ export async function PUT(request, context) {
       return json({ itinerary });
     }
 
+    // ---- Suppliers: status change (specific) then full edit ----
+    if (path.startsWith('/suppliers/') && path.endsWith('/status')) {
+      if (!can(session.role, 'suppliers:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const { status } = await readBody(request);
+      if (!SUPPLIER_STATUSES.includes(status)) return err('Invalid supplier status');
+      const existing = await db.collection('suppliers').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Supplier not found', 404);
+      await db.collection('suppliers').updateOne(tenantFilter(session, { id }), { $set: { status, updatedAt: new Date().toISOString() } });
+      if (status !== existing.status) {
+        await logActivity(db, session, { type: 'status_changed', message: `Supplier "${existing.name}" marked ${status}`, refType: 'supplier', refId: id });
+      }
+      const supplier = await db.collection('suppliers').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ supplier });
+    }
+
+    if (path.startsWith('/suppliers/')) {
+      if (!can(session.role, 'suppliers:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('suppliers').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Supplier not found', 404);
+      const body = await readBody(request);
+      const { value, error } = validateSupplierInput(body);
+      if (error) return err(error);
+      await db.collection('suppliers').updateOne(tenantFilter(session, { id }), { $set: { ...value, updatedAt: new Date().toISOString() } });
+      const supplier = await db.collection('suppliers').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ supplier });
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -1040,6 +1140,16 @@ export async function DELETE(request, context) {
       if (!existing) return err('Itinerary not found', 404);
       await db.collection('itineraries').deleteOne(tenantFilter(session, { id }));
       await db.collection('packages').updateOne(tenantFilter(session, { id: existing.packageId }), { $set: { itineraryId: '', updatedAt: new Date().toISOString() } });
+      return json({ ok: true });
+    }
+
+    if (path.startsWith('/suppliers/')) {
+      if (!can(session.role, 'suppliers:delete')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('suppliers').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Supplier not found', 404);
+      await db.collection('suppliers').deleteOne(tenantFilter(session, { id }));
+      await logActivity(db, session, { type: 'supplier_deleted', message: `Supplier "${existing.name}" removed`, refType: 'supplier', refId: id });
       return json({ ok: true });
     }
 

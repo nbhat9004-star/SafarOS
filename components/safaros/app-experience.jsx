@@ -33,6 +33,7 @@ import {
   FileText, FilePlus, Copy, FileDown, MapPin,
   Package, Map, Clock, Utensils, Car, BedDouble,
   ChevronDown, ChevronUp, CalendarDays,
+  Store, Phone, Mail,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -212,6 +213,7 @@ const NAV = [
     items: [
       { id: 'packages', label: 'Packages', icon: Package },
       { id: 'itineraries', label: 'Itineraries', icon: Map },
+      { id: 'suppliers', label: 'Suppliers', icon: Store },
     ],
   },
   { id: 'team', label: 'Team', icon: Users },
@@ -223,6 +225,7 @@ const SECTION_TITLES = {
   contacts: 'Contacts', followups: 'Follow-ups', tasks: 'Tasks', activities: 'Activities',
   quotations: 'Quotations', 'quote-create': 'Create Quotation',
   packages: 'Packages', itineraries: 'Itineraries',
+  suppliers: 'Suppliers',
   team: 'Team', settings: 'Settings',
 };
 
@@ -322,6 +325,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'quote-create' && <Quotations key="q-create" session={session} initialView="create" onNavigate={navigateTo} />}
           {active === 'packages' && <Packages key="pkg" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'itineraries' && <Itineraries key="itin" session={session} />}
+          {active === 'suppliers' && <Suppliers key="sup" session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
         </div>
@@ -2808,6 +2812,298 @@ function Itineraries({ session }) {
       )}
     </div>
   );
+}
+
+// ======================= SUPPLIERS =======================
+
+const SUPPLIER_TYPE_META = {
+  hotel: 'Hotel', houseboat: 'Houseboat', transport: 'Transport', activity: 'Activity',
+  guide: 'Guide', restaurant: 'Restaurant', other: 'Other',
+};
+const SUPPLIER_TYPE_OPTIONS = Object.keys(SUPPLIER_TYPE_META);
+const SUPPLIER_STATUS_META = {
+  active:   { label: 'Active',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  inactive: { label: 'Inactive', cls: 'bg-muted text-muted-foreground border-border' },
+};
+const SUPPLIER_STATUS_OPTIONS = Object.keys(SUPPLIER_STATUS_META);
+function SupplierStatusBadge({ status }) { return <MetaBadge meta={SUPPLIER_STATUS_META[status] || SUPPLIER_STATUS_META.active} />; }
+function supplierTypeLabel(t) { return SUPPLIER_TYPE_META[t] || 'Other'; }
+function supplierLocation(s) { return [s.city, s.state, s.country].filter(Boolean).join(', ') || '—'; }
+
+// ----------------------------- SUPPLIER LIST -----------------------------
+function SupplierList({ session, onCreate, onOpen }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const canCreate = can(session.user.role, 'suppliers:create');
+  useEffect(() => { (async () => { setLoading(true); try { const d = await api('/suppliers'); setRows(d.suppliers || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, []);
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter((r) => {
+    const mq = !q || [r.name, r.contactPerson, r.phone, r.email, r.city, r.state, r.country].some((f) => String(f || '').toLowerCase().includes(q));
+    const mt = typeFilter === 'all' || r.type === typeFilter;
+    const ms = statusFilter === 'all' || r.status === statusFilter;
+    return mq && mt && ms;
+  });
+  const isEmpty = !loading && rows.length === 0;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-xl font-bold">Suppliers</h2><p className="text-sm text-muted-foreground">Manage the hotels, transport, guides and vendors you work with.</p></div>
+        {canCreate && !isEmpty && <Button onClick={onCreate} className="w-full sm:w-auto"><Plus className="h-4 w-4 mr-1.5" /> Add supplier</Button>}
+      </div>
+
+      {!isEmpty && !loading && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative sm:max-w-sm sm:flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, contact, phone, email or location" className="pl-9" />
+          </div>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="sm:w-40"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger>
+            <SelectContent><SelectItem value="all">All types</SelectItem>{SUPPLIER_TYPE_OPTIONS.map((t) => <SelectItem key={t} value={t}>{SUPPLIER_TYPE_META[t]}</SelectItem>)}</SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="sm:w-36"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="all">All statuses</SelectItem>{SUPPLIER_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{SUPPLIER_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+
+      {isEmpty && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Store className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No suppliers yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Add the hotels, transport providers, guides and other vendors your agency works with.</p></div>
+          {canCreate && <Button onClick={onCreate}><Plus className="h-4 w-4 mr-1.5" /> Add supplier</Button>}
+        </CardContent></Card>
+      )}
+
+      {!loading && rows.length > 0 && filtered.length === 0 && (
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No suppliers match your filters.</CardContent></Card>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <>
+          <Card className="hidden md:block overflow-hidden">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Supplier</TableHead><TableHead>Type</TableHead><TableHead>Contact</TableHead>
+                <TableHead>Phone</TableHead><TableHead>Email</TableHead><TableHead>Location</TableHead>
+                <TableHead>Status</TableHead><TableHead>Created</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.id} className="cursor-pointer" onClick={() => onOpen(r.id)}>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell><Badge variant="outline" className="font-normal">{supplierTypeLabel(r.type)}</Badge></TableCell>
+                    <TableCell className="text-muted-foreground">{r.contactPerson || '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{r.phone || '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{r.email || '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{supplierLocation(r)}</TableCell>
+                    <TableCell><SupplierStatusBadge status={r.status} /></TableCell>
+                    <TableCell className="text-muted-foreground">{formatJoined(r.createdAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+          <div className="space-y-3 md:hidden">
+            {filtered.map((r) => (
+              <Card key={r.id} className="cursor-pointer" onClick={() => onOpen(r.id)}><CardContent className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold">{r.name}</div>
+                    <div className="truncate text-sm text-muted-foreground">{supplierTypeLabel(r.type)}{r.contactPerson ? ` · ${r.contactPerson}` : ''}</div>
+                  </div>
+                  <SupplierStatusBadge status={r.status} />
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-sm text-muted-foreground">
+                  {r.phone && <span className="flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> {r.phone}</span>}
+                  {r.email && <span className="flex items-center gap-1 min-w-0"><Mail className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{r.email}</span></span>}
+                  <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {supplierLocation(r)}</span>
+                </div>
+              </CardContent></Card>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ----------------------------- SUPPLIER FORM -----------------------------
+function SupplierForm({ session, mode, supplierId, onDone, onCancel }) {
+  const [form, setForm] = useState({
+    name: '', type: '', contactPerson: '', phone: '', email: '', website: '',
+    address: '', city: '', state: '', country: '', description: '', status: 'active', notes: '',
+  });
+  const [loading, setLoading] = useState(mode === 'edit');
+  const [submitting, setSubmitting] = useState(false);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  useEffect(() => {
+    if (mode === 'edit' && supplierId) {
+      (async () => { setLoading(true); try {
+        const { supplier: s } = await api(`/suppliers/${supplierId}`);
+        setForm({
+          name: s.name || '', type: s.type || '', contactPerson: s.contactPerson || '', phone: s.phone || '',
+          email: s.email || '', website: s.website || '', address: s.address || '', city: s.city || '',
+          state: s.state || '', country: s.country || '', description: s.description || '', status: s.status || 'active', notes: s.notes || '',
+        });
+      } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })();
+    }
+  }, [mode, supplierId]);
+
+  const canSubmit = form.name.trim() && form.type;
+  const submit = async () => {
+    if (!canSubmit) { toast.error('Supplier name and type are required'); return; }
+    setSubmitting(true);
+    try {
+      const res = mode === 'edit'
+        ? await api(`/suppliers/${supplierId}`, { method: 'PUT', body: JSON.stringify(form) })
+        : await api('/suppliers', { method: 'POST', body: JSON.stringify(form) });
+      toast.success(mode === 'edit' ? 'Supplier updated' : 'Supplier added');
+      onDone(res.supplier);
+    } catch (e) { toast.error(friendlyError(e)); } finally { setSubmitting(false); }
+  };
+
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+
+  return (
+    <div className="space-y-5 max-w-3xl">
+      <div className="flex items-start gap-3">
+        <Button variant="ghost" size="icon" onClick={onCancel}><ArrowLeft className="h-4 w-4" /></Button>
+        <div><h2 className="text-xl font-bold">{mode === 'edit' ? 'Edit supplier' : 'Add supplier'}</h2>
+          <p className="text-sm text-muted-foreground">Record a vendor your agency works with — hotels, transport, guides and more.</p></div>
+      </div>
+
+      <Card><CardContent className="p-5 space-y-4">
+        <div className="text-sm font-semibold text-muted-foreground">Basic information</div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5"><Label>Supplier name</Label><Input value={form.name} placeholder="Taj Resort & Spa" onChange={set('name')} /></div>
+          <div className="space-y-1.5"><Label>Supplier type</Label>
+            <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: v }))}>
+              <SelectTrigger><SelectValue placeholder="Select a type" /></SelectTrigger>
+              <SelectContent>{SUPPLIER_TYPE_OPTIONS.map((t) => <SelectItem key={t} value={t}>{SUPPLIER_TYPE_META[t]}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5"><Label>Contact person</Label><Input value={form.contactPerson} placeholder="Rahul Sharma" onChange={set('contactPerson')} /></div>
+          <div className="space-y-1.5"><Label>Phone</Label><Input value={form.phone} placeholder="+91 98765 43210" onChange={set('phone')} /></div>
+          <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} placeholder="sales@supplier.com" onChange={set('email')} /></div>
+          <div className="space-y-1.5"><Label>Website</Label><Input value={form.website} placeholder="https://supplier.com" onChange={set('website')} /></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label>Address</Label><Input value={form.address} onChange={set('address')} /></div>
+          <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={set('city')} /></div>
+          <div className="space-y-1.5"><Label>State</Label><Input value={form.state} onChange={set('state')} /></div>
+          <div className="space-y-1.5"><Label>Country</Label><Input value={form.country} onChange={set('country')} /></div>
+          <div className="space-y-1.5"><Label>Status</Label>
+            <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{SUPPLIER_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{SUPPLIER_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        </div>
+        <Separator />
+        <div className="text-sm font-semibold text-muted-foreground">Business information</div>
+        <div className="space-y-1.5"><Label>Description</Label><Textarea rows={3} value={form.description} placeholder="What this supplier provides, areas covered, specialities…" onChange={set('description')} /></div>
+        <div className="space-y-1.5"><Label>Internal notes</Label><Textarea rows={2} value={form.notes} placeholder="Private notes — not shown to customers" onChange={set('notes')} /></div>
+      </CardContent></Card>
+
+      <div className="flex gap-2">
+        <Button className="flex-1 sm:flex-none" onClick={submit} disabled={!canSubmit || submitting}>{submitting ? 'Saving…' : (mode === 'edit' ? 'Save changes' : 'Add supplier')}</Button>
+        <Button variant="outline" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------- SUPPLIER DETAIL -----------------------------
+function SupplierDetail({ session, supplierId, onBack, onEdit }) {
+  const role = session.user.role;
+  const canUpdate = can(role, 'suppliers:update');
+  const canDelete = can(role, 'suppliers:delete');
+  const [s, setS] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => { setLoading(true); try { const d = await api(`/suppliers/${supplierId}`); setS(d.supplier); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, [supplierId]);
+
+  const changeStatus = async (status) => { try { const d = await api(`/suppliers/${supplierId}/status`, { method: 'PUT', body: JSON.stringify({ status }) }); setS(d.supplier); toast.success('Status updated'); } catch (e) { toast.error(friendlyError(e)); } };
+  const remove = async () => { try { await api(`/suppliers/${supplierId}`, { method: 'DELETE' }); toast.success('Supplier deleted'); onBack(); } catch (e) { toast.error(friendlyError(e)); } };
+
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+  if (!s) return <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Supplier not found.</CardContent></Card>;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap"><h2 className="text-xl font-bold">{s.name}</h2><SupplierStatusBadge status={s.status} /></div>
+            <p className="text-sm text-muted-foreground"><Badge variant="outline" className="font-normal mr-1">{supplierTypeLabel(s.type)}</Badge> {supplierLocation(s)}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(s.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
+          {canDelete && <Button variant="outline" size="sm" onClick={remove}><Trash2 className="h-4 w-4 mr-1 text-destructive" /> Delete</Button>}
+        </div>
+      </div>
+
+      {canUpdate && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Change status:</span>
+          <Select value={s.status} onValueChange={changeStatus}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>{SUPPLIER_STATUS_OPTIONS.map((o) => <SelectItem key={o} value={o}>{SUPPLIER_STATUS_META[o].label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3"><CardContent className="p-5">
+          <div className="text-sm font-semibold text-muted-foreground mb-2">Contact</div>
+          <PkgRow label="Contact person" value={s.contactPerson} />
+          <PkgRow label="Phone" value={s.phone} />
+          <PkgRow label="Email" value={s.email} />
+          <PkgRow label="Website" value={s.website ? <a href={s.website} target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">{s.website}</a> : ''} />
+          <Separator className="my-2" />
+          <PkgRow label="Address" value={s.address} />
+          <PkgRow label="Location" value={supplierLocation(s)} />
+          <Separator className="my-2" />
+          <PkgRow label="Created" value={formatJoined(s.createdAt)} />
+          <PkgRow label="Updated" value={formatJoined(s.updatedAt)} />
+        </CardContent></Card>
+
+        <Card className="lg:col-span-2"><CardContent className="p-5 space-y-4">
+          <div>
+            <div className="text-sm font-semibold text-muted-foreground mb-1">Description</div>
+            <p className="text-sm whitespace-pre-wrap">{s.description || '—'}</p>
+          </div>
+          <Separator />
+          <div>
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-1"><Lock className="h-3.5 w-3.5" /> Internal notes</div>
+            <p className="text-sm whitespace-pre-wrap">{s.notes || '—'}</p>
+          </div>
+        </CardContent></Card>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------- SUPPLIERS WORKSPACE -----------------------------
+function Suppliers({ session }) {
+  const [view, setView] = useState('list');
+  const [selectedId, setSelectedId] = useState(null);
+  const openDetail = (id) => { setSelectedId(id); setView('detail'); };
+  const openEdit = (id) => { setSelectedId(id); setView('edit'); };
+  if (view === 'create') return <SupplierForm session={session} mode="create" onDone={(s) => openDetail(s.id)} onCancel={() => setView('list')} />;
+  if (view === 'edit') return <SupplierForm session={session} mode="edit" supplierId={selectedId} onDone={(s) => openDetail(s.id)} onCancel={() => openDetail(selectedId)} />;
+  if (view === 'detail') return <SupplierDetail session={session} supplierId={selectedId} onBack={() => setView('list')} onEdit={openEdit} />;
+  return <SupplierList session={session} onCreate={() => setView('create')} onOpen={openDetail} />;
 }
 
 function Settings({ session }) {
