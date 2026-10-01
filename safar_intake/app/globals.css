@@ -1,0 +1,283 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 72 21% 96%;
+    --foreground: 0 0% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+    --primary: 160 61% 15%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 72 14% 93%;
+    --secondary-foreground: 0 0% 10%;
+    --muted: 72 14% 93%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 46 65% 52%;
+    --accent-foreground: 0 0% 10%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 72 10% 87%;
+    --input: 72 10% 87%;
+    --ring: 160 61% 15%;
+    --radius: 1rem;
+  }
+  .dark {
+    --background: 210 30% 6%;
+    --foreground: 0 0% 98%;
+    --card: 210 28% 9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 210 28% 9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 165 70% 40%;
+    --primary-foreground: 210 30% 6%;
+    --secondary: 210 24% 14%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 210 24% 14%;
+    --muted-foreground: 215 16% 65%;
+    --accent: 41 53% 60%;
+    --accent-foreground: 210 30% 6%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 210 24% 18%;
+    --input: 210 24% 18%;
+    --ring: 165 70% 40%;
+  }
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground antialiased; font-feature-settings: 'cv11','ss01'; }
+  /* Mobile only: add bottom padding so content scrolls fully past the
+     floating bottom nav (approx 60px nav + safe-area). Desktop unaffected.
+     `:not(.app-shell)` excludes the Explore app-shell pages, which already
+     provide their OWN fixed-nav clearance (see components/explore-v2/Shell.jsx)
+     — without this, the two paddings stacked and left a large empty gap. */
+  @media (max-width: 767px) {
+    body:not(.app-shell) { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+  }
+  h1,h2,h3,h4 { @apply font-display tracking-tight; }
+}
+
+@layer utilities {
+  .glass { background: rgba(255,255,255,0.72); backdrop-filter: blur(28px) saturate(200%); -webkit-backdrop-filter: blur(28px) saturate(200%); border: 1px solid rgba(255,255,255,0.55); }
+  .glass-dark { background: rgba(15,20,25,0.45); backdrop-filter: blur(28px) saturate(180%); -webkit-backdrop-filter: blur(28px) saturate(180%); border: 1px solid rgba(255,255,255,0.14); }
+  .glass-nav { background: rgba(246,247,243,0.78); backdrop-filter: blur(22px) saturate(180%); -webkit-backdrop-filter: blur(22px) saturate(180%); }
+  .text-balance { text-wrap: balance; }
+  .gradient-text-gold { background: linear-gradient(135deg,#E5C158 0%,#D4AF37 60%,#9C8024 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .gradient-text-emerald { background: linear-gradient(135deg,#1A6A50 0%,#0F3D2E 60%,#0A2C21 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .scroll-hide::-webkit-scrollbar { display: none; }
+  .scroll-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  .mask-fade-r { mask-image: linear-gradient(to right, black 80%, transparent 100%); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-right { padding-right: env(safe-area-inset-right); }
+  .pb-safe { padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* Small shared fade used by the Explore "Travelers are joining" ticker. */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+/* -----------------------------------------------------------------------------
+   PWA launch splash — shown ONLY for the installed standalone app (see
+   components/safar/PWALayer.jsx). CSS-only, no heavy images, so it has zero
+   impact on the browser/web Lighthouse run.
+----------------------------------------------------------------------------- */
+.pwa-splash {
+  position: fixed; inset: 0; z-index: 9999;
+  display: grid; place-items: center;
+  overflow: hidden;
+  background: #0A2C21; /* brand fallback while the photo loads */
+  opacity: 1;
+  transition: opacity 420ms ease;
+}
+.pwa-splash--hide { opacity: 0; }
+/* Full-screen Kashmir landscape (object-cover, covers all aspect ratios). */
+.pwa-splash__bg {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; object-position: center;
+  animation: pwaSplashZoom 6s ease-out both;
+}
+/* Emerald brand scrim for consistency + text legibility. */
+.pwa-splash__scrim {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(180deg, rgba(7,35,26,0.55) 0%, rgba(7,35,26,0.20) 42%, rgba(7,35,26,0.80) 100%),
+    radial-gradient(120% 80% at 50% 42%, rgba(15,61,46,0.10) 0%, rgba(7,35,26,0.55) 100%);
+}
+.pwa-splash__inner {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.pwa-splash__logo {
+  width: 92px; height: 92px; border-radius: 26px;
+  display: grid; place-items: center;
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 12px 44px -12px rgba(212,175,55,0.5), inset 0 0 0 1px rgba(212,175,55,0.35);
+  animation: pwaPop 620ms cubic-bezier(0.22,1,0.36,1) both;
+}
+.pwa-splash__logo img { width: 78px; height: 78px; }
+.pwa-splash__wordmark {
+  margin-top: 22px; display: flex; flex-direction: column; align-items: center; line-height: 1;
+  animation: pwaUp 620ms cubic-bezier(0.22,1,0.36,1) both; animation-delay: 240ms;
+}
+.pwa-splash__title { font-size: 34px; font-weight: 800; color: #fff; letter-spacing: 0.16em; padding-left: 0.16em; text-shadow: 0 2px 18px rgba(0,0,0,0.4); }
+.pwa-splash__sub { margin-top: 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.44em; color: #E5C158; padding-left: 0.44em; }
+.pwa-splash__tagline {
+  margin-top: 16px; font-size: 13px; color: rgba(255,255,255,0.9); text-shadow: 0 1px 10px rgba(0,0,0,0.5);
+  animation: pwaUp 620ms ease both; animation-delay: 480ms;
+}
+@keyframes pwaUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes pwaPop { from { opacity: 0; transform: scale(0.88); } to { opacity: 1; transform: none; } }
+@keyframes pwaSplashZoom { from { transform: scale(1.08); } to { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .pwa-splash__bg, .pwa-splash__logo, .pwa-splash__wordmark, .pwa-splash__tagline { animation: none; }
+}
+
+.aurora { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.aurora::before { content:''; position:absolute; width:60vw; height:60vw; left:-10vw; top:-20vw; background: radial-gradient(closest-side, rgba(15,61,46,0.16), transparent 70%); filter: blur(40px); }
+.aurora::after { content:''; position:absolute; width:50vw; height:50vw; right:-10vw; bottom:-20vw; background: radial-gradient(closest-side, rgba(212,175,55,0.22), transparent 70%); filter: blur(40px); }
+
+/* -----------------------------------------------------------------------------
+   Season Card ambience — LIGHTWEIGHT, GPU-only (transform + opacity)
+   Every animation is 100% CSS, no JS timers, no DOM churn. Particles live on a
+   single ::before pseudo-element per card using multi-dot box-shadow. Movement
+   uses will-change:transform so it stays on the compositor.
+----------------------------------------------------------------------------- */
+.season-card { position: relative; overflow: hidden; isolation: isolate; }
+.season-card .season-card-fx { position: absolute; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; border-radius: inherit; }
+.season-card > * { position: relative; z-index: 1; }
+.season-card .season-card-icon { display: inline-block; will-change: transform; }
+
+/* Shared: particle container base */
+.season-card .season-card-fx::before,
+.season-card .season-card-fx::after {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 8px;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+/* WINTER — very light snowfall (two staggered drift streams). */
+.season-card.season-winter .season-card-fx::before {
+  background: #ffffff;
+  box-shadow:
+     10px  0 0 0 rgba(255,255,255,0.9),
+     28px  4px 0 0 rgba(255,255,255,0.75),
+     54px  1px 0 0 rgba(255,255,255,0.85),
+     80px  6px 0 0 rgba(255,255,255,0.65),
+    108px  2px 0 0 rgba(255,255,255,0.9),
+    138px  5px 0 0 rgba(255,255,255,0.75);
+  animation: season-snowfall 7s linear infinite;
+  opacity: 0.85;
+}
+.season-card.season-winter .season-card-fx::after {
+  left: 22px;
+  background: #ffffff;
+  box-shadow:
+     18px  2px 0 0 rgba(255,255,255,0.7),
+     46px  6px 0 0 rgba(255,255,255,0.55),
+     72px  3px 0 0 rgba(255,255,255,0.7),
+    100px  7px 0 0 rgba(255,255,255,0.55),
+    128px  4px 0 0 rgba(255,255,255,0.7);
+  animation: season-snowfall 9s linear infinite;
+  animation-delay: -3s;
+  opacity: 0.7;
+}
+@keyframes season-snowfall {
+  0%   { transform: translate3d(0, -6px, 0); }
+  100% { transform: translate3d(-4px, 56px, 0); }
+}
+
+/* SPRING — floating petals rising & swaying */
+.season-card.season-spring .season-card-fx::before {
+  background: rgba(244, 114, 182, 0.9);
+  box-shadow:
+     14px  4px 0 0 rgba(236, 72, 153, 0.7),
+     44px  2px 0 0 rgba(244, 114, 182, 0.8),
+     78px  5px 0 0 rgba(251, 113, 133, 0.75),
+    112px  3px 0 0 rgba(244, 114, 182, 0.8),
+    142px  6px 0 0 rgba(236, 72, 153, 0.7);
+  animation: season-petals 8s ease-in-out infinite;
+  opacity: 0.75;
+}
+.season-card.season-spring .season-card-fx::after {
+  left: 30px; top: 28px;
+  background: rgba(251, 113, 133, 0.8);
+  box-shadow:
+     22px  -2px 0 0 rgba(244, 114, 182, 0.65),
+     58px   0px 0 0 rgba(251, 113, 133, 0.7),
+     94px  -3px 0 0 rgba(236, 72, 153, 0.7);
+  animation: season-petals 10s ease-in-out infinite;
+  animation-delay: -4s;
+  opacity: 0.6;
+}
+@keyframes season-petals {
+  0%,100% { transform: translate3d(0, 0, 0); }
+  50%     { transform: translate3d(3px, -6px, 0); }
+}
+
+/* SUMMER — gentle warm shimmer sway (single soft golden glow drifting) */
+.season-card.season-summer .season-card-fx::before {
+  top: 0; left: -20%;
+  width: 40%; height: 100%;
+  background: radial-gradient(closest-side, rgba(253,224,71,0.35), transparent 70%);
+  border-radius: 0;
+  box-shadow: none;
+  animation: season-shimmer 6s ease-in-out infinite;
+  opacity: 1;
+}
+.season-card.season-summer .season-card-fx::after { display: none; }
+@keyframes season-shimmer {
+  0%,100% { transform: translate3d(0, 0, 0); opacity: 0.5; }
+  50%     { transform: translate3d(240%, 0, 0); opacity: 0.85; }
+}
+
+/* AUTUMN — slow-falling chinar leaves */
+.season-card.season-autumn .season-card-fx::before {
+  background: rgba(234, 88, 12, 0.9);
+  box-shadow:
+     12px  2px 0 0 rgba(217, 119, 6, 0.85),
+     38px  5px 0 0 rgba(234, 88, 12, 0.75),
+     66px  1px 0 0 rgba(202, 138, 4, 0.8),
+     94px  6px 0 0 rgba(234, 88, 12, 0.7),
+    122px  3px 0 0 rgba(217, 119, 6, 0.8),
+    148px  5px 0 0 rgba(234, 88, 12, 0.7);
+  animation: season-autumn-fall 10s linear infinite;
+  opacity: 0.75;
+}
+.season-card.season-autumn .season-card-fx::after {
+  left: 20px;
+  background: rgba(217, 119, 6, 0.85);
+  box-shadow:
+     26px  4px 0 0 rgba(234, 88, 12, 0.65),
+     58px  1px 0 0 rgba(202, 138, 4, 0.75),
+     92px  5px 0 0 rgba(234, 88, 12, 0.7);
+  animation: season-autumn-fall 13s linear infinite;
+  animation-delay: -5s;
+  opacity: 0.55;
+}
+@keyframes season-autumn-fall {
+  0%   { transform: translate3d(0, -6px, 0); }
+  100% { transform: translate3d(6px, 56px, 0); }
+}
+
+/* Subtle icon lift — same for all seasons, adds "alive" feel without CLS. */
+.season-card .season-card-icon { animation: season-icon-hover 5s ease-in-out infinite; }
+@keyframes season-icon-hover {
+  0%,100% { transform: translate3d(0, 0, 0); }
+  50%     { transform: translate3d(0, -1.5px, 0); }
+}
+
+/* Respect user preference — kill all ambience animation. */
+@media (prefers-reduced-motion: reduce) {
+  .season-card .season-card-fx::before,
+  .season-card .season-card-fx::after,
+  .season-card .season-card-icon { animation: none !important; }
+}
