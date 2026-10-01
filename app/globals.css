@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -139,3 +140,79 @@ code {
     @apply bg-background text-foreground;
     }
 }
+
+/* ===================== SafarOS landing — design & motion system ===================== */
+html { scroll-behavior: smooth; }
+.so-section { scroll-margin-top: 90px; }
+
+.so-font {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  letter-spacing: -0.011em;
+}
+
+/* Cinematic gradient text */
+.so-gradient-text {
+  background: linear-gradient(90deg, #c7d2fe 0%, #a5b4fc 40%, #818cf8 70%, #e9d5ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Glass surfaces */
+.so-glass {
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.so-glass-light {
+  background: rgba(255,255,255,0.72);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid rgba(255,255,255,0.6);
+}
+
+/* Subtle dotted grid backdrop */
+.so-grid {
+  background-image: radial-gradient(rgba(255,255,255,0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+.so-grid-dark {
+  background-image: radial-gradient(rgba(99,102,241,0.12) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+/* Aurora / light movement */
+@keyframes so-aurora {
+  0%   { transform: translate3d(-8%, -6%, 0) scale(1); opacity: .55; }
+  50%  { transform: translate3d(8%, 6%, 0) scale(1.15); opacity: .8; }
+  100% { transform: translate3d(-8%, -6%, 0) scale(1); opacity: .55; }
+}
+.so-aurora { animation: so-aurora 16s ease-in-out infinite; will-change: transform, opacity; }
+
+@keyframes so-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+.so-float { animation: so-float 7s ease-in-out infinite; will-change: transform; }
+.so-float-slow { animation: so-float 11s ease-in-out infinite; }
+
+@keyframes so-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.so-shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.14) 50%, rgba(255,255,255,0) 100%);
+  background-size: 200% 100%;
+  animation: so-shimmer 3.2s linear infinite;
+}
+
+@keyframes so-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.so-caret { animation: so-blink 1s step-end infinite; }
+
+@keyframes so-dash { to { stroke-dashoffset: 0; } }
+
+/* Hover elevation for premium buttons/cards */
+.so-lift { transition: transform .35s cubic-bezier(.22,1,.36,1), box-shadow .35s ease, border-color .35s ease; }
+.so-lift:hover { transform: translateY(-4px); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .so-aurora, .so-float, .so-float-slow, .so-shimmer, .so-caret { animation: none !important; }
+  * { transition-duration: 0.001ms !important; }
+}
+/* ===================================================================================== */
