@@ -443,23 +443,39 @@ function FinalCTA() {
 
 /* ---------------------------------------------------- 7. COMPACT FOOTER */
 function Footer() {
-  const cols = [['Product', ['CRM', 'Quotations', 'Itineraries', 'Bookings', 'AI']], ['Company', ['About', 'Contact']], ['Legal', ['Privacy', 'Terms']]];
+  const nav = [['Product', '#platform'], ['Company', '#'], ['Legal', '#']];
+  const legal = [['Privacy', '#'], ['Terms', '#']];
   return (
-    <footer className="bg-slate-950 py-10">
-      <div className="mx-auto max-w-7xl px-6">
-        <div className="grid gap-8 sm:grid-cols-4">
-          <div>
-            <div className="flex items-center gap-2 text-white"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600"><Layers className="h-4 w-4" /></span><span className="font-bold">SafarOS</span></div>
-            <p className="mt-3 max-w-xs text-sm text-white/45">The operating system for travel businesses.</p>
+    <footer className="bg-slate-950 py-8">
+      <div className="mx-auto flex max-w-7xl flex-col items-center gap-4 px-6 text-center sm:flex-row sm:justify-between sm:gap-6 sm:text-left">
+        <div className="flex flex-col items-center gap-1 sm:items-start">
+          <div className="flex items-center gap-2 text-white">
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600"><Layers className="h-3.5 w-3.5" /></span>
+            <span className="text-sm font-bold">SafarOS</span>
           </div>
-          {cols.map((c) => (
-            <div key={c[0]}>
-              <div className="text-xs font-semibold uppercase tracking-widest text-white/50">{c[0]}</div>
-              <ul className="mt-3 space-y-2 text-sm text-white/70">{c[1].map((l) => <li key={l}><a href="#" className="hover:text-white">{l}</a></li>)}</ul>
-            </div>
-          ))}
+          <p className="text-xs text-white/45">The operating system for travel businesses.</p>
         </div>
-        <div className="mt-8 border-t border-white/10 pt-5 text-xs text-white/40">© 2026 SafarOS</div>
+        <div className="flex flex-col items-center gap-1.5 sm:items-end">
+          <nav className="flex items-center gap-2 text-xs font-medium text-white/70">
+            {nav.map((l, i) => (
+              <span key={l[0]} className="flex items-center gap-2">
+                <a href={l[1]} className="hover:text-white">{l[0]}</a>
+                {i < nav.length - 1 && <span className="text-white/20">·</span>}
+              </span>
+            ))}
+          </nav>
+          <nav className="flex items-center gap-2 text-xs text-white/45">
+            {legal.map((l, i) => (
+              <span key={l[0]} className="flex items-center gap-2">
+                <a href={l[1]} className="hover:text-white/80">{l[0]}</a>
+                {i < legal.length - 1 && <span className="text-white/20">·</span>}
+              </span>
+            ))}
+          </nav>
+        </div>
+      </div>
+      <div className="mx-auto mt-5 max-w-7xl px-6">
+        <div className="border-t border-white/10 pt-4 text-center text-xs text-white/40 sm:text-left">© 2026 SafarOS</div>
       </div>
     </footer>
   );
