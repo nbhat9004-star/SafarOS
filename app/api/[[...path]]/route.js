@@ -250,6 +250,76 @@ async function nextQuotationNumber(db, session) {
   return `QT-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
 }
 
+// --- Package & Itinerary helpers ---
+const PACKAGE_STATUSES = ['draft', 'active', 'completed', 'cancelled'];
+
+function validatePackageInput(body) {
+  const name = String(body.name || '').trim();
+  if (!name) return { error: 'Package name is required' };
+  const customerType = body.customerType === 'lead' ? 'lead' : 'client';
+  const customerId = String(body.customerId || '').trim();
+  if (!customerId) return { error: 'Please select a client or lead' };
+  const destination = String(body.destination || '').trim();
+  if (!destination) return { error: 'Destination is required' };
+  const startDate = String(body.startDate || '').trim();
+  const endDate = String(body.endDate || '').trim();
+  if (startDate && endDate && startDate > endDate) return { error: 'End date must be on or after the start date' };
+  return {
+    value: {
+      name: name.slice(0, 160), customerType, customerId, destination: destination.slice(0, 160),
+      startDate, endDate,
+      adults: Math.max(0, Math.floor(num(body.adults, 0))),
+      children: Math.max(0, Math.floor(num(body.children, 0))),
+      nights: Math.max(0, Math.floor(num(body.nights, 0))),
+      description: String(body.description || '').slice(0, 4000),
+      quotationId: String(body.quotationId || '').trim(),
+    },
+  };
+}
+
+function str(v, max = 300) { return String(v == null ? '' : v).slice(0, max); }
+
+// Normalize the embedded day-by-day structure (activities/meals/transport/accommodation).
+function normalizeItineraryDays(rawDays) {
+  const days = Array.isArray(rawDays) ? rawDays : [];
+  return days.map((d, i) => ({
+    id: d.id || uuidv4(),
+    dayNumber: Math.max(1, Math.floor(num(d.dayNumber, i + 1))),
+    date: str(d.date, 40),
+    title: str(d.title, 200),
+    description: str(d.description, 2000),
+    location: str(d.location, 200),
+    startTime: str(d.startTime, 20),
+    endTime: str(d.endTime, 20),
+    notes: str(d.notes, 2000),
+    activities: (Array.isArray(d.activities) ? d.activities : []).map((a) => ({
+      id: a.id || uuidv4(),
+      name: str(a.name, 200), description: str(a.description, 1000),
+      location: str(a.location, 200), startTime: str(a.startTime, 20),
+      endTime: str(a.endTime, 20), notes: str(a.notes, 1000),
+    })),
+    meals: {
+      breakfast: str(d.meals && d.meals.breakfast, 300),
+      lunch: str(d.meals && d.meals.lunch, 300),
+      dinner: str(d.meals && d.meals.dinner, 300),
+    },
+    transport: {
+      type: str(d.transport && d.transport.type, 120),
+      pickupLocation: str(d.transport && d.transport.pickupLocation, 200),
+      dropLocation: str(d.transport && d.transport.dropLocation, 200),
+      pickupTime: str(d.transport && d.transport.pickupTime, 20),
+      notes: str(d.transport && d.transport.notes, 1000),
+    },
+    accommodation: {
+      name: str(d.accommodation && d.accommodation.name, 200),
+      location: str(d.accommodation && d.accommodation.location, 200),
+      checkIn: str(d.accommodation && d.accommodation.checkIn, 40),
+      checkOut: str(d.accommodation && d.accommodation.checkOut, 40),
+      roomNotes: str(d.accommodation && d.accommodation.roomNotes, 1000),
+    },
+  }));
+}
+
 
 export async function GET(request, context) {
   const params = await context.params;
@@ -388,6 +458,50 @@ export async function GET(request, context) {
         .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
       if (!quotation) return err('Quotation not found', 404);
       return json({ quotation });
+    }
+
+    if (path === '/packages') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'packages:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const packages = await db.collection('packages')
+        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).toArray();
+      return json({ packages });
+    }
+
+    if (path.startsWith('/packages/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'packages:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const pkg = await db.collection('packages')
+        .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
+      if (!pkg) return err('Package not found', 404);
+      return json({ package: pkg });
+    }
+
+    if (path === '/itineraries') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'itineraries:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const itineraries = await db.collection('itineraries')
+        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).toArray();
+      return json({ itineraries });
+    }
+
+    if (path.startsWith('/itineraries/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'itineraries:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const itinerary = await db.collection('itineraries')
+        .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
+      if (!itinerary) return err('Itinerary not found', 404);
+      return json({ itinerary });
     }
 
     return err('not found', 404);
@@ -600,6 +714,63 @@ export async function POST(request, context) {
       return json({ quotation: safe }, 201);
     }
 
+    // ---- Packages ----
+    if (path === '/packages') {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'packages:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const { value, error } = validatePackageInput(body);
+      if (error) return err(error);
+      const cust = await resolveQuotationCustomer(db, session2, value.customerType, value.customerId);
+      if (!cust) return err('The selected client or lead was not found', 404);
+      let quotationNumber = '';
+      if (value.quotationId) {
+        const q = await db.collection('quotations').findOne(tenantFilter(session2, { id: value.quotationId }));
+        if (!q) return err('The selected quotation was not found', 404);
+        quotationNumber = q.quotationNumber;
+      }
+      const now = new Date().toISOString();
+      const doc = withAgency(session2, {
+        id: uuidv4(), ...value, quotationNumber,
+        customerName: cust.customerName, customerEmail: cust.customerEmail,
+        status: 'draft', itineraryId: '',
+        createdBy: session2.userId, createdAt: now, updatedAt: now,
+      });
+      await db.collection('packages').insertOne(doc);
+      const { _id, ...safe } = doc;
+      await logActivity(db, session2, { type: 'package_created', message: `Package "${safe.name}" created for ${cust.customerName}`, refType: 'package', refId: safe.id });
+      return json({ package: safe }, 201);
+    }
+
+    // ---- Itineraries ----
+    if (path === '/itineraries') {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'itineraries:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const packageId = String(body.packageId || '').trim();
+      if (!packageId) return err('A package is required');
+      const pkg = await db.collection('packages').findOne(tenantFilter(session2, { id: packageId }));
+      if (!pkg) return err('The package was not found', 404);
+      const title = String(body.title || '').trim() || `${pkg.name} itinerary`;
+      const now = new Date().toISOString();
+      const doc = withAgency(session2, {
+        id: uuidv4(), packageId, title: title.slice(0, 200),
+        destination: String(body.destination || pkg.destination || '').slice(0, 160),
+        startDate: String(body.startDate || pkg.startDate || '').trim(),
+        endDate: String(body.endDate || pkg.endDate || '').trim(),
+        notes: String(body.notes || '').slice(0, 4000),
+        days: normalizeItineraryDays(body.days),
+        createdBy: session2.userId, createdAt: now, updatedAt: now,
+      });
+      await db.collection('itineraries').insertOne(doc);
+      await db.collection('packages').updateOne(tenantFilter(session2, { id: packageId }), { $set: { itineraryId: doc.id, updatedAt: now } });
+      const { _id, ...safe } = doc;
+      await logActivity(db, session2, { type: 'itinerary_created', message: `Itinerary created for package "${pkg.name}"`, refType: 'itinerary', refId: safe.id });
+      return json({ itinerary: safe }, 201);
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -735,6 +906,65 @@ export async function PUT(request, context) {
       return json({ quotation });
     }
 
+    // ---- Packages: status change (specific) then full edit ----
+    if (path.startsWith('/packages/') && path.endsWith('/status')) {
+      if (!can(session.role, 'packages:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const { status } = await readBody(request);
+      if (!PACKAGE_STATUSES.includes(status)) return err('Invalid package status');
+      const existing = await db.collection('packages').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Package not found', 404);
+      await db.collection('packages').updateOne(tenantFilter(session, { id }), { $set: { status, updatedAt: new Date().toISOString() } });
+      if (status !== existing.status) {
+        await logActivity(db, session, { type: 'status_changed', message: `Package "${existing.name}" marked ${status}`, refType: 'package', refId: id });
+      }
+      const pkg = await db.collection('packages').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ package: pkg });
+    }
+
+    if (path.startsWith('/packages/')) {
+      if (!can(session.role, 'packages:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('packages').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Package not found', 404);
+      const body = await readBody(request);
+      const { value, error } = validatePackageInput(body);
+      if (error) return err(error);
+      const cust = await resolveQuotationCustomer(db, session, value.customerType, value.customerId);
+      if (!cust) return err('The selected client or lead was not found', 404);
+      let quotationNumber = existing.quotationNumber || '';
+      if (value.quotationId && value.quotationId !== existing.quotationId) {
+        const q = await db.collection('quotations').findOne(tenantFilter(session, { id: value.quotationId }));
+        if (!q) return err('The selected quotation was not found', 404);
+        quotationNumber = q.quotationNumber;
+      } else if (!value.quotationId) {
+        quotationNumber = '';
+      }
+      const update = { ...value, quotationNumber, customerName: cust.customerName, customerEmail: cust.customerEmail, updatedAt: new Date().toISOString() };
+      await db.collection('packages').updateOne(tenantFilter(session, { id }), { $set: update });
+      const pkg = await db.collection('packages').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ package: pkg });
+    }
+
+    // ---- Itineraries: full edit (including day-by-day structure) ----
+    if (path.startsWith('/itineraries/')) {
+      if (!can(session.role, 'itineraries:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('itineraries').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Itinerary not found', 404);
+      const body = await readBody(request);
+      const update = { updatedAt: new Date().toISOString() };
+      if (body.title !== undefined) update.title = String(body.title || '').slice(0, 200) || existing.title;
+      if (body.destination !== undefined) update.destination = String(body.destination || '').slice(0, 160);
+      if (body.startDate !== undefined) update.startDate = String(body.startDate || '').trim();
+      if (body.endDate !== undefined) update.endDate = String(body.endDate || '').trim();
+      if (body.notes !== undefined) update.notes = String(body.notes || '').slice(0, 4000);
+      if (body.days !== undefined) update.days = normalizeItineraryDays(body.days);
+      await db.collection('itineraries').updateOne(tenantFilter(session, { id }), { $set: update });
+      const itinerary = await db.collection('itineraries').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ itinerary });
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -788,6 +1018,28 @@ export async function DELETE(request, context) {
       if (!existing) return err('Quotation not found', 404);
       if (existing.status !== 'draft') return err('Only draft quotations can be deleted');
       await db.collection('quotations').deleteOne(tenantFilter(session, { id }));
+      return json({ ok: true });
+    }
+
+    // Packages: only DRAFT packages may be deleted (also removes its itinerary).
+    if (path.startsWith('/packages/')) {
+      if (!can(session.role, 'packages:delete')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('packages').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Package not found', 404);
+      if (existing.status !== 'draft') return err('Only draft packages can be deleted');
+      await db.collection('packages').deleteOne(tenantFilter(session, { id }));
+      await db.collection('itineraries').deleteMany(tenantFilter(session, { packageId: id }));
+      return json({ ok: true });
+    }
+
+    if (path.startsWith('/itineraries/')) {
+      if (!can(session.role, 'itineraries:delete')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('itineraries').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Itinerary not found', 404);
+      await db.collection('itineraries').deleteOne(tenantFilter(session, { id }));
+      await db.collection('packages').updateOne(tenantFilter(session, { id: existing.packageId }), { $set: { itineraryId: '', updatedAt: new Date().toISOString() } });
       return json({ ok: true });
     }
 

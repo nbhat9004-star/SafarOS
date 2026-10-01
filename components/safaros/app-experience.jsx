@@ -31,6 +31,7 @@ import {
   Trash2, Lock, Globe, Layers, ArrowLeft, Menu, X, Search, Pencil, Eye,
   UserPlus, BookUser, CalendarClock, ListTodo, Activity, Filter, ArrowRight, CheckCircle2,
   FileText, FilePlus, Copy, FileDown, MapPin,
+  Package, Map, Clock, Utensils, Car, BedDouble,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -205,6 +206,13 @@ const NAV = [
       { id: 'quote-create', label: 'Create Quotation', icon: FilePlus },
     ],
   },
+  {
+    group: 'Travel Operations',
+    items: [
+      { id: 'packages', label: 'Packages', icon: Package },
+      { id: 'itineraries', label: 'Itineraries', icon: Map },
+    ],
+  },
   { id: 'team', label: 'Team', icon: Users },
   { id: 'settings', label: 'Settings', icon: Building2 },
 ];
@@ -213,6 +221,7 @@ const SECTION_TITLES = {
   overview: 'Overview', crm: 'CRM Dashboard', leads: 'Leads', clients: 'Clients',
   contacts: 'Contacts', followups: 'Follow-ups', tasks: 'Tasks', activities: 'Activities',
   quotations: 'Quotations', 'quote-create': 'Create Quotation',
+  packages: 'Packages', itineraries: 'Itineraries',
   team: 'Team', settings: 'Settings',
 };
 
@@ -254,8 +263,10 @@ function NavList({ active, onSelect, mobile }) {
 function Dashboard({ session, onLogout }) {
   const [active, setActive] = useState('overview');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navPayload, setNavPayload] = useState(null);
   const { user, agency } = session;
   const go = (id) => { setActive(id); setMenuOpen(false); };
+  const navigateTo = (id, payload = null) => { setNavPayload(payload); setActive(id); setMenuOpen(false); };
 
   return (
     <div className="min-h-screen flex bg-muted/30 so-font">
@@ -306,8 +317,10 @@ function Dashboard({ session, onLogout }) {
           {active === 'followups' && <FollowUps session={session} />}
           {active === 'tasks' && <Tasks session={session} />}
           {active === 'activities' && <Activities session={session} />}
-          {active === 'quotations' && <Quotations key="q-list" session={session} initialView="list" />}
-          {active === 'quote-create' && <Quotations key="q-create" session={session} initialView="create" />}
+          {active === 'quotations' && <Quotations key="q-list" session={session} initialView="list" onNavigate={navigateTo} />}
+          {active === 'quote-create' && <Quotations key="q-create" session={session} initialView="create" onNavigate={navigateTo} />}
+          {active === 'packages' && <Packages key="pkg" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
+          {active === 'itineraries' && <Itineraries key="itin" session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
         </div>
@@ -2101,14 +2114,14 @@ function QuotationList({ session, onCreate, onOpen }) {
   );
 }
 
-function Quotations({ session, initialView = 'list' }) {
+function Quotations({ session, initialView = 'list', onNavigate }) {
   const [view, setView] = useState(initialView);
   const [selectedId, setSelectedId] = useState(null);
   const openDetail = (id) => { setSelectedId(id); setView('detail'); };
   const openEdit = (id) => { setSelectedId(id); setView('edit'); };
   if (view === 'create') return <QuotationForm session={session} mode="create" onDone={(q) => openDetail(q.id)} onCancel={() => setView('list')} />;
   if (view === 'edit') return <QuotationForm session={session} mode="edit" quotationId={selectedId} onDone={(q) => openDetail(q.id)} onCancel={() => openDetail(selectedId)} />;
-  if (view === 'detail') return <QuotationDetail session={session} quotationId={selectedId} onBack={() => setView('list')} onEdit={openEdit} onChanged={() => {}} />;
+  if (view === 'detail') return <QuotationDetail session={session} quotationId={selectedId} onBack={() => setView('list')} onEdit={openEdit} onChanged={() => {}} onNavigate={onNavigate} />;
   return <QuotationList session={session} onCreate={() => setView('create')} onOpen={openDetail} />;
 }
 
