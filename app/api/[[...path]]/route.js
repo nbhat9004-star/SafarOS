@@ -34,6 +34,44 @@ async function readBody(request) {
   try { return await request.json(); } catch { return {}; }
 }
 
+// --- CRM client helpers (minimal, schema-compatible) ---
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CLIENT_STATUSES = ['active', 'lead', 'inactive'];
+
+// Validate + normalize incoming client fields. Returns { value } or { error }.
+// `partial` = true for PUT (only validate provided keys).
+function buildClientFields(body, { partial = false } = {}) {
+  const out = {};
+  if (!partial || body.name !== undefined) {
+    const name = String(body.name ?? '').trim();
+    if (!name) return { error: 'Client name is required' };
+    if (name.length > 120) return { error: 'Name is too long (max 120 characters)' };
+    out.name = name;
+  }
+  if (!partial || body.email !== undefined) {
+    const email = String(body.email ?? '').trim().toLowerCase();
+    if (email && !EMAIL_RE.test(email)) return { error: 'Please enter a valid email address' };
+    if (email.length > 160) return { error: 'Email is too long' };
+    out.email = email;
+  }
+  if (!partial || body.phone !== undefined) {
+    const phone = String(body.phone ?? '').trim();
+    if (phone.length > 40) return { error: 'Phone number is too long' };
+    out.phone = phone;
+  }
+  if (!partial || body.notes !== undefined) {
+    const notes = String(body.notes ?? '').trim();
+    if (notes.length > 2000) return { error: 'Notes are too long (max 2000 characters)' };
+    out.notes = notes;
+  }
+  if (!partial || body.status !== undefined) {
+    const status = body.status === undefined ? 'active' : String(body.status);
+    if (!CLIENT_STATUSES.includes(status)) return { error: 'Invalid client status' };
+    out.status = status;
+  }
+  return { value: out };
+}
+
 // ---------------------------------------------------------------- GET
 export async function GET(request, context) {
   const params = await context.params;
@@ -171,10 +209,11 @@ export async function POST(request, context) {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'clients:create')) return err('forbidden', 403);
-      const { name, email, phone, notes } = await readBody(request);
-      if (!name) return err('name required');
+      const body = await readBody(request);
+      const { value, error } = buildClientFields(body, { partial: false });
+      if (error) return err(error);
       const doc = withAgency(session, {
-        id: uuidv4(), name, email: email || '', phone: phone || '', notes: notes || '',
+        id: uuidv4(), ...value,
         createdBy: session.userId, createdAt: new Date().toISOString(),
       });
       await db.collection('clients').insertOne(doc);
@@ -211,6 +250,22 @@ export async function PUT(request, context) {
       await db.collection('agencies').updateOne({ id: session.agencyId }, { $set: update });
       const agency = await db.collection('agencies').findOne({ id: session.agencyId }, { projection: { _id: 0 } });
       return json({ agency });
+    }
+
+    // Edit a client — tenant-scoped, RBAC-gated. Agency derived from session only.
+    if (path.startsWith('/clients/')) {
+      if (!can(session.role, 'clients:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      if (!id) return err('client id required');
+      const body = await readBody(request);
+      const { value, error } = buildClientFields(body, { partial: true });
+      if (error) return err(error);
+      if (Object.keys(value).length === 0) return err('no fields to update');
+      value.updatedAt = new Date().toISOString();
+      const r = await db.collection('clients').updateOne(tenantFilter(session, { id }), { $set: value });
+      if (r.matchedCount === 0) return err('client not found', 404);
+      const client = await db.collection('clients').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ client });
     }
 
     return err('not found', 404);

@@ -102,10 +102,10 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "Phase 2 — Team & Employee Management: upgrade the existing SafarOS Team section into a production-ready module (responsive member list, permission-aware Add team member, status + joined date, empty state, inline errors). Reuse existing auth/RBAC/tenant/members API. Frontend-only, surgical."
+user_problem_statement: "Phase 3 — CRM & Client Management: upgrade the existing Clients section into a professional travel-agency CRM foundation (responsive client list, add/edit client, client detail view, client-side search, minimal status field, validation, empty state, inline errors). Reuse existing auth/RBAC/tenant/clients API. Surgical."
 
 frontend:
-  - task: "Phase 2 — Team & Employee Management module upgrade (responsive list + add member)"
+  - task: "Phase 3 — CRM Clients upgrade (list table/cards, add/edit, detail, search, status)"
     implemented: true
     working: "NA"
     file: "components/safaros/app-experience.jsx"
@@ -115,13 +115,22 @@ frontend:
     status_history:
         -working: "NA"
         -agent: "main"
-        -comment: "Upgraded Team component (frontend-only). Desktop: professional shadcn Table (Name, Email, Role badge, Status badge, Joined date). Mobile: stacked member cards (md:hidden) with role/status/joined. Added polished empty state ('No team members yet'), loading skeletons, and a new AddMemberForm dialog with inline validation (full name, valid business email, password >=6, role Manager/Agent/Finance — Owner never selectable) and friendly mapped error messages (duplicate email, forbidden, invalid role, session expired). Reuses existing GET/POST /members endpoint, existing RBAC via can(role,'members:invite') imported from lib/rbac (no parallel permission system), server-derived agency/tenant isolation unchanged. No backend/API/route/auth/landing changes. Verified manually (not via testing agent): backend endpoints return status+createdAt, owner role rejected with 'invalid role', desktop table + mobile drawer render with no horizontal overflow at 1920 and 390 widths."
-        -working: "NA"
+        -comment: "Rewrote Clients component (frontend). Desktop: compact shadcn Table (Name, Email, Phone, Status badge, Created, Actions). Mobile: stacked client cards (md:hidden). Added client-side search (name/email/phone), polished empty state ('No clients yet'), loading skeletons, 'no match' state. ClientFormDialog handles Add + Edit (shared, inline validation: name required, valid email when provided, status select active/lead/inactive) with friendly mapped errors. ClientDetailDialog shows name/email/phone/notes/created/status with Edit action. RBAC via can(role,'clients:create'|'clients:update'|'clients:delete') imported from lib/rbac (no parallel permission system). Status badge colors per status. Verified manually (no testing agent): desktop table + mobile cards render, no horizontal overflow at 1920/390."
+
+  - task: "Phase 2 — Team & Employee Management (PRESERVED, unchanged)"
+    implemented: true
+    working: true
+    file: "components/safaros/app-experience.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
         -agent: "main"
-        -comment: "Environment note: repo was imported without a /app/.env; created .env (local MONGO_URL, DB_NAME=safaros, generated JWT_SECRET, NEXT_PUBLIC_BASE_URL) so the app runs. No existing env values were modified (none existed)."
+        -comment: "Team module untouched in Phase 3. Still renders responsive member table/cards + AddMemberForm."
 
 backend:
-  - task: "Reused existing /members API (GET list + POST create) — unchanged"
+  - task: "CRM /clients API — validation, status field, PUT edit, tenant isolation"
     implemented: true
     working: true
     file: "app/api/[[...path]]/route.js"
@@ -131,7 +140,7 @@ backend:
     status_history:
         -working: true
         -agent: "main"
-        -comment: "No backend changes. Existing POST /members already validates fields, dedupes email, hashes password, blocks role=owner, enforces members:invite RBAC and server-derived agencyId. Manually confirmed via localhost curl: add agent member OK (returns status 'active' + createdAt), role=owner rejected ('invalid role'), GET /members returns agency-scoped list."
+        -comment: "Minimal backend additions: buildClientFields() validates/normalizes name(required,<=120), email(format+lowercase when provided), phone(<=40), notes(<=2000), status(active/lead/inactive, default active). POST /clients uses it. New PUT /clients/:id (RBAC clients:update, tenant-scoped via tenantFilter) for edit. Added clients:update to RBAC matrix (owner/manager/agent). Search is client-side (no backend change). Manually verified via localhost curl: valid create trims name + lowercases email + keeps status; bad email/missing name/bad status rejected with friendly messages; PUT updates fields + updatedAt; cross-tenant edit/list/delete from another agency correctly return not-found/empty (tenant isolation intact). No auth/session/db/landing changes."
 
 metadata:
   created_by: "main_agent"
@@ -141,11 +150,11 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Phase 2 — Team & Employee Management module upgrade (responsive list + add member)"
+    - "Phase 3 — CRM Clients upgrade (list table/cards, add/edit, detail, search, status)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
 
 agent_communication:
     -agent: "main"
-    -message: "Phase 2 Team & Employee Management complete (frontend-only, surgical). Per task constraints, NO automated testing agents were used; verified manually via localhost curl + screenshots. Only components/safaros/app-experience.jsx changed (Team upgrade). A missing /app/.env was created so the app runs locally (no existing env values modified). Backend /members endpoints, auth, RBAC, tenant isolation, landing, login, signup, dashboard, clients and settings are all unchanged."
+    -message: "Phase 3 CRM & Client Management complete (surgical). Changed only: lib/rbac.js (+clients:update), app/api/[[...path]]/route.js (client validation helper + status field + PUT /clients/:id edit), components/safaros/app-experience.jsx (Clients component upgrade). Per task constraints NO automated testing agents were used — verified manually via localhost curl + screenshots. Phase 2 Team module and all other modules (auth, overview, settings, landing) preserved untouched. Tenant isolation, RBAC, DB connection and existing indexes unchanged."
