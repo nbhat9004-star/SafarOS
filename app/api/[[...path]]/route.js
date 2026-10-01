@@ -423,6 +423,69 @@ async function nextBookingNumber(db, session) {
   return `BK-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
 }
 
+// --- Fleet (vehicles & drivers) helpers ---
+const VEHICLE_TYPES = ['car', 'suv', 'tempo_traveller', 'bus', 'van', 'other'];
+const VEHICLE_STATUSES = ['available', 'assigned', 'in_transit', 'maintenance', 'inactive'];
+const DRIVER_STATUSES = ['available', 'assigned', 'on_trip', 'inactive'];
+const BOOKING_ASSIGNMENT_STATUSES = ['unassigned', 'assigned', 'in_transit', 'completed', 'cancelled'];
+
+function validateVehicleInput(body) {
+  const vehicleNumber = String(body.vehicleNumber || '').trim();
+  if (!vehicleNumber) return { error: 'Vehicle number is required' };
+  const vehicleType = VEHICLE_TYPES.includes(String(body.vehicleType || '').toLowerCase()) ? String(body.vehicleType).toLowerCase() : 'other';
+  let status = String(body.status || 'available').toLowerCase();
+  if (!VEHICLE_STATUSES.includes(status)) status = 'available';
+  const value = {
+    vehicleNumber: vehicleNumber.slice(0, 40),
+    registrationNumber: str(body.registrationNumber, 60),
+    vehicleType, status,
+    make: str(body.make, 60), model: str(body.model, 60),
+    year: Math.max(0, Math.floor(num(body.year, 0))),
+    color: str(body.color, 40),
+    seatingCapacity: Math.max(0, Math.floor(num(body.seatingCapacity, 0))),
+    fuelType: str(body.fuelType, 40),
+    notes: str(body.notes, 2000),
+  };
+  // GPS-ready optional fields (only touched when coordinates are explicitly supplied)
+  if (body.latitude !== undefined && body.latitude !== null && body.latitude !== '') value.latitude = num(body.latitude, 0);
+  if (body.longitude !== undefined && body.longitude !== null && body.longitude !== '') value.longitude = num(body.longitude, 0);
+  if (value.latitude !== undefined || value.longitude !== undefined) {
+    value.locationSource = body.locationSource === 'gps' ? 'gps' : 'manual';
+    value.lastLocationAt = new Date().toISOString();
+  }
+  return { value };
+}
+
+function validateDriverInput(body) {
+  const name = String(body.name || '').trim();
+  if (!name) return { error: 'Driver name is required' };
+  const email = String(body.email || '').trim();
+  if (email && !SUPPLIER_EMAIL_RE.test(email)) return { error: 'Please enter a valid email address' };
+  let status = String(body.status || 'available').toLowerCase();
+  if (!DRIVER_STATUSES.includes(status)) status = 'available';
+  return {
+    value: {
+      name: name.slice(0, 120), phone: str(body.phone, 40), email: email.slice(0, 160),
+      licenseNumber: str(body.licenseNumber, 60), licenseExpiry: str(body.licenseExpiry, 40),
+      status, teamMemberId: str(body.teamMemberId, 80), notes: str(body.notes, 2000),
+    },
+  };
+}
+
+// Keep vehicle.currentDriverId and driver.assignedVehicleId consistent (tenant-scoped, no conflicts).
+async function syncVehicleDriver(db, session, vehicleId, newDriverId, oldDriverId) {
+  const now = new Date().toISOString();
+  newDriverId = String(newDriverId || '');
+  oldDriverId = String(oldDriverId || '');
+  if (oldDriverId && oldDriverId !== newDriverId) {
+    await db.collection('drivers').updateOne(tenantFilter(session, { id: oldDriverId, assignedVehicleId: vehicleId }), { $set: { assignedVehicleId: '', updatedAt: now } });
+  }
+  if (newDriverId) {
+    await db.collection('vehicles').updateMany(tenantFilter(session, { currentDriverId: newDriverId, id: { $ne: vehicleId } }), { $set: { currentDriverId: '', updatedAt: now } });
+    await db.collection('drivers').updateOne(tenantFilter(session, { id: newDriverId }), { $set: { assignedVehicleId: vehicleId, updatedAt: now } });
+  }
+}
+
 export async function GET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
@@ -648,6 +711,69 @@ export async function GET(request, context) {
         .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
       if (!booking) return err('Booking not found', 404);
       return json({ booking });
+    }
+
+    if (path === '/fleet/stats') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const [vehicles, drivers] = await Promise.all([
+        db.collection('vehicles').find(tenantFilter(session), { projection: { _id: 0, status: 1 } }).toArray(),
+        db.collection('drivers').find(tenantFilter(session), { projection: { _id: 0, status: 1 } }).toArray(),
+      ]);
+      const by = (arr, s) => arr.filter((x) => x.status === s).length;
+      return json({ stats: {
+        vehicles: { total: vehicles.length, available: by(vehicles, 'available'), assigned: by(vehicles, 'assigned'), in_transit: by(vehicles, 'in_transit'), maintenance: by(vehicles, 'maintenance'), inactive: by(vehicles, 'inactive') },
+        drivers: { total: drivers.length, available: by(drivers, 'available'), assigned: by(drivers, 'assigned'), on_trip: by(drivers, 'on_trip'), inactive: by(drivers, 'inactive') },
+      } });
+    }
+
+    if (path === '/vehicles') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const vehicles = await db.collection('vehicles').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+      const driverIds = [...new Set(vehicles.map((v) => v.currentDriverId).filter(Boolean))];
+      const drivers = driverIds.length ? await db.collection('drivers').find(tenantFilter(session, { id: { $in: driverIds } }), { projection: { _id: 0, id: 1, name: 1 } }).toArray() : [];
+      const dmap = Object.fromEntries(drivers.map((d) => [d.id, d.name]));
+      vehicles.forEach((v) => { v.currentDriverName = v.currentDriverId ? (dmap[v.currentDriverId] || '') : ''; });
+      return json({ vehicles });
+    }
+
+    if (path.startsWith('/vehicles/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const vehicle = await db.collection('vehicles').findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
+      if (!vehicle) return err('Vehicle not found', 404);
+      if (vehicle.currentDriverId) { const dr = await db.collection('drivers').findOne(tenantFilter(session, { id: vehicle.currentDriverId }), { projection: { _id: 0, name: 1 } }); vehicle.currentDriverName = dr ? dr.name : ''; }
+      return json({ vehicle });
+    }
+
+    if (path === '/drivers') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const drivers = await db.collection('drivers').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+      const vehIds = [...new Set(drivers.map((d) => d.assignedVehicleId).filter(Boolean))];
+      const vehs = vehIds.length ? await db.collection('vehicles').find(tenantFilter(session, { id: { $in: vehIds } }), { projection: { _id: 0, id: 1, vehicleNumber: 1 } }).toArray() : [];
+      const vmap = Object.fromEntries(vehs.map((v) => [v.id, v.vehicleNumber]));
+      drivers.forEach((d) => { d.assignedVehicleNumber = d.assignedVehicleId ? (vmap[d.assignedVehicleId] || '') : ''; });
+      return json({ drivers });
+    }
+
+    if (path.startsWith('/drivers/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const driver = await db.collection('drivers').findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
+      if (!driver) return err('Driver not found', 404);
+      return json({ driver });
     }
 
     return err('not found', 404);
@@ -996,6 +1122,47 @@ export async function POST(request, context) {
       return json({ booking: safe }, 201);
     }
 
+    // ---- Fleet: vehicles ----
+    if (path === '/vehicles') {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'fleet:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const { value, error } = validateVehicleInput(body);
+      if (error) return err(error);
+      let currentDriverId = str(body.currentDriverId, 80);
+      if (currentDriverId) { const dr = await db.collection('drivers').findOne(tenantFilter(session2, { id: currentDriverId })); if (!dr) currentDriverId = ''; }
+      const now = new Date().toISOString();
+      const doc = withAgency(session2, {
+        id: uuidv4(), ...value, currentDriverId,
+        latitude: value.latitude !== undefined ? value.latitude : null,
+        longitude: value.longitude !== undefined ? value.longitude : null,
+        lastLocationAt: value.lastLocationAt || '', locationSource: value.locationSource || '',
+        createdBy: session2.userId, createdAt: now, updatedAt: now,
+      });
+      await db.collection('vehicles').insertOne(doc);
+      if (currentDriverId) await syncVehicleDriver(db, session2, doc.id, currentDriverId, '');
+      const { _id, ...safe } = doc;
+      await logActivity(db, session2, { type: 'vehicle_created', message: `Vehicle ${safe.vehicleNumber} added`, refType: 'vehicle', refId: safe.id });
+      return json({ vehicle: safe }, 201);
+    }
+
+    // ---- Fleet: drivers ----
+    if (path === '/drivers') {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'fleet:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const { value, error } = validateDriverInput(body);
+      if (error) return err(error);
+      const now = new Date().toISOString();
+      const doc = withAgency(session2, { id: uuidv4(), ...value, assignedVehicleId: '', createdBy: session2.userId, createdAt: now, updatedAt: now });
+      await db.collection('drivers').insertOne(doc);
+      const { _id, ...safe } = doc;
+      await logActivity(db, session2, { type: 'driver_created', message: `Driver ${safe.name} added`, refType: 'driver', refId: safe.id });
+      return json({ driver: safe }, 201);
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -1219,6 +1386,24 @@ export async function PUT(request, context) {
       return json({ supplier });
     }
 
+    // ---- Booking: fleet assignment (vehicle/driver) — does not affect booking totals ----
+    if (path.startsWith('/bookings/') && path.endsWith('/assignment')) {
+      if (!can(session.role, 'fleet:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('bookings').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Booking not found', 404);
+      const body = await readBody(request);
+      let vehicleId = str(body.vehicleId, 80), driverId = str(body.driverId, 80);
+      if (vehicleId) { const v = await db.collection('vehicles').findOne(tenantFilter(session, { id: vehicleId })); if (!v) vehicleId = ''; }
+      if (driverId) { const d = await db.collection('drivers').findOne(tenantFilter(session, { id: driverId })); if (!d) driverId = ''; }
+      let assignmentStatus = String(body.assignmentStatus || '').toLowerCase();
+      if (!BOOKING_ASSIGNMENT_STATUSES.includes(assignmentStatus)) assignmentStatus = (vehicleId || driverId) ? 'assigned' : 'unassigned';
+      await db.collection('bookings').updateOne(tenantFilter(session, { id }), { $set: { vehicleId, driverId, assignmentStatus, updatedAt: new Date().toISOString() } });
+      await logActivity(db, session, { type: 'booking_assigned', message: `Fleet assignment updated for booking ${existing.bookingNumber}`, refType: 'booking', refId: id });
+      const booking = await db.collection('bookings').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ booking });
+    }
+
     // ---- Bookings: status change (specific) then full edit ----
     if (path.startsWith('/bookings/') && path.endsWith('/status')) {
       if (!can(session.role, 'bookings:update')) return err('forbidden', 403);
@@ -1267,6 +1452,74 @@ export async function PUT(request, context) {
       }
       const booking = await db.collection('bookings').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
       return json({ booking });
+    }
+
+    // ---- Fleet: vehicle status / driver assignment / vehicle edit ----
+    if (path.startsWith('/vehicles/') && path.endsWith('/status')) {
+      if (!can(session.role, 'fleet:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const { status } = await readBody(request);
+      if (!VEHICLE_STATUSES.includes(status)) return err('Invalid vehicle status');
+      const existing = await db.collection('vehicles').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Vehicle not found', 404);
+      await db.collection('vehicles').updateOne(tenantFilter(session, { id }), { $set: { status, updatedAt: new Date().toISOString() } });
+      const vehicle = await db.collection('vehicles').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ vehicle });
+    }
+
+    if (path.startsWith('/vehicles/') && path.endsWith('/driver')) {
+      if (!can(session.role, 'fleet:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('vehicles').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Vehicle not found', 404);
+      const body = await readBody(request);
+      let driverId = str(body.driverId, 80);
+      if (driverId) { const d = await db.collection('drivers').findOne(tenantFilter(session, { id: driverId })); if (!d) driverId = ''; }
+      await db.collection('vehicles').updateOne(tenantFilter(session, { id }), { $set: { currentDriverId: driverId, updatedAt: new Date().toISOString() } });
+      await syncVehicleDriver(db, session, id, driverId, existing.currentDriverId);
+      const vehicle = await db.collection('vehicles').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ vehicle });
+    }
+
+    if (path.startsWith('/vehicles/')) {
+      if (!can(session.role, 'fleet:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('vehicles').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Vehicle not found', 404);
+      const body = await readBody(request);
+      const { value, error } = validateVehicleInput(body);
+      if (error) return err(error);
+      let currentDriverId = str(body.currentDriverId, 80);
+      if (currentDriverId) { const dr = await db.collection('drivers').findOne(tenantFilter(session, { id: currentDriverId })); if (!dr) currentDriverId = ''; }
+      await db.collection('vehicles').updateOne(tenantFilter(session, { id }), { $set: { ...value, currentDriverId, updatedAt: new Date().toISOString() } });
+      if (currentDriverId !== (existing.currentDriverId || '')) await syncVehicleDriver(db, session, id, currentDriverId, existing.currentDriverId);
+      const vehicle = await db.collection('vehicles').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ vehicle });
+    }
+
+    if (path.startsWith('/drivers/') && path.endsWith('/status')) {
+      if (!can(session.role, 'fleet:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const { status } = await readBody(request);
+      if (!DRIVER_STATUSES.includes(status)) return err('Invalid driver status');
+      const existing = await db.collection('drivers').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Driver not found', 404);
+      await db.collection('drivers').updateOne(tenantFilter(session, { id }), { $set: { status, updatedAt: new Date().toISOString() } });
+      const driver = await db.collection('drivers').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ driver });
+    }
+
+    if (path.startsWith('/drivers/')) {
+      if (!can(session.role, 'fleet:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('drivers').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Driver not found', 404);
+      const body = await readBody(request);
+      const { value, error } = validateDriverInput(body);
+      if (error) return err(error);
+      await db.collection('drivers').updateOne(tenantFilter(session, { id }), { $set: { ...value, updatedAt: new Date().toISOString() } });
+      const driver = await db.collection('drivers').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ driver });
     }
 
     return err('not found', 404);

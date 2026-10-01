@@ -33,7 +33,7 @@ import {
   FileText, FilePlus, Copy, FileDown, MapPin,
   Package, Map, Clock, Utensils, Car, BedDouble,
   ChevronDown, ChevronUp, CalendarDays,
-  Store, Phone, Mail, ClipboardList, Wallet,
+  Store, Phone, Mail, ClipboardList, Wallet, Truck,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -215,6 +215,7 @@ const NAV = [
       { id: 'itineraries', label: 'Itineraries', icon: Map },
       { id: 'suppliers', label: 'Suppliers', icon: Store },
       { id: 'bookings', label: 'Bookings', icon: ClipboardList },
+      { id: 'fleet', label: 'Fleet', icon: Truck },
     ],
   },
   { id: 'team', label: 'Team', icon: Users },
@@ -228,6 +229,7 @@ const SECTION_TITLES = {
   packages: 'Packages', itineraries: 'Itineraries',
   suppliers: 'Suppliers',
   bookings: 'Bookings',
+  fleet: 'Fleet',
   team: 'Team', settings: 'Settings',
 };
 
@@ -329,6 +331,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'itineraries' && <Itineraries key="itin" session={session} />}
           {active === 'suppliers' && <Suppliers key="sup" session={session} />}
           {active === 'bookings' && <Bookings key="bk" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
+          {active === 'fleet' && <Fleet key="fleet" session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
         </div>
@@ -3583,6 +3586,395 @@ function Bookings({ session, navPayload, onConsumePayload }) {
   if (view === 'edit') return <BookingForm session={session} mode="edit" bookingId={selectedId} onDone={(b) => openDetail(b.id)} onCancel={() => openDetail(selectedId)} />;
   if (view === 'detail') return <BookingDetail session={session} bookingId={selectedId} onBack={() => setView('list')} onEdit={openEdit} />;
   return <BookingList session={session} onCreate={() => { setPrefill(null); setView('create'); }} onOpen={openDetail} />;
+}
+
+// ======================= FLEET & GPS FOUNDATION =======================
+
+const VEHICLE_TYPE_LABEL = { car: 'Car', suv: 'SUV', tempo_traveller: 'Tempo Traveller', bus: 'Bus', van: 'Van', other: 'Other' };
+const VEHICLE_TYPE_OPTIONS = Object.keys(VEHICLE_TYPE_LABEL);
+const VEHICLE_STATUS_META = {
+  available:   { label: 'Available',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  assigned:    { label: 'Assigned',    cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  in_transit:  { label: 'In Transit',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  maintenance: { label: 'Maintenance', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
+  inactive:    { label: 'Inactive',    cls: 'bg-muted text-muted-foreground border-border' },
+};
+const VEHICLE_STATUS_OPTIONS = Object.keys(VEHICLE_STATUS_META);
+const DRIVER_STATUS_META = {
+  available: { label: 'Available', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  assigned:  { label: 'Assigned',  cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  on_trip:   { label: 'On Trip',   cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  inactive:  { label: 'Inactive',  cls: 'bg-muted text-muted-foreground border-border' },
+};
+const DRIVER_STATUS_OPTIONS = Object.keys(DRIVER_STATUS_META);
+const ASSIGNMENT_STATUS_META = {
+  unassigned: { label: 'Unassigned', cls: 'bg-muted text-muted-foreground border-border' },
+  assigned:   { label: 'Assigned',   cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  in_transit: { label: 'In Transit', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  completed:  { label: 'Completed',  cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  cancelled:  { label: 'Cancelled',  cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+};
+const ASSIGNMENT_STATUS_OPTIONS = Object.keys(ASSIGNMENT_STATUS_META);
+function VehicleStatusBadge({ status }) { return <MetaBadge meta={VEHICLE_STATUS_META[status] || VEHICLE_STATUS_META.available} />; }
+function DriverStatusBadge({ status }) { return <MetaBadge meta={DRIVER_STATUS_META[status] || DRIVER_STATUS_META.available} />; }
+function vehicleLabel(v) { return v ? `${v.vehicleNumber}${v.model ? ` · ${v.make || ''} ${v.model}`.trim() : ''}` : ''; }
+
+// ----------------------------- FLEET OVERVIEW -----------------------------
+function FleetStatCard({ icon: Icon, label, value, tint }) {
+  return (<Card><CardContent className="flex items-center gap-3 p-4">
+    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${tint}`}><Icon className="h-5 w-5" /></div>
+    <div><div className="text-2xl font-bold leading-none">{value}</div><div className="mt-1 text-xs text-muted-foreground">{label}</div></div>
+  </CardContent></Card>);
+}
+function FleetOverview() {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { (async () => { setLoading(true); try { const d = await api('/fleet/stats'); setStats(d.stats); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, []);
+  if (loading) return <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-20 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+  const v = (stats && stats.vehicles) || {}; const d = (stats && stats.drivers) || {};
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="mb-2 text-sm font-semibold text-muted-foreground">Vehicles</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <FleetStatCard icon={Truck} label="Total vehicles" value={v.total || 0} tint="bg-violet-50 text-violet-600" />
+          <FleetStatCard icon={CheckCircle2} label="Available" value={v.available || 0} tint="bg-emerald-50 text-emerald-600" />
+          <FleetStatCard icon={Users} label="Assigned" value={v.assigned || 0} tint="bg-sky-50 text-sky-600" />
+          <FleetStatCard icon={MapPin} label="In transit" value={v.in_transit || 0} tint="bg-amber-50 text-amber-600" />
+          <FleetStatCard icon={X} label="Maintenance" value={v.maintenance || 0} tint="bg-orange-50 text-orange-600" />
+        </div>
+      </div>
+      <div>
+        <div className="mb-2 text-sm font-semibold text-muted-foreground">Drivers</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <FleetStatCard icon={Users} label="Total drivers" value={d.total || 0} tint="bg-violet-50 text-violet-600" />
+          <FleetStatCard icon={CheckCircle2} label="Available" value={d.available || 0} tint="bg-emerald-50 text-emerald-600" />
+          <FleetStatCard icon={ClipboardList} label="Assigned" value={d.assigned || 0} tint="bg-sky-50 text-sky-600" />
+          <FleetStatCard icon={MapPin} label="On trip" value={d.on_trip || 0} tint="bg-amber-50 text-amber-600" />
+        </div>
+      </div>
+      <Card><CardContent className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><MapPin className="h-6 w-6 text-muted-foreground" /></div>
+        <h3 className="font-semibold">Live map</h3>
+        <p className="max-w-sm text-sm text-muted-foreground">No live vehicle locations available. Real-time GPS tracking will be available in a future phase.</p>
+      </CardContent></Card>
+    </div>
+  );
+}
+
+// ----------------------------- VEHICLES -----------------------------
+function VehicleForm({ session, mode, vehicleId, onDone, onCancel }) {
+  const [form, setForm] = useState({ vehicleNumber: '', registrationNumber: '', vehicleType: 'car', make: '', model: '', year: 0, color: '', seatingCapacity: 0, fuelType: '', status: 'available', currentDriverId: '', notes: '' });
+  const [drivers, setDrivers] = useState([]);
+  const [loading, setLoading] = useState(mode === 'edit');
+  const [submitting, setSubmitting] = useState(false);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const setNum = (k) => (e) => setForm((f) => ({ ...f, [k]: Math.max(0, Math.floor(Number(e.target.value) || 0)) }));
+  useEffect(() => { (async () => { try { const d = await api('/drivers'); setDrivers(d.drivers || []); } catch { /* */ } })(); }, []);
+  useEffect(() => {
+    if (mode === 'edit' && vehicleId) {
+      (async () => { setLoading(true); try { const { vehicle: v } = await api(`/vehicles/${vehicleId}`);
+        setForm({ vehicleNumber: v.vehicleNumber || '', registrationNumber: v.registrationNumber || '', vehicleType: v.vehicleType || 'car', make: v.make || '', model: v.model || '', year: v.year || 0, color: v.color || '', seatingCapacity: v.seatingCapacity || 0, fuelType: v.fuelType || '', status: v.status || 'available', currentDriverId: v.currentDriverId || '', notes: v.notes || '' });
+      } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })();
+    }
+  }, [mode, vehicleId]);
+  const canSubmit = form.vehicleNumber.trim();
+  const submit = async () => {
+    if (!canSubmit) { toast.error('Vehicle number is required'); return; }
+    setSubmitting(true);
+    try {
+      const res = mode === 'edit' ? await api(`/vehicles/${vehicleId}`, { method: 'PUT', body: JSON.stringify(form) }) : await api('/vehicles', { method: 'POST', body: JSON.stringify(form) });
+      toast.success(mode === 'edit' ? 'Vehicle updated' : 'Vehicle added'); onDone(res.vehicle);
+    } catch (e) { toast.error(friendlyError(e)); } finally { setSubmitting(false); }
+  };
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+  return (
+    <div className="space-y-5 max-w-3xl">
+      <div className="flex items-start gap-3"><Button variant="ghost" size="icon" onClick={onCancel}><ArrowLeft className="h-4 w-4" /></Button>
+        <div><h2 className="text-xl font-bold">{mode === 'edit' ? 'Edit vehicle' : 'Add vehicle'}</h2><p className="text-sm text-muted-foreground">Register a vehicle in your fleet.</p></div></div>
+      <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+        <div className="space-y-1.5"><Label>Vehicle number</Label><Input value={form.vehicleNumber} placeholder="KA-01-AB-1234" onChange={set('vehicleNumber')} /></div>
+        <div className="space-y-1.5"><Label>Registration number</Label><Input value={form.registrationNumber} onChange={set('registrationNumber')} /></div>
+        <div className="space-y-1.5"><Label>Type</Label><Select value={form.vehicleType} onValueChange={(v) => setForm((f) => ({ ...f, vehicleType: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{VEHICLE_TYPE_OPTIONS.map((t) => <SelectItem key={t} value={t}>{VEHICLE_TYPE_LABEL[t]}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-1.5"><Label>Status</Label><Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{VEHICLE_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{VEHICLE_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-1.5"><Label>Make</Label><Input value={form.make} placeholder="Toyota" onChange={set('make')} /></div>
+        <div className="space-y-1.5"><Label>Model</Label><Input value={form.model} placeholder="Innova Crysta" onChange={set('model')} /></div>
+        <div className="space-y-1.5"><Label>Year</Label><Input type="number" min="0" value={form.year} onChange={setNum('year')} /></div>
+        <div className="space-y-1.5"><Label>Color</Label><Input value={form.color} onChange={set('color')} /></div>
+        <div className="space-y-1.5"><Label>Seating capacity</Label><Input type="number" min="0" value={form.seatingCapacity} onChange={setNum('seatingCapacity')} /></div>
+        <div className="space-y-1.5"><Label>Fuel type</Label><Input value={form.fuelType} placeholder="Diesel / Petrol / EV" onChange={set('fuelType')} /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Assigned driver</Label>
+          <Select value={form.currentDriverId || 'none'} onValueChange={(v) => setForm((f) => ({ ...f, currentDriverId: v === 'none' ? '' : v }))}>
+            <SelectTrigger><SelectValue placeholder="No driver" /></SelectTrigger>
+            <SelectContent><SelectItem value="none">No driver</SelectItem>{drivers.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}{d.phone ? ` · ${d.phone}` : ''}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Textarea rows={2} value={form.notes} onChange={set('notes')} /></div>
+      </CardContent></Card>
+      <div className="flex gap-2"><Button className="flex-1 sm:flex-none" onClick={submit} disabled={!canSubmit || submitting}>{submitting ? 'Saving…' : (mode === 'edit' ? 'Save changes' : 'Add vehicle')}</Button><Button variant="outline" onClick={onCancel}>Cancel</Button></div>
+    </div>
+  );
+}
+
+function VehicleDetail({ session, vehicleId, onBack, onEdit }) {
+  const role = session.user.role;
+  const canUpdate = can(role, 'fleet:update');
+  const [v, setV] = useState(null); const [loading, setLoading] = useState(true); const [drivers, setDrivers] = useState([]);
+  const load = async () => { setLoading(true); try { const d = await api(`/vehicles/${vehicleId}`); setV(d.vehicle); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, [vehicleId]);
+  useEffect(() => { (async () => { try { const d = await api('/drivers'); setDrivers(d.drivers || []); } catch { /* */ } })(); }, []);
+  const changeStatus = async (status) => { try { const d = await api(`/vehicles/${vehicleId}/status`, { method: 'PUT', body: JSON.stringify({ status }) }); setV((p) => ({ ...p, ...d.vehicle })); toast.success('Status updated'); } catch (e) { toast.error(friendlyError(e)); } };
+  const assignDriver = async (driverId) => { try { const d = await api(`/vehicles/${vehicleId}/driver`, { method: 'PUT', body: JSON.stringify({ driverId }) }); setV((p) => ({ ...p, ...d.vehicle, currentDriverName: (drivers.find((x) => x.id === driverId) || {}).name || '' })); toast.success(driverId ? 'Driver assigned' : 'Driver unassigned'); } catch (e) { toast.error(friendlyError(e)); } };
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+  if (!v) return <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Vehicle not found.</CardContent></Card>;
+  const hasLoc = v.latitude !== null && v.latitude !== undefined && v.longitude !== null && v.longitude !== undefined;
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3"><Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
+          <div><div className="flex items-center gap-2 flex-wrap"><h2 className="text-xl font-bold">{v.vehicleNumber}</h2><VehicleStatusBadge status={v.status} /></div>
+            <p className="text-sm text-muted-foreground"><Badge variant="outline" className="font-normal mr-1">{VEHICLE_TYPE_LABEL[v.vehicleType] || 'Other'}</Badge>{[v.make, v.model].filter(Boolean).join(' ')}</p></div></div>
+        {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(v.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
+      </div>
+      {canUpdate && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Status:</span>
+          <Select value={v.status} onValueChange={changeStatus}><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent>{VEHICLE_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{VEHICLE_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select>
+          <span className="ml-2 text-sm text-muted-foreground">Driver:</span>
+          <Select value={v.currentDriverId || 'none'} onValueChange={(val) => assignDriver(val === 'none' ? '' : val)}><SelectTrigger className="w-52"><SelectValue placeholder="No driver" /></SelectTrigger><SelectContent><SelectItem value="none">No driver</SelectItem>{drivers.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select>
+        </div>
+      )}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3"><CardContent className="p-5">
+          <PkgRow label="Type" value={VEHICLE_TYPE_LABEL[v.vehicleType] || 'Other'} />
+          <PkgRow label="Make / Model" value={[v.make, v.model].filter(Boolean).join(' ')} />
+          <PkgRow label="Year" value={v.year || ''} />
+          <PkgRow label="Color" value={v.color} />
+          <PkgRow label="Seating capacity" value={v.seatingCapacity || ''} />
+          <PkgRow label="Fuel type" value={v.fuelType} />
+          <PkgRow label="Registration" value={v.registrationNumber} />
+          <PkgRow label="Current driver" value={v.currentDriverName} />
+          <Separator className="my-2" /><PkgRow label="Created" value={formatJoined(v.createdAt)} /><PkgRow label="Updated" value={formatJoined(v.updatedAt)} />
+          {v.notes && (<><Separator className="my-2" /><div className="pt-1"><div className="text-sm text-muted-foreground mb-1">Notes</div><p className="text-sm whitespace-pre-wrap">{v.notes}</p></div></>)}
+        </CardContent></Card>
+        <Card className="lg:col-span-2"><CardContent className="p-5 space-y-2">
+          <div className="flex items-center gap-2 font-semibold"><MapPin className="h-4 w-4 text-violet-600" /> Location</div>
+          {hasLoc ? (<><PkgRow label="Latitude" value={String(v.latitude)} /><PkgRow label="Longitude" value={String(v.longitude)} /><PkgRow label="Source" value={v.locationSource} /><PkgRow label="Updated" value={formatJoined(v.lastLocationAt)} /></>)
+            : <p className="text-sm text-muted-foreground">No location set. GPS tracking will be available in a future phase.</p>}
+        </CardContent></Card>
+      </div>
+    </div>
+  );
+}
+
+function VehiclesPane({ session }) {
+  const [view, setView] = useState('list'); const [sel, setSel] = useState(null);
+  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState(''); const [statusFilter, setStatusFilter] = useState('all'); const [typeFilter, setTypeFilter] = useState('all');
+  const canCreate = can(session.user.role, 'fleet:create');
+  const load = async () => { setLoading(true); try { const d = await api('/vehicles'); setRows(d.vehicles || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { if (view === 'list') load(); }, [view]);
+  if (view === 'create') return <VehicleForm session={session} mode="create" onDone={() => setView('list')} onCancel={() => setView('list')} />;
+  if (view === 'edit') return <VehicleForm session={session} mode="edit" vehicleId={sel} onDone={() => { setView('detail'); }} onCancel={() => setView('detail')} />;
+  if (view === 'detail') return <VehicleDetail session={session} vehicleId={sel} onBack={() => setView('list')} onEdit={(id) => { setSel(id); setView('edit'); }} />;
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter((r) => {
+    const mq = !q || [r.vehicleNumber, r.make, r.model, r.currentDriverName].some((f) => String(f || '').toLowerCase().includes(q));
+    const ms = statusFilter === 'all' || r.status === statusFilter; const mt = typeFilter === 'all' || r.vehicleType === typeFilter;
+    return mq && ms && mt;
+  });
+  const isEmpty = !loading && rows.length === 0;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-1 flex-col gap-2 sm:flex-row">
+          {!isEmpty && (<><div className="relative sm:max-w-xs sm:flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search vehicle / driver" className="pl-9" /></div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="sm:w-40"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{VEHICLE_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{VEHICLE_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select>
+            <Select value={typeFilter} onValueChange={setTypeFilter}><SelectTrigger className="sm:w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All types</SelectItem>{VEHICLE_TYPE_OPTIONS.map((t) => <SelectItem key={t} value={t}>{VEHICLE_TYPE_LABEL[t]}</SelectItem>)}</SelectContent></Select></>)}
+        </div>
+        {canCreate && !isEmpty && <Button onClick={() => setView('create')}><Plus className="h-4 w-4 mr-1.5" /> Add vehicle</Button>}
+      </div>
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+      {isEmpty && (<Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Truck className="h-6 w-6 text-muted-foreground" /></div><div className="space-y-1"><h3 className="font-semibold">No vehicles yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Add the vehicles in your fleet to track availability and assignments.</p></div>{canCreate && <Button onClick={() => setView('create')}><Plus className="h-4 w-4 mr-1.5" /> Add vehicle</Button>}</CardContent></Card>)}
+      {!loading && rows.length > 0 && filtered.length === 0 && <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No vehicles match your filters.</CardContent></Card>}
+      {!loading && filtered.length > 0 && (<>
+        <Card className="hidden md:block overflow-hidden"><Table>
+          <TableHeader><TableRow><TableHead>Vehicle</TableHead><TableHead>Type</TableHead><TableHead>Make/Model</TableHead><TableHead className="text-right">Seats</TableHead><TableHead>Driver</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+          <TableBody>{filtered.map((r) => (<TableRow key={r.id} className="cursor-pointer" onClick={() => { setSel(r.id); setView('detail'); }}>
+            <TableCell className="font-medium">{r.vehicleNumber}</TableCell><TableCell><Badge variant="outline" className="font-normal">{VEHICLE_TYPE_LABEL[r.vehicleType] || 'Other'}</Badge></TableCell>
+            <TableCell className="text-muted-foreground">{[r.make, r.model].filter(Boolean).join(' ') || '—'}</TableCell><TableCell className="text-right text-muted-foreground">{r.seatingCapacity || '—'}</TableCell>
+            <TableCell className="text-muted-foreground">{r.currentDriverName || '—'}</TableCell><TableCell><VehicleStatusBadge status={r.status} /></TableCell>
+          </TableRow>))}</TableBody></Table></Card>
+        <div className="space-y-3 md:hidden">{filtered.map((r) => (<Card key={r.id} className="cursor-pointer" onClick={() => { setSel(r.id); setView('detail'); }}><CardContent className="space-y-2 p-4">
+          <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate font-semibold">{r.vehicleNumber}</div><div className="truncate text-sm text-muted-foreground">{VEHICLE_TYPE_LABEL[r.vehicleType]} · {[r.make, r.model].filter(Boolean).join(' ')}</div></div><VehicleStatusBadge status={r.status} /></div>
+          <div className="flex justify-between border-t pt-2 text-sm text-muted-foreground"><span>{r.currentDriverName || 'No driver'}</span><span>{r.seatingCapacity ? `${r.seatingCapacity} seats` : ''}</span></div>
+        </CardContent></Card>))}</div>
+      </>)}
+    </div>
+  );
+}
+
+// ----------------------------- DRIVERS -----------------------------
+function DriverForm({ session, mode, driverId, onDone, onCancel }) {
+  const [form, setForm] = useState({ name: '', phone: '', email: '', licenseNumber: '', licenseExpiry: '', status: 'available', notes: '' });
+  const [loading, setLoading] = useState(mode === 'edit'); const [submitting, setSubmitting] = useState(false);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  useEffect(() => { if (mode === 'edit' && driverId) { (async () => { setLoading(true); try { const { driver: d } = await api(`/drivers/${driverId}`); setForm({ name: d.name || '', phone: d.phone || '', email: d.email || '', licenseNumber: d.licenseNumber || '', licenseExpiry: d.licenseExpiry || '', status: d.status || 'available', notes: d.notes || '' }); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); } }, [mode, driverId]);
+  const canSubmit = form.name.trim();
+  const submit = async () => { if (!canSubmit) { toast.error('Driver name is required'); return; } setSubmitting(true); try { const res = mode === 'edit' ? await api(`/drivers/${driverId}`, { method: 'PUT', body: JSON.stringify(form) }) : await api('/drivers', { method: 'POST', body: JSON.stringify(form) }); toast.success(mode === 'edit' ? 'Driver updated' : 'Driver added'); onDone(res.driver); } catch (e) { toast.error(friendlyError(e)); } finally { setSubmitting(false); } };
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+  return (
+    <div className="space-y-5 max-w-2xl">
+      <div className="flex items-start gap-3"><Button variant="ghost" size="icon" onClick={onCancel}><ArrowLeft className="h-4 w-4" /></Button><div><h2 className="text-xl font-bold">{mode === 'edit' ? 'Edit driver' : 'Add driver'}</h2><p className="text-sm text-muted-foreground">Register a driver in your fleet.</p></div></div>
+      <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+        <div className="space-y-1.5 sm:col-span-2"><Label>Driver name</Label><Input value={form.name} onChange={set('name')} /></div>
+        <div className="space-y-1.5"><Label>Phone</Label><Input value={form.phone} onChange={set('phone')} /></div>
+        <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={set('email')} /></div>
+        <div className="space-y-1.5"><Label>License number</Label><Input value={form.licenseNumber} onChange={set('licenseNumber')} /></div>
+        <div className="space-y-1.5"><Label>License expiry</Label><Input type="date" value={form.licenseExpiry} onChange={set('licenseExpiry')} /></div>
+        <div className="space-y-1.5"><Label>Status</Label><Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DRIVER_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{DRIVER_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Textarea rows={2} value={form.notes} onChange={set('notes')} /></div>
+      </CardContent></Card>
+      <div className="flex gap-2"><Button className="flex-1 sm:flex-none" onClick={submit} disabled={!canSubmit || submitting}>{submitting ? 'Saving…' : (mode === 'edit' ? 'Save changes' : 'Add driver')}</Button><Button variant="outline" onClick={onCancel}>Cancel</Button></div>
+    </div>
+  );
+}
+
+function DriverDetail({ session, driverId, onBack, onEdit }) {
+  const canUpdate = can(session.user.role, 'fleet:update');
+  const [d, setD] = useState(null); const [loading, setLoading] = useState(true);
+  const load = async () => { setLoading(true); try { const r = await api(`/drivers/${driverId}`); setD(r.driver); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, [driverId]);
+  const changeStatus = async (status) => { try { const r = await api(`/drivers/${driverId}/status`, { method: 'PUT', body: JSON.stringify({ status }) }); setD((p) => ({ ...p, ...r.driver })); toast.success('Status updated'); } catch (e) { toast.error(friendlyError(e)); } };
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+  if (!d) return <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Driver not found.</CardContent></Card>;
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3"><Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex items-center gap-2 flex-wrap"><h2 className="text-xl font-bold">{d.name}</h2><DriverStatusBadge status={d.status} /></div><p className="text-sm text-muted-foreground">{d.phone || 'No phone'}</p></div></div>
+        {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(d.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
+      </div>
+      {canUpdate && (<div className="flex flex-wrap items-center gap-2"><span className="text-sm text-muted-foreground">Status:</span><Select value={d.status} onValueChange={changeStatus}><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent>{DRIVER_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{DRIVER_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select></div>)}
+      <Card><CardContent className="p-5">
+        <PkgRow label="Phone" value={d.phone} /><PkgRow label="Email" value={d.email} />
+        <PkgRow label="License number" value={d.licenseNumber} /><PkgRow label="License expiry" value={d.licenseExpiry ? formatJoined(d.licenseExpiry) : ''} />
+        <PkgRow label="Assigned vehicle" value={d.assignedVehicleNumber} />
+        <Separator className="my-2" /><PkgRow label="Created" value={formatJoined(d.createdAt)} /><PkgRow label="Updated" value={formatJoined(d.updatedAt)} />
+        {d.notes && (<><Separator className="my-2" /><div className="pt-1"><div className="text-sm text-muted-foreground mb-1">Notes</div><p className="text-sm whitespace-pre-wrap">{d.notes}</p></div></>)}
+      </CardContent></Card>
+    </div>
+  );
+}
+
+function DriversPane({ session }) {
+  const [view, setView] = useState('list'); const [sel, setSel] = useState(null);
+  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [query, setQuery] = useState(''); const [statusFilter, setStatusFilter] = useState('all');
+  const canCreate = can(session.user.role, 'fleet:create');
+  const load = async () => { setLoading(true); try { const d = await api('/drivers'); setRows(d.drivers || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { if (view === 'list') load(); }, [view]);
+  if (view === 'create') return <DriverForm session={session} mode="create" onDone={() => setView('list')} onCancel={() => setView('list')} />;
+  if (view === 'edit') return <DriverForm session={session} mode="edit" driverId={sel} onDone={() => setView('detail')} onCancel={() => setView('detail')} />;
+  if (view === 'detail') return <DriverDetail session={session} driverId={sel} onBack={() => setView('list')} onEdit={(id) => { setSel(id); setView('edit'); }} />;
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter((r) => { const mq = !q || [r.name, r.phone, r.licenseNumber, r.email].some((f) => String(f || '').toLowerCase().includes(q)); const ms = statusFilter === 'all' || r.status === statusFilter; return mq && ms; });
+  const isEmpty = !loading && rows.length === 0;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-1 flex-col gap-2 sm:flex-row">{!isEmpty && (<><div className="relative sm:max-w-xs sm:flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search driver / phone / license" className="pl-9" /></div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="sm:w-40"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{DRIVER_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{DRIVER_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select></>)}</div>
+        {canCreate && !isEmpty && <Button onClick={() => setView('create')}><Plus className="h-4 w-4 mr-1.5" /> Add driver</Button>}
+      </div>
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+      {isEmpty && (<Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Users className="h-6 w-6 text-muted-foreground" /></div><div className="space-y-1"><h3 className="font-semibold">No drivers yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Add drivers to assign them to vehicles and trips.</p></div>{canCreate && <Button onClick={() => setView('create')}><Plus className="h-4 w-4 mr-1.5" /> Add driver</Button>}</CardContent></Card>)}
+      {!loading && rows.length > 0 && filtered.length === 0 && <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No drivers match your filters.</CardContent></Card>}
+      {!loading && filtered.length > 0 && (<>
+        <Card className="hidden md:block overflow-hidden"><Table>
+          <TableHeader><TableRow><TableHead>Driver</TableHead><TableHead>Phone</TableHead><TableHead>License</TableHead><TableHead>Expiry</TableHead><TableHead>Vehicle</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+          <TableBody>{filtered.map((r) => (<TableRow key={r.id} className="cursor-pointer" onClick={() => { setSel(r.id); setView('detail'); }}>
+            <TableCell className="font-medium">{r.name}</TableCell><TableCell className="text-muted-foreground">{r.phone || '—'}</TableCell><TableCell className="text-muted-foreground">{r.licenseNumber || '—'}</TableCell>
+            <TableCell className="text-muted-foreground">{r.licenseExpiry ? formatJoined(r.licenseExpiry) : '—'}</TableCell><TableCell className="text-muted-foreground">{r.assignedVehicleNumber || '—'}</TableCell><TableCell><DriverStatusBadge status={r.status} /></TableCell>
+          </TableRow>))}</TableBody></Table></Card>
+        <div className="space-y-3 md:hidden">{filtered.map((r) => (<Card key={r.id} className="cursor-pointer" onClick={() => { setSel(r.id); setView('detail'); }}><CardContent className="space-y-2 p-4">
+          <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate font-semibold">{r.name}</div><div className="truncate text-sm text-muted-foreground">{r.phone || 'No phone'}</div></div><DriverStatusBadge status={r.status} /></div>
+          <div className="flex justify-between border-t pt-2 text-sm text-muted-foreground"><span>{r.licenseNumber || 'No license'}</span><span>{r.assignedVehicleNumber || 'No vehicle'}</span></div>
+        </CardContent></Card>))}</div>
+      </>)}
+    </div>
+  );
+}
+
+// ----------------------------- ASSIGNMENTS -----------------------------
+function AssignmentRow({ booking, vehicles, drivers, canUpdate, onSaved }) {
+  const [vehicleId, setVehicleId] = useState(booking.vehicleId || '');
+  const [driverId, setDriverId] = useState(booking.driverId || '');
+  const [status, setStatus] = useState(booking.assignmentStatus || 'unassigned');
+  const [saving, setSaving] = useState(false);
+  const dirty = (booking.vehicleId || '') !== vehicleId || (booking.driverId || '') !== driverId || (booking.assignmentStatus || 'unassigned') !== status;
+  const save = async () => { setSaving(true); try { const d = await api(`/bookings/${booking.id}/assignment`, { method: 'PUT', body: JSON.stringify({ vehicleId, driverId, assignmentStatus: status }) }); toast.success('Assignment saved'); onSaved && onSaved(d.booking); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
+  return (
+    <Card><CardContent className="space-y-3 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0"><div className="font-semibold">{booking.bookingNumber}</div><div className="truncate text-sm text-muted-foreground">{booking.customerName} · {booking.destination}</div><div className="text-xs text-muted-foreground">{travelDates(booking)}</div></div>
+        <MetaBadge meta={ASSIGNMENT_STATUS_META[status] || ASSIGNMENT_STATUS_META.unassigned} />
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <div className="space-y-1"><Label className="text-xs text-muted-foreground">Vehicle</Label>
+          <Select value={vehicleId || 'none'} onValueChange={(v) => setVehicleId(v === 'none' ? '' : v)} disabled={!canUpdate}><SelectTrigger className="h-9"><SelectValue placeholder="No vehicle" /></SelectTrigger><SelectContent><SelectItem value="none">No vehicle</SelectItem>{vehicles.map((v) => <SelectItem key={v.id} value={v.id}>{vehicleLabel(v)}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-1"><Label className="text-xs text-muted-foreground">Driver</Label>
+          <Select value={driverId || 'none'} onValueChange={(v) => setDriverId(v === 'none' ? '' : v)} disabled={!canUpdate}><SelectTrigger className="h-9"><SelectValue placeholder="No driver" /></SelectTrigger><SelectContent><SelectItem value="none">No driver</SelectItem>{drivers.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-1"><Label className="text-xs text-muted-foreground">Status</Label>
+          <Select value={status} onValueChange={setStatus} disabled={!canUpdate}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{ASSIGNMENT_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{ASSIGNMENT_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select></div>
+      </div>
+      {canUpdate && <div className="flex justify-end"><Button size="sm" onClick={save} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save assignment'}</Button></div>}
+    </CardContent></Card>
+  );
+}
+
+function AssignmentsPane({ session }) {
+  const canUpdate = can(session.user.role, 'fleet:update');
+  const [bookings, setBookings] = useState([]); const [vehicles, setVehicles] = useState([]); const [drivers, setDrivers] = useState([]);
+  const [loading, setLoading] = useState(true); const [query, setQuery] = useState('');
+  useEffect(() => { (async () => { setLoading(true); try { const [b, v, d] = await Promise.all([api('/bookings'), api('/vehicles'), api('/drivers')]); setBookings(b.bookings || []); setVehicles(v.vehicles || []); setDrivers(d.drivers || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, []);
+  const q = query.trim().toLowerCase();
+  const filtered = bookings.filter((b) => b.status !== 'cancelled' && (!q || [b.bookingNumber, b.customerName, b.destination].some((f) => String(f || '').toLowerCase().includes(q))));
+  const isEmpty = !loading && bookings.length === 0;
+  const onSaved = (updated) => setBookings((xs) => xs.map((x) => x.id === updated.id ? { ...x, ...updated } : x));
+  return (
+    <div className="space-y-4">
+      {!isEmpty && !loading && <div className="relative sm:max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search booking / customer" className="pl-9" /></div>}
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-28 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+      {isEmpty && (<Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><ClipboardList className="h-6 w-6 text-muted-foreground" /></div><div className="space-y-1"><h3 className="font-semibold">No bookings to assign</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Create bookings first, then assign vehicles and drivers to them here.</p></div></CardContent></Card>)}
+      {!loading && bookings.length > 0 && filtered.length === 0 && <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No bookings match your search.</CardContent></Card>}
+      {!loading && filtered.length > 0 && <div className="grid gap-3 lg:grid-cols-2">{filtered.map((b) => <AssignmentRow key={b.id} booking={b} vehicles={vehicles} drivers={drivers} canUpdate={canUpdate} onSaved={onSaved} />)}</div>}
+    </div>
+  );
+}
+
+// ----------------------------- FLEET WORKSPACE -----------------------------
+function Fleet({ session }) {
+  const [tab, setTab] = useState('overview');
+  const tabs = [
+    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { id: 'vehicles', label: 'Vehicles', icon: Truck },
+    { id: 'drivers', label: 'Drivers', icon: Users },
+    { id: 'assignments', label: 'Assignments', icon: ClipboardList },
+  ];
+  return (
+    <div className="space-y-5">
+      <div><h2 className="text-xl font-bold">Fleet</h2><p className="text-sm text-muted-foreground">Vehicles, drivers and trip assignments for your agency.</p></div>
+      <div className="flex gap-1 overflow-x-auto rounded-lg border bg-muted/40 p-1">
+        {tabs.map((t) => { const Icon = t.icon; const active = tab === t.id; return (
+          <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition ${active ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+            <Icon className="h-4 w-4" /> {t.label}
+          </button>); })}
+      </div>
+      {tab === 'overview' && <FleetOverview />}
+      {tab === 'vehicles' && <VehiclesPane session={session} />}
+      {tab === 'drivers' && <DriversPane session={session} />}
+      {tab === 'assignments' && <AssignmentsPane session={session} />}
+    </div>
+  );
 }
 
 function Settings({ session }) {
