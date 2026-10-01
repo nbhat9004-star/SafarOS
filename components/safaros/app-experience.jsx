@@ -33,7 +33,7 @@ import {
   FileText, FilePlus, Copy, FileDown, MapPin,
   Package, Map, Clock, Utensils, Car, BedDouble,
   ChevronDown, ChevronUp, CalendarDays,
-  Store, Phone, Mail,
+  Store, Phone, Mail, ClipboardList, Wallet,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -214,6 +214,7 @@ const NAV = [
       { id: 'packages', label: 'Packages', icon: Package },
       { id: 'itineraries', label: 'Itineraries', icon: Map },
       { id: 'suppliers', label: 'Suppliers', icon: Store },
+      { id: 'bookings', label: 'Bookings', icon: ClipboardList },
     ],
   },
   { id: 'team', label: 'Team', icon: Users },
@@ -226,6 +227,7 @@ const SECTION_TITLES = {
   quotations: 'Quotations', 'quote-create': 'Create Quotation',
   packages: 'Packages', itineraries: 'Itineraries',
   suppliers: 'Suppliers',
+  bookings: 'Bookings',
   team: 'Team', settings: 'Settings',
 };
 
@@ -326,6 +328,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'packages' && <Packages key="pkg" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'itineraries' && <Itineraries key="itin" session={session} />}
           {active === 'suppliers' && <Suppliers key="sup" session={session} />}
+          {active === 'bookings' && <Bookings key="bk" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
         </div>
@@ -1924,6 +1927,7 @@ function QuotationDetail({ session, quotationId, onBack, onEdit, onChanged, onNa
   const canDelete = can(role, 'quotations:delete');
   const canCreate = can(role, 'quotations:create');
   const canCreatePackage = can(role, 'packages:create');
+  const canCreateBooking = can(role, 'bookings:create');
 
   const load = async () => { setLoading(true); try { const d = await api(`/quotations/${quotationId}`); setQ(d.quotation); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
   useEffect(() => { load(); }, [quotationId]);
@@ -1949,6 +1953,7 @@ function QuotationDetail({ session, quotationId, onBack, onEdit, onChanged, onNa
           {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(q.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
           {canCreate && <Button variant="outline" size="sm" onClick={duplicate}><Copy className="h-4 w-4 mr-1" /> Duplicate</Button>}
           {canCreatePackage && onNavigate && <Button variant="outline" size="sm" onClick={() => onNavigate('packages', { createFromQuotation: q })}><Package className="h-4 w-4 mr-1" /> Create package</Button>}
+          {canCreateBooking && onNavigate && <Button variant="outline" size="sm" onClick={() => onNavigate('bookings', { convertToBooking: q })}><CheckCircle2 className="h-4 w-4 mr-1" /> Convert to Booking</Button>}
           <Button variant="outline" size="sm" disabled title="Available in a later phase"><FileDown className="h-4 w-4 mr-1" /> PDF (soon)</Button>
           {canDelete && q.status === 'draft' && <Button variant="outline" size="sm" onClick={remove}><Trash2 className="h-4 w-4 mr-1 text-destructive" /> Delete</Button>}
         </div>
@@ -3104,6 +3109,480 @@ function Suppliers({ session }) {
   if (view === 'edit') return <SupplierForm session={session} mode="edit" supplierId={selectedId} onDone={(s) => openDetail(s.id)} onCancel={() => openDetail(selectedId)} />;
   if (view === 'detail') return <SupplierDetail session={session} supplierId={selectedId} onBack={() => setView('list')} onEdit={openEdit} />;
   return <SupplierList session={session} onCreate={() => setView('create')} onOpen={openDetail} />;
+}
+
+// ======================= BOOKINGS =======================
+
+const BOOKING_STATUS_META = {
+  draft:       { label: 'Draft',       cls: 'bg-muted text-muted-foreground border-border' },
+  confirmed:   { label: 'Confirmed',   cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  in_progress: { label: 'In Progress', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  completed:   { label: 'Completed',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  cancelled:   { label: 'Cancelled',   cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+};
+const BOOKING_STATUS_OPTIONS = Object.keys(BOOKING_STATUS_META);
+function BookingStatusBadge({ status }) { return <MetaBadge meta={BOOKING_STATUS_META[status] || BOOKING_STATUS_META.draft} />; }
+
+const BK_SERVICE_TYPES = ['hotel', 'houseboat', 'transport', 'activity', 'guide', 'restaurant', 'other'];
+const BK_SERVICE_TYPE_LABEL = { hotel: 'Hotel', houseboat: 'Houseboat', transport: 'Transport', activity: 'Activity', guide: 'Guide', restaurant: 'Restaurant', other: 'Other' };
+const BK_SERVICE_STATUS_META = {
+  pending:   { label: 'Pending',   cls: 'bg-muted text-muted-foreground border-border' },
+  confirmed: { label: 'Confirmed', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  completed: { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  cancelled: { label: 'Cancelled', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+};
+const BK_SERVICE_STATUS_OPTIONS = Object.keys(BK_SERVICE_STATUS_META);
+
+function bkRound(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
+function blankService() { return { id: 'sv' + Math.random().toString(36).slice(2), type: 'hotel', description: '', supplierId: '', supplierName: '', quantity: 1, unitPrice: 0, status: 'pending', notes: '' }; }
+function calcBookingTotals(items, discountType, discountValue, taxPercent, internalCost) {
+  const subtotal = bkRound((items || []).reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0));
+  let discAmt = discountType === 'percent' ? subtotal * Math.min(Number(discountValue) || 0, 100) / 100 : (Number(discountValue) || 0);
+  discAmt = bkRound(Math.min(discAmt, subtotal));
+  const taxable = Math.max(0, bkRound(subtotal - discAmt));
+  const taxAmt = bkRound(taxable * Math.min(Number(taxPercent) || 0, 100) / 100);
+  const grand = bkRound(taxable + taxAmt);
+  const profit = bkRound(taxable - (Number(internalCost) || 0));
+  return { subtotal, discAmt, taxable, taxAmt, grand, profit };
+}
+
+function FinRow({ label, value, strong }) {
+  return (<div className={`flex items-center justify-between ${strong ? 'py-1.5 text-base font-semibold' : 'py-1 text-sm'}`}><span className={strong ? '' : 'text-muted-foreground'}>{label}</span><span>{value}</span></div>);
+}
+
+// Lightweight pickers (reuse existing collections; no duplicate data)
+function PackagePicker({ value, onChange }) {
+  const [opts, setOpts] = useState([]);
+  useEffect(() => { (async () => { try { const d = await api('/packages'); setOpts(d.packages || []); } catch { /* */ } })(); }, []);
+  return (<Select value={value || 'none'} onValueChange={(v) => onChange(v === 'none' ? '' : v)}>
+    <SelectTrigger><SelectValue placeholder="No package" /></SelectTrigger>
+    <SelectContent><SelectItem value="none">No package</SelectItem>{opts.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}</SelectContent>
+  </Select>);
+}
+function ItineraryPicker({ value, onChange }) {
+  const [opts, setOpts] = useState([]);
+  useEffect(() => { (async () => { try { const d = await api('/itineraries'); setOpts(d.itineraries || []); } catch { /* */ } })(); }, []);
+  return (<Select value={value || 'none'} onValueChange={(v) => onChange(v === 'none' ? '' : v)}>
+    <SelectTrigger><SelectValue placeholder="No itinerary" /></SelectTrigger>
+    <SelectContent><SelectItem value="none">No itinerary</SelectItem>{opts.map((o) => <SelectItem key={o.id} value={o.id}>{o.title}</SelectItem>)}</SelectContent>
+  </Select>);
+}
+
+// ----------------------------- BOOKING LIST -----------------------------
+function BookingList({ session, onCreate, onOpen }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const canCreate = can(session.user.role, 'bookings:create');
+  useEffect(() => { (async () => { setLoading(true); try { const d = await api('/bookings'); setRows(d.bookings || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, []);
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter((r) => {
+    const mq = !q || [r.bookingNumber, r.customerName, r.destination].some((f) => String(f || '').toLowerCase().includes(q));
+    const ms = statusFilter === 'all' || r.status === statusFilter;
+    return mq && ms;
+  });
+  const isEmpty = !loading && rows.length === 0;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-xl font-bold">Bookings</h2><p className="text-sm text-muted-foreground">Confirmed travel arrangements, service items and totals.</p></div>
+        {canCreate && !isEmpty && <Button onClick={onCreate} className="w-full sm:w-auto"><Plus className="h-4 w-4 mr-1.5" /> Create booking</Button>}
+      </div>
+
+      {!isEmpty && !loading && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative sm:max-w-sm sm:flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search booking no., customer or destination" className="pl-9" />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="sm:w-44"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger>
+            <SelectContent><SelectItem value="all">All statuses</SelectItem>{BOOKING_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{BOOKING_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {loading && <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />)}</div>}
+
+      {isEmpty && (
+        <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><ClipboardList className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="space-y-1"><h3 className="font-semibold">No bookings yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Create a booking from scratch, or convert an approved quotation into a booking.</p></div>
+          {canCreate && <Button onClick={onCreate}><Plus className="h-4 w-4 mr-1.5" /> Create booking</Button>}
+        </CardContent></Card>
+      )}
+
+      {!loading && rows.length > 0 && filtered.length === 0 && (
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No bookings match your filters.</CardContent></Card>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <>
+          <Card className="hidden md:block overflow-hidden">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Booking</TableHead><TableHead>Customer</TableHead><TableHead>Destination</TableHead>
+                <TableHead>Travel dates</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Total</TableHead><TableHead>Created</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.id} className="cursor-pointer" onClick={() => onOpen(r.id)}>
+                    <TableCell className="font-medium">{r.bookingNumber}</TableCell>
+                    <TableCell>{r.customerName}</TableCell>
+                    <TableCell className="text-muted-foreground">{r.destination}</TableCell>
+                    <TableCell className="text-muted-foreground">{travelDates(r)}</TableCell>
+                    <TableCell><BookingStatusBadge status={r.status} /></TableCell>
+                    <TableCell className="text-right font-medium">{money(r.grandTotal)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatJoined(r.createdAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+          <div className="space-y-3 md:hidden">
+            {filtered.map((r) => (
+              <Card key={r.id} className="cursor-pointer" onClick={() => onOpen(r.id)}><CardContent className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><div className="truncate font-semibold">{r.bookingNumber}</div><div className="truncate text-sm text-muted-foreground">{r.customerName} · {r.destination}</div></div>
+                  <BookingStatusBadge status={r.status} />
+                </div>
+                <div className="flex items-center justify-between border-t pt-3 text-sm">
+                  <span className="text-muted-foreground">{travelDates(r)}</span>
+                  <span className="font-semibold">{money(r.grandTotal)}</span>
+                </div>
+              </CardContent></Card>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ----------------------------- BOOKING FORM -----------------------------
+function BookingForm({ session, mode, bookingId, prefill, onDone, onCancel }) {
+  const [customer, setCustomer] = useState({ customerType: '', customerId: '', customerName: '' });
+  const [form, setForm] = useState({ destination: '', startDate: '', endDate: '', adults: 0, children: 0, nights: 0, quotationId: '', quotationNumber: '', packageId: '', itineraryId: '', notes: '', discountType: 'fixed', discountValue: 0, taxPercent: 0, internalCost: 0 });
+  const [items, setItems] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [loading, setLoading] = useState(mode === 'edit');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => { (async () => { try { const d = await api('/suppliers'); setSuppliers((d.suppliers || []).filter((s) => s.status === 'active')); } catch { /* */ } })(); }, []);
+
+  useEffect(() => {
+    if (mode === 'edit' && bookingId) {
+      (async () => { setLoading(true); try {
+        const { booking: b } = await api(`/bookings/${bookingId}`);
+        setCustomer({ customerType: b.customerType, customerId: b.customerId, customerName: b.customerName });
+        setForm({
+          destination: b.destination || '', startDate: b.startDate || '', endDate: b.endDate || '',
+          adults: b.adults || 0, children: b.children || 0, nights: b.nights || 0,
+          quotationId: b.quotationId || '', quotationNumber: b.quotationNumber || '', packageId: b.packageId || '', itineraryId: b.itineraryId || '',
+          notes: b.notes || '', discountType: (b.discount && b.discount.type) || 'fixed', discountValue: (b.discount && b.discount.value) || 0,
+          taxPercent: (b.tax && b.tax.percent) || 0, internalCost: b.internalCost || 0,
+        });
+        setItems((b.serviceItems || []).map((s) => ({ ...blankService(), ...s })));
+      } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })();
+    } else if (prefill) {
+      const q = prefill;
+      setCustomer({ customerType: q.customerType, customerId: q.customerId, customerName: q.customerName });
+      setForm((f) => ({
+        ...f, destination: q.destination || '', startDate: q.startDate || '', endDate: q.endDate || '',
+        adults: q.adults || 0, children: q.children || 0, nights: q.nights || 0,
+        quotationId: q.id || '', quotationNumber: q.quotationNumber || '',
+        discountType: (q.discount && q.discount.type) || 'fixed', discountValue: (q.discount && q.discount.value) || 0,
+        taxPercent: (q.tax && q.tax.percent) || 0, internalCost: q.internalCost || 0,
+      }));
+      setItems((q.items || []).map((it) => ({
+        ...blankService(),
+        type: BK_SERVICE_TYPES.includes(String(it.category || '').toLowerCase()) ? String(it.category).toLowerCase() : 'other',
+        description: it.description || it.category || '', quantity: it.quantity || 1, unitPrice: it.sellingPrice || 0,
+      })));
+    }
+  }, [mode, bookingId]);
+
+  const totals = calcBookingTotals(items, form.discountType, form.discountValue, form.taxPercent, form.internalCost);
+  const canSubmit = customer.customerId && form.destination.trim();
+  const setNum = (k) => (e) => setForm((f) => ({ ...f, [k]: Math.max(0, Number(e.target.value) || 0) }));
+  const setItem = (id, patch) => setItems((xs) => xs.map((x) => x.id === id ? { ...x, ...patch } : x));
+
+  const submit = async () => {
+    if (!canSubmit) { toast.error('Customer and destination are required'); return; }
+    setSubmitting(true);
+    try {
+      const body = {
+        customerType: customer.customerType, customerId: customer.customerId,
+        destination: form.destination, startDate: form.startDate, endDate: form.endDate,
+        adults: form.adults, children: form.children, nights: form.nights,
+        quotationId: form.quotationId, packageId: form.packageId, itineraryId: form.itineraryId, notes: form.notes,
+        discount: { type: form.discountType, value: Number(form.discountValue) || 0 },
+        tax: { percent: Number(form.taxPercent) || 0 }, internalCost: Number(form.internalCost) || 0,
+        serviceItems: items.map((x) => ({ id: x.id, type: x.type, description: x.description, supplierId: x.supplierId, supplierName: x.supplierName, quantity: Number(x.quantity) || 0, unitPrice: Number(x.unitPrice) || 0, status: x.status, notes: x.notes })),
+      };
+      const res = mode === 'edit'
+        ? await api(`/bookings/${bookingId}`, { method: 'PUT', body: JSON.stringify(body) })
+        : await api('/bookings', { method: 'POST', body: JSON.stringify(body) });
+      toast.success(mode === 'edit' ? 'Booking updated' : 'Booking created');
+      onDone(res.booking);
+    } catch (e) { toast.error(friendlyError(e)); } finally { setSubmitting(false); }
+  };
+
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+
+  return (
+    <div className="space-y-5 max-w-4xl">
+      <div className="flex items-start gap-3">
+        <Button variant="ghost" size="icon" onClick={onCancel}><ArrowLeft className="h-4 w-4" /></Button>
+        <div><h2 className="text-xl font-bold">{mode === 'edit' ? 'Edit booking' : 'Create booking'}</h2>
+          <p className="text-sm text-muted-foreground">{form.quotationNumber ? `Converting from quotation ${form.quotationNumber} — the original quotation is preserved.` : 'Reuse an existing client or lead — no duplicate customer records are created.'}</p></div>
+      </div>
+
+      <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+        <div className="space-y-1.5"><Label>Client or lead</Label><CustomerPicker value={customer} onChange={setCustomer} /></div>
+        <div className="space-y-1.5"><Label>Destination</Label><Input value={form.destination} placeholder="Kerala, India" onChange={(e) => setForm({ ...form, destination: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Linked quotation <span className="text-muted-foreground">(optional)</span></Label><QuotationPicker value={form.quotationId} onChange={(v) => setForm((f) => ({ ...f, quotationId: v }))} /></div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5"><Label>Package</Label><PackagePicker value={form.packageId} onChange={(v) => setForm((f) => ({ ...f, packageId: v }))} /></div>
+          <div className="space-y-1.5"><Label>Itinerary</Label><ItineraryPicker value={form.itineraryId} onChange={(v) => setForm((f) => ({ ...f, itineraryId: v }))} /></div>
+        </div>
+        <div className="space-y-1.5"><Label>Start date</Label><Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>End date</Label><Input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></div>
+        <div className="grid grid-cols-3 gap-3 sm:col-span-2">
+          <div className="space-y-1.5"><Label>Adults</Label><Input type="number" min="0" value={form.adults} onChange={setNum('adults')} /></div>
+          <div className="space-y-1.5"><Label>Children</Label><Input type="number" min="0" value={form.children} onChange={setNum('children')} /></div>
+          <div className="space-y-1.5"><Label>Nights</Label><Input type="number" min="0" value={form.nights} onChange={setNum('nights')} /></div>
+        </div>
+      </CardContent></Card>
+
+      {/* Service items */}
+      <Card><CardContent className="p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold">Service items</div>
+          <Button variant="outline" size="sm" onClick={() => setItems((xs) => [...xs, blankService()])}><Plus className="h-4 w-4 mr-1" /> Add service</Button>
+        </div>
+        {items.length === 0 && <p className="text-sm text-muted-foreground">No services added. Add hotels, transport, activities and more.</p>}
+        {items.map((it) => (
+          <div key={it.id} className="rounded-lg border p-3 space-y-3">
+            <div className="grid gap-2 sm:grid-cols-12">
+              <div className="sm:col-span-3 space-y-1"><Label className="text-xs text-muted-foreground">Type</Label>
+                <Select value={it.type} onValueChange={(v) => setItem(it.id, { type: v })}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>{BK_SERVICE_TYPES.map((t) => <SelectItem key={t} value={t}>{BK_SERVICE_TYPE_LABEL[t]}</SelectItem>)}</SelectContent></Select>
+              </div>
+              <div className="sm:col-span-5 space-y-1"><Label className="text-xs text-muted-foreground">Description</Label><Input value={it.description} placeholder="e.g. Deluxe room × 3 nights" onChange={(e) => setItem(it.id, { description: e.target.value })} /></div>
+              <div className="sm:col-span-4 space-y-1"><Label className="text-xs text-muted-foreground">Supplier</Label>
+                <Select value={it.supplierId || 'none'} onValueChange={(v) => { if (v === 'none') setItem(it.id, { supplierId: '', supplierName: '' }); else { const s = suppliers.find((x) => x.id === v); setItem(it.id, { supplierId: v, supplierName: s ? s.name : '' }); } }}>
+                  <SelectTrigger className="h-9"><SelectValue placeholder="No supplier" /></SelectTrigger>
+                  <SelectContent><SelectItem value="none">No supplier</SelectItem>{suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-12 items-end">
+              <div className="sm:col-span-2 space-y-1"><Label className="text-xs text-muted-foreground">Qty</Label><Input type="number" min="0" value={it.quantity} onChange={(e) => setItem(it.id, { quantity: Math.max(0, Number(e.target.value) || 0) })} /></div>
+              <div className="sm:col-span-3 space-y-1"><Label className="text-xs text-muted-foreground">Unit price</Label><Input type="number" min="0" value={it.unitPrice} onChange={(e) => setItem(it.id, { unitPrice: Math.max(0, Number(e.target.value) || 0) })} /></div>
+              <div className="sm:col-span-2 space-y-1"><Label className="text-xs text-muted-foreground">Total</Label><div className="flex h-9 items-center px-1 text-sm font-medium">{money((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0))}</div></div>
+              <div className="sm:col-span-3 space-y-1"><Label className="text-xs text-muted-foreground">Status</Label>
+                <Select value={it.status} onValueChange={(v) => setItem(it.id, { status: v })}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>{BK_SERVICE_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{BK_SERVICE_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select>
+              </div>
+              <div className="sm:col-span-2 flex justify-end"><Button variant="ghost" size="icon" onClick={() => setItems((xs) => xs.filter((x) => x.id !== it.id))}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>
+            </div>
+            <Input value={it.notes} placeholder="Notes (optional)" onChange={(e) => setItem(it.id, { notes: e.target.value })} />
+          </div>
+        ))}
+      </CardContent></Card>
+
+      {/* Totals + internal */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card><CardContent className="p-5 space-y-3">
+          <div className="font-semibold">Pricing</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5"><Label>Discount type</Label>
+              <Select value={form.discountType} onValueChange={(v) => setForm((f) => ({ ...f, discountType: v }))}><SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="fixed">Fixed</SelectItem><SelectItem value="percent">Percent</SelectItem></SelectContent></Select>
+            </div>
+            <div className="space-y-1.5"><Label>Discount value</Label><Input type="number" min="0" value={form.discountValue} onChange={setNum('discountValue')} /></div>
+            <div className="space-y-1.5"><Label>Tax %</Label><Input type="number" min="0" value={form.taxPercent} onChange={setNum('taxPercent')} /></div>
+            <div className="space-y-1.5"><Label className="flex items-center gap-1"><Lock className="h-3 w-3" /> Internal cost</Label><Input type="number" min="0" value={form.internalCost} onChange={setNum('internalCost')} /></div>
+          </div>
+        </CardContent></Card>
+        <Card><CardContent className="p-5">
+          <FinRow label="Subtotal" value={money(totals.subtotal)} />
+          <FinRow label="Discount" value={`- ${money(totals.discAmt)}`} />
+          <FinRow label={`Tax (${Number(form.taxPercent) || 0}%)`} value={money(totals.taxAmt)} />
+          <Separator className="my-1" />
+          <FinRow label="Grand total" value={money(totals.grand)} strong />
+          <Separator className="my-1" />
+          <FinRow label="Expected profit (staff only)" value={money(totals.profit)} />
+        </CardContent></Card>
+      </div>
+
+      <div className="space-y-1.5"><Label>Notes</Label><Textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+
+      <div className="flex gap-2">
+        <Button className="flex-1 sm:flex-none" onClick={submit} disabled={!canSubmit || submitting}>{submitting ? 'Saving…' : (mode === 'edit' ? 'Save changes' : 'Create booking')}</Button>
+        <Button variant="outline" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------- BOOKING DETAIL -----------------------------
+function BookingDetail({ session, bookingId, onBack, onEdit }) {
+  const role = session.user.role;
+  const canUpdate = can(role, 'bookings:update');
+  const canDelete = can(role, 'bookings:delete');
+  const [b, setB] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => { setLoading(true); try { const d = await api(`/bookings/${bookingId}`); setB(d.booking); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, [bookingId]);
+
+  const changeStatus = async (status) => { try { const d = await api(`/bookings/${bookingId}/status`, { method: 'PUT', body: JSON.stringify({ status }) }); setB(d.booking); toast.success('Status updated'); } catch (e) { toast.error(friendlyError(e)); } };
+  const remove = async () => { try { await api(`/bookings/${bookingId}`, { method: 'DELETE' }); toast.success('Booking deleted'); onBack(); } catch (e) { toast.error(friendlyError(e)); } };
+
+  if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
+  if (!b) return <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Booking not found.</CardContent></Card>;
+
+  const items = b.serviceItems || [];
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap"><h2 className="text-xl font-bold">{b.bookingNumber}</h2><BookingStatusBadge status={b.status} /></div>
+            <p className="text-sm text-muted-foreground">{b.customerName} · {b.destination}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(b.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
+          {canUpdate && b.status !== 'cancelled' && b.status !== 'completed' && <Button variant="outline" size="sm" onClick={() => changeStatus('cancelled')}><X className="h-4 w-4 mr-1 text-destructive" /> Cancel</Button>}
+          {canDelete && (b.status === 'draft' || b.status === 'cancelled') && <Button variant="outline" size="sm" onClick={remove}><Trash2 className="h-4 w-4 mr-1 text-destructive" /> Delete</Button>}
+          <Button variant="outline" size="sm" disabled title="Available in a later phase"><FileDown className="h-4 w-4 mr-1" /> Confirmation PDF (soon)</Button>
+        </div>
+      </div>
+
+      {canUpdate && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Change status:</span>
+          <Select value={b.status} onValueChange={changeStatus}>
+            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>{BOOKING_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{BOOKING_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3"><CardContent className="p-5">
+          <PkgRow label="Customer" value={b.customerName} />
+          <PkgRow label="Destination" value={b.destination} />
+          <PkgRow label="Travel dates" value={travelDates(b)} />
+          <PkgRow label="Travelers" value={travelerSummary(b)} />
+          <Separator className="my-2" />
+          <PkgRow label="Source quotation" value={b.quotationNumber} />
+          <PkgRow label="Package" value={b.packageId ? 'Linked' : ''} />
+          <PkgRow label="Itinerary" value={b.itineraryId ? 'Linked' : ''} />
+          <Separator className="my-2" />
+          <PkgRow label="Created" value={formatJoined(b.createdAt)} />
+          <PkgRow label="Updated" value={formatJoined(b.updatedAt)} />
+          {b.notes && (<><Separator className="my-2" /><div className="pt-1"><div className="text-sm text-muted-foreground mb-1">Notes</div><p className="text-sm whitespace-pre-wrap">{b.notes}</p></div></>)}
+        </CardContent></Card>
+
+        <Card className="lg:col-span-2"><CardContent className="p-5">
+          <div className="mb-2 flex items-center gap-2 font-semibold"><Wallet className="h-4 w-4 text-violet-600" /> Financial summary</div>
+          <FinRow label="Subtotal" value={money(b.subtotal)} />
+          <FinRow label="Discount" value={`- ${money(b.discountAmount)}`} />
+          <FinRow label={`Tax (${(b.tax && b.tax.percent) || 0}%)`} value={money(b.taxAmount)} />
+          <Separator className="my-1" />
+          <FinRow label="Grand total" value={money(b.grandTotal)} strong />
+          <Separator className="my-2" />
+          <div className="rounded-lg bg-muted/40 p-2">
+            <div className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground"><Lock className="h-3 w-3" /> Staff only</div>
+            <FinRow label="Internal cost" value={money(b.internalCost)} />
+            <FinRow label="Expected profit" value={money(b.expectedProfit)} />
+          </div>
+        </CardContent></Card>
+      </div>
+
+      {/* Service items */}
+      <Card><CardContent className="p-5">
+        <div className="mb-3 font-semibold">Service items</div>
+        {items.length === 0 ? <p className="text-sm text-muted-foreground">No service items on this booking.</p> : (
+          <>
+            <div className="hidden md:block overflow-x-auto">
+              <Table>
+                <TableHeader><TableRow>
+                  <TableHead>Type</TableHead><TableHead>Description</TableHead><TableHead>Supplier</TableHead>
+                  <TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Unit</TableHead><TableHead className="text-right">Total</TableHead><TableHead>Status</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {items.map((it) => (
+                    <TableRow key={it.id}>
+                      <TableCell><Badge variant="outline" className="font-normal">{BK_SERVICE_TYPE_LABEL[it.type] || 'Other'}</Badge></TableCell>
+                      <TableCell>{it.description || '—'}</TableCell>
+                      <TableCell className="text-muted-foreground">{it.supplierName || '—'}</TableCell>
+                      <TableCell className="text-right">{it.quantity}</TableCell>
+                      <TableCell className="text-right">{money(it.unitPrice)}</TableCell>
+                      <TableCell className="text-right font-medium">{money(it.total)}</TableCell>
+                      <TableCell><MetaBadge meta={BK_SERVICE_STATUS_META[it.status] || BK_SERVICE_STATUS_META.pending} /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="space-y-2 md:hidden">
+              {items.map((it) => (
+                <div key={it.id} className="rounded-lg border p-3 text-sm">
+                  <div className="flex items-center justify-between"><Badge variant="outline" className="font-normal">{BK_SERVICE_TYPE_LABEL[it.type] || 'Other'}</Badge><MetaBadge meta={BK_SERVICE_STATUS_META[it.status] || BK_SERVICE_STATUS_META.pending} /></div>
+                  <div className="mt-1 font-medium">{it.description || '—'}</div>
+                  {it.supplierName && <div className="text-muted-foreground">{it.supplierName}</div>}
+                  <div className="mt-1 flex justify-between text-muted-foreground"><span>{it.quantity} × {money(it.unitPrice)}</span><span className="font-medium text-foreground">{money(it.total)}</span></div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {canUpdate && <Button variant="outline" size="sm" className="mt-3" onClick={() => onEdit(b.id)}><Plus className="h-4 w-4 mr-1" /> Add / edit services</Button>}
+      </CardContent></Card>
+
+      {/* Lightweight timeline */}
+      <Card><CardContent className="p-5">
+        <div className="mb-2 font-semibold">Timeline</div>
+        <ol className="space-y-2 text-sm">
+          <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Booking created · {formatJoined(b.createdAt)}</li>
+          {b.quotationNumber && <li className="flex items-center gap-2"><FileText className="h-4 w-4 text-teal-600" /> Converted from quotation {b.quotationNumber}</li>}
+          <li className="flex items-center gap-2"><ArrowRight className="h-4 w-4 text-amber-600" /> Current status: {BOOKING_STATUS_META[b.status].label} · updated {formatJoined(b.updatedAt)}</li>
+        </ol>
+        <p className="mt-2 text-xs text-muted-foreground">Detailed events are recorded in the Activities tab.</p>
+      </CardContent></Card>
+    </div>
+  );
+}
+
+// ----------------------------- BOOKINGS WORKSPACE -----------------------------
+function Bookings({ session, navPayload, onConsumePayload }) {
+  const [view, setView] = useState('list');
+  const [selectedId, setSelectedId] = useState(null);
+  const [prefill, setPrefill] = useState(null);
+
+  useEffect(() => {
+    if (navPayload && navPayload.convertToBooking) {
+      setPrefill(navPayload.convertToBooking);
+      setView('create');
+      onConsumePayload && onConsumePayload();
+    }
+  }, [navPayload]);
+
+  const openDetail = (id) => { setSelectedId(id); setView('detail'); };
+  const openEdit = (id) => { setSelectedId(id); setView('edit'); };
+
+  if (view === 'create') return <BookingForm session={session} mode="create" prefill={prefill} onDone={(b) => { setPrefill(null); openDetail(b.id); }} onCancel={() => { setPrefill(null); setView('list'); }} />;
+  if (view === 'edit') return <BookingForm session={session} mode="edit" bookingId={selectedId} onDone={(b) => openDetail(b.id)} onCancel={() => openDetail(selectedId)} />;
+  if (view === 'detail') return <BookingDetail session={session} bookingId={selectedId} onBack={() => setView('list')} onEdit={openEdit} />;
+  return <BookingList session={session} onCreate={() => { setPrefill(null); setView('create'); }} onOpen={openDetail} />;
 }
 
 function Settings({ session }) {

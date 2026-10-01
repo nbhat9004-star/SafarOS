@@ -351,6 +351,78 @@ function validateSupplierInput(body) {
   };
 }
 
+// --- Booking helpers ---
+const BOOKING_STATUSES = ['draft', 'confirmed', 'in_progress', 'completed', 'cancelled'];
+const BOOKING_SERVICE_TYPES = ['hotel', 'houseboat', 'transport', 'activity', 'guide', 'restaurant', 'other'];
+const BOOKING_SERVICE_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
+
+function computeBookingServices(rawItems) {
+  return (Array.isArray(rawItems) ? rawItems : []).map((it) => {
+    const quantity = Math.max(0, num(it.quantity, 0));
+    const unitPrice = Math.max(0, num(it.unitPrice, 0));
+    const type = BOOKING_SERVICE_TYPES.includes(String(it.type || '').toLowerCase()) ? String(it.type).toLowerCase() : 'other';
+    const status = BOOKING_SERVICE_STATUSES.includes(String(it.status || '').toLowerCase()) ? String(it.status).toLowerCase() : 'pending';
+    return {
+      id: it.id || uuidv4(), type, status,
+      description: str(it.description, 300),
+      supplierId: str(it.supplierId, 80),
+      supplierName: str(it.supplierName, 160),
+      quantity, unitPrice, total: round2(quantity * unitPrice),
+      notes: str(it.notes, 1000),
+    };
+  });
+}
+
+// Authoritative server-side booking totals. Subtotal always derives from service items.
+function computeBookingTotals(body, serviceItems) {
+  const subtotal = round2(serviceItems.reduce((s, i) => s + i.total, 0));
+  const discount = {
+    type: body.discount && body.discount.type === 'percent' ? 'percent' : 'fixed',
+    value: Math.max(0, num(body.discount && body.discount.value, 0)),
+  };
+  let discountAmount = discount.type === 'percent' ? subtotal * Math.min(discount.value, 100) / 100 : discount.value;
+  discountAmount = round2(Math.min(discountAmount, subtotal));
+  const taxable = Math.max(0, round2(subtotal - discountAmount));
+  const tax = { percent: Math.min(Math.max(0, num(body.tax && body.tax.percent, 0)), 100) };
+  const taxAmount = round2(taxable * tax.percent / 100);
+  const grandTotal = round2(taxable + taxAmount);
+  const internalCost = Math.max(0, round2(num(body.internalCost, 0)));
+  const expectedProfit = round2(taxable - internalCost);
+  return { subtotal, discount, discountAmount, tax, taxAmount, grandTotal, internalCost, expectedProfit };
+}
+
+function validateBookingCore(body) {
+  const customerType = body.customerType === 'lead' ? 'lead' : 'client';
+  const customerId = String(body.customerId || '').trim();
+  if (!customerId) return { error: 'Please select a client or lead' };
+  const destination = String(body.destination || '').trim();
+  if (!destination) return { error: 'Destination is required' };
+  const startDate = String(body.startDate || '').trim();
+  const endDate = String(body.endDate || '').trim();
+  if (startDate && endDate && startDate > endDate) return { error: 'Travel end date must be on or after the start date' };
+  const serviceItems = computeBookingServices(body.serviceItems);
+  for (const it of serviceItems) { if (it.quantity < 0 || it.unitPrice < 0) return { error: 'Service quantity and price cannot be negative' }; }
+  return {
+    value: {
+      customerType, customerId, destination, startDate, endDate,
+      adults: Math.max(0, Math.floor(num(body.adults, 0))),
+      children: Math.max(0, Math.floor(num(body.children, 0))),
+      nights: Math.max(0, Math.floor(num(body.nights, 0))),
+      quotationId: str(body.quotationId, 80), packageId: str(body.packageId, 80), itineraryId: str(body.itineraryId, 80),
+      notes: str(body.notes, 4000), serviceItems,
+    },
+  };
+}
+
+async function nextBookingNumber(db, session) {
+  const r = await db.collection('agencies').findOneAndUpdate(
+    { id: session.agencyId }, { $inc: { bookingSeq: 1 } }, { returnDocument: 'after' },
+  );
+  const agDoc = r && r.value !== undefined ? r.value : r;
+  const seq = (agDoc && agDoc.bookingSeq) || 1;
+  return `BK-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
+}
+
 export async function GET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
@@ -554,6 +626,28 @@ export async function GET(request, context) {
         .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
       if (!supplier) return err('Supplier not found', 404);
       return json({ supplier });
+    }
+
+    if (path === '/bookings') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'bookings:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const bookings = await db.collection('bookings')
+        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).toArray();
+      return json({ bookings });
+    }
+
+    if (path.startsWith('/bookings/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'bookings:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const booking = await db.collection('bookings')
+        .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
+      if (!booking) return err('Booking not found', 404);
+      return json({ booking });
     }
 
     return err('not found', 404);
@@ -842,6 +936,66 @@ export async function POST(request, context) {
       return json({ supplier: safe }, 201);
     }
 
+    // ---- Bookings (supports optional conversion from a quotation) ----
+    if (path === '/bookings') {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'bookings:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+
+      let fromQuotation = null;
+      if (body.quotationId) {
+        fromQuotation = await db.collection('quotations').findOne(tenantFilter(session2, { id: String(body.quotationId).trim() }));
+        if (!fromQuotation) return err('Source quotation not found', 404);
+        // Reuse quotation data as defaults; the original quotation is NOT modified.
+        body.customerType = body.customerType || fromQuotation.customerType;
+        body.customerId = body.customerId || fromQuotation.customerId;
+        body.destination = body.destination || fromQuotation.destination;
+        body.startDate = body.startDate || fromQuotation.startDate;
+        body.endDate = body.endDate || fromQuotation.endDate;
+        if (body.adults === undefined) body.adults = fromQuotation.adults;
+        if (body.children === undefined) body.children = fromQuotation.children;
+        if (body.nights === undefined) body.nights = fromQuotation.nights;
+        if (body.discount === undefined) body.discount = fromQuotation.discount;
+        if (body.tax === undefined) body.tax = fromQuotation.tax;
+        if (body.internalCost === undefined) body.internalCost = fromQuotation.internalCost;
+        if (!Array.isArray(body.serviceItems) || body.serviceItems.length === 0) {
+          body.serviceItems = (fromQuotation.items || []).map((it) => ({
+            type: BOOKING_SERVICE_TYPES.includes(String(it.category || '').toLowerCase()) ? String(it.category).toLowerCase() : 'other',
+            description: it.description || it.category || '',
+            quantity: it.quantity, unitPrice: it.sellingPrice, status: 'pending',
+          }));
+        }
+      }
+
+      const { value, error } = validateBookingCore(body);
+      if (error) return err(error);
+      const cust = await resolveQuotationCustomer(db, session2, value.customerType, value.customerId);
+      if (!cust) return err('Selected client or lead was not found');
+
+      const totals = computeBookingTotals(body, value.serviceItems);
+      const bookingNumber = await nextBookingNumber(db, session2);
+      const now = new Date().toISOString();
+      const doc = withAgency(session2, {
+        id: uuidv4(), bookingNumber,
+        customerType: value.customerType, customerId: value.customerId, customerName: cust.customerName, customerEmail: cust.customerEmail,
+        destination: value.destination, startDate: value.startDate, endDate: value.endDate,
+        adults: value.adults, children: value.children, nights: value.nights,
+        quotationId: value.quotationId, quotationNumber: fromQuotation ? fromQuotation.quotationNumber : '',
+        packageId: value.packageId, itineraryId: value.itineraryId,
+        serviceItems: value.serviceItems,
+        subtotal: totals.subtotal, discount: totals.discount, discountAmount: totals.discountAmount,
+        tax: totals.tax, taxAmount: totals.taxAmount, grandTotal: totals.grandTotal,
+        internalCost: totals.internalCost, expectedProfit: totals.expectedProfit,
+        status: 'draft', notes: value.notes,
+        createdBy: session2.userId, createdAt: now, updatedAt: now,
+      });
+      await db.collection('bookings').insertOne(doc);
+      const { _id, ...safe } = doc;
+      await logActivity(db, session2, { type: 'booking_created', message: fromQuotation ? `Booking ${bookingNumber} created from ${fromQuotation.quotationNumber}` : `Booking ${bookingNumber} created for ${cust.customerName}`, refType: 'booking', refId: safe.id });
+      return json({ booking: safe }, 201);
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -1065,6 +1219,56 @@ export async function PUT(request, context) {
       return json({ supplier });
     }
 
+    // ---- Bookings: status change (specific) then full edit ----
+    if (path.startsWith('/bookings/') && path.endsWith('/status')) {
+      if (!can(session.role, 'bookings:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const { status } = await readBody(request);
+      if (!BOOKING_STATUSES.includes(status)) return err('Invalid booking status');
+      const existing = await db.collection('bookings').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Booking not found', 404);
+      await db.collection('bookings').updateOne(tenantFilter(session, { id }), { $set: { status, updatedAt: new Date().toISOString() } });
+      if (status !== existing.status) {
+        const msg = status === 'cancelled' ? `Booking ${existing.bookingNumber} cancelled`
+          : status === 'confirmed' ? `Booking ${existing.bookingNumber} confirmed`
+          : `Booking ${existing.bookingNumber} marked ${status.replace('_', ' ')}`;
+        await logActivity(db, session, { type: status === 'cancelled' ? 'booking_cancelled' : status === 'confirmed' ? 'booking_confirmed' : 'status_changed', message: msg, refType: 'booking', refId: id });
+      }
+      const booking = await db.collection('bookings').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ booking });
+    }
+
+    if (path.startsWith('/bookings/')) {
+      if (!can(session.role, 'bookings:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('bookings').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Booking not found', 404);
+      const body = await readBody(request);
+      const { value, error } = validateBookingCore(body);
+      if (error) return err(error);
+      const cust = await resolveQuotationCustomer(db, session, value.customerType, value.customerId);
+      if (!cust) return err('Selected client or lead was not found');
+      const totals = computeBookingTotals(body, value.serviceItems);
+      const prevCount = (existing.serviceItems || []).length;
+      const update = {
+        customerType: value.customerType, customerId: value.customerId, customerName: cust.customerName, customerEmail: cust.customerEmail,
+        destination: value.destination, startDate: value.startDate, endDate: value.endDate,
+        adults: value.adults, children: value.children, nights: value.nights,
+        quotationId: value.quotationId, packageId: value.packageId, itineraryId: value.itineraryId,
+        serviceItems: value.serviceItems,
+        subtotal: totals.subtotal, discount: totals.discount, discountAmount: totals.discountAmount,
+        tax: totals.tax, taxAmount: totals.taxAmount, grandTotal: totals.grandTotal,
+        internalCost: totals.internalCost, expectedProfit: totals.expectedProfit,
+        notes: value.notes, updatedAt: new Date().toISOString(),
+      };
+      await db.collection('bookings').updateOne(tenantFilter(session, { id }), { $set: update });
+      if (value.serviceItems.length > prevCount) {
+        await logActivity(db, session, { type: 'booking_service_added', message: `Service added to booking ${existing.bookingNumber}`, refType: 'booking', refId: id });
+      }
+      const booking = await db.collection('bookings').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ booking });
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -1150,6 +1354,18 @@ export async function DELETE(request, context) {
       if (!existing) return err('Supplier not found', 404);
       await db.collection('suppliers').deleteOne(tenantFilter(session, { id }));
       await logActivity(db, session, { type: 'supplier_deleted', message: `Supplier "${existing.name}" removed`, refType: 'supplier', refId: id });
+      return json({ ok: true });
+    }
+
+    // Bookings: only DRAFT or CANCELLED bookings may be deleted (protect active operations).
+    if (path.startsWith('/bookings/')) {
+      if (!can(session.role, 'bookings:delete')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const existing = await db.collection('bookings').findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Booking not found', 404);
+      if (existing.status !== 'draft' && existing.status !== 'cancelled') return err('Only draft or cancelled bookings can be deleted. Cancel the booking first.');
+      await db.collection('bookings').deleteOne(tenantFilter(session, { id }));
+      await logActivity(db, session, { type: 'booking_deleted', message: `Booking ${existing.bookingNumber} deleted`, refType: 'booking', refId: id });
       return json({ ok: true });
     }
 
