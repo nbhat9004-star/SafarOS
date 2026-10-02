@@ -726,6 +726,221 @@ async function financePut(db, session, path, body) {
   return err('not found', 404);
 }
 
+// ======================= PAYMENTS (Phase 5.2) =======================
+const PAYMENT_STATUSES = ['pending', 'completed', 'failed', 'cancelled', 'refunded', 'partially_refunded'];
+const REFUND_STATUSES = ['pending', 'completed', 'cancelled'];
+
+async function nextPaymentNumber(db, session) {
+  const r = await db.collection('agencies').findOneAndUpdate(
+    { id: session.agencyId }, { $inc: { paymentSeq: 1 } }, { returnDocument: 'after' },
+  );
+  const ag = r && r.value !== undefined ? r.value : r;
+  const seq = (ag && ag.paymentSeq) || 1;
+  return `PAY-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
+}
+
+// Apply a completed payment to its target records (single source of update, no double-count).
+async function applyPaymentSettlement(db, session, { type, amount, receivable, payable, invoice, now }) {
+  if (type === 'customer') {
+    if (receivable) {
+      const newPaid = round2((receivable.receivedAmount || 0) + amount);
+      const outstanding = Math.max(0, round2(receivable.totalAmount - newPaid));
+      await db.collection('customerReceivables').updateOne(tenantFilter(session, { id: receivable.id }), { $set: { receivedAmount: newPaid, outstandingAmount: outstanding, status: settleStatus(receivable.totalAmount, newPaid, false), updatedAt: now } });
+    }
+    // Sync the explicitly-chosen invoice, or the receivable's linked invoice (whichever applies) — exactly once.
+    let inv = invoice;
+    if (!inv && receivable && receivable.invoiceId) inv = await db.collection('invoices').findOne(tenantFilter(session, { id: receivable.invoiceId }));
+    if (inv && inv.status !== 'cancelled') {
+      const invPaid = round2((inv.paidAmount || 0) + amount);
+      const invOut = Math.max(0, round2(inv.total - invPaid));
+      const base = settleStatus(inv.total, invPaid, false);
+      const invStatus = base === 'pending' ? (inv.status === 'draft' ? 'draft' : 'issued') : base;
+      await db.collection('invoices').updateOne(tenantFilter(session, { id: inv.id }), { $set: { paidAmount: invPaid, outstandingAmount: invOut, status: invStatus, updatedAt: now } });
+    }
+  } else if (payable) {
+    const newPaid = round2((payable.paidAmount || 0) + amount);
+    const outstanding = Math.max(0, round2(payable.totalAmount - newPaid));
+    await db.collection('supplierPayables').updateOne(tenantFilter(session, { id: payable.id }), { $set: { paidAmount: newPaid, outstandingAmount: outstanding, status: settleStatus(payable.totalAmount, newPaid, false), updatedAt: now } });
+  }
+}
+
+// Reverse a previously-applied completed payment (when it is cancelled/failed after the fact).
+async function reversePaymentSettlement(db, session, payment, now) {
+  const amount = nonNeg(payment.amount);
+  if (amount <= 0) return;
+  if (payment.type === 'customer') {
+    if (payment.receivableId) {
+      const r = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: payment.receivableId }));
+      if (r) { const newPaid = Math.max(0, round2((r.receivedAmount || 0) - amount)); const outstanding = Math.max(0, round2(r.totalAmount - newPaid)); await db.collection('customerReceivables').updateOne(tenantFilter(session, { id: r.id }), { $set: { receivedAmount: newPaid, outstandingAmount: outstanding, status: settleStatus(r.totalAmount, newPaid, r.status === 'cancelled'), updatedAt: now } }); }
+    }
+    if (payment.invoiceId) {
+      const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: payment.invoiceId }));
+      if (inv && inv.status !== 'cancelled') { const invPaid = Math.max(0, round2((inv.paidAmount || 0) - amount)); const invOut = Math.max(0, round2(inv.total - invPaid)); const base = settleStatus(inv.total, invPaid, false); const invStatus = base === 'pending' ? (inv.status === 'draft' ? 'draft' : 'issued') : base; await db.collection('invoices').updateOne(tenantFilter(session, { id: inv.id }), { $set: { paidAmount: invPaid, outstandingAmount: invOut, status: invStatus, updatedAt: now } }); }
+    }
+  } else if (payment.payableId) {
+    const p = await db.collection('supplierPayables').findOne(tenantFilter(session, { id: payment.payableId }));
+    if (p) { const newPaid = Math.max(0, round2((p.paidAmount || 0) - amount)); const outstanding = Math.max(0, round2(p.totalAmount - newPaid)); await db.collection('supplierPayables').updateOne(tenantFilter(session, { id: p.id }), { $set: { paidAmount: newPaid, outstandingAmount: outstanding, status: settleStatus(p.totalAmount, newPaid, p.status === 'cancelled'), updatedAt: now } }); }
+  }
+  // Void the linked finance transaction so it stops counting as completed cash movement.
+  if (payment.transactionId) await db.collection('financialTransactions').updateOne(tenantFilter(session, { id: payment.transactionId }), { $set: { status: 'cancelled', updatedAt: now } });
+}
+
+async function paymentsGet(db, session, path) {
+  if (path === '/payments/dashboard') {
+    const [pays, refunds] = await Promise.all([
+      db.collection('payments').find(tenantFilter(session), { projection: { _id: 0, type: 1, amount: 1, status: 1, paymentDate: 1 } }).toArray(),
+      db.collection('paymentRefunds').find(tenantFilter(session, { status: 'completed' }), { projection: { _id: 0, amount: 1 } }).toArray(),
+    ]);
+    const done = (p) => p.status === 'completed' || p.status === 'partially_refunded' || p.status === 'refunded';
+    const sum = (arr) => round2(arr.reduce((s, x) => s + (Number(x.amount) || 0), 0));
+    const completed = pays.filter(done);
+    const today = today10(); const month = today.slice(0, 7);
+    return json({ dashboard: {
+      totalPayments: sum(completed),
+      customerPayments: sum(completed.filter((p) => p.type === 'customer')),
+      supplierPayments: sum(completed.filter((p) => p.type === 'supplier')),
+      pendingPayments: sum(pays.filter((p) => p.status === 'pending')),
+      completedPayments: completed.length,
+      refundedAmount: sum(refunds),
+      todaysPayments: sum(completed.filter((p) => String(p.paymentDate).slice(0, 10) === today)),
+      monthPayments: sum(completed.filter((p) => String(p.paymentDate).slice(0, 7) === month)),
+      currency: DEFAULT_CURRENCY,
+    } });
+  }
+  if (path === '/payments') {
+    const rows = await db.collection('payments').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+    return json({ payments: rows });
+  }
+  const parts = path.split('/'); // ['', 'payments', id, sub?]
+  if (parts.length >= 3) {
+    const id = parts[2]; const sub = parts[3];
+    const rec = await db.collection('payments').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    if (!rec) return err('Payment not found', 404);
+    if (sub === 'receipt') {
+      const agency = await db.collection('agencies').findOne({ id: session.agencyId }, { projection: { _id: 0, quotationSeq: 0, bookingSeq: 0, invoiceSeq: 0, paymentSeq: 0 } });
+      return json({ receipt: { payment: rec, agency: agency || {} } });
+    }
+    const refunds = await db.collection('paymentRefunds').find(tenantFilter(session, { paymentId: id }), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+    let linked = null;
+    if (rec.receivableId) { const r = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: rec.receivableId }), { projection: { _id: 0 } }); if (r) linked = { kind: 'receivable', totalAmount: r.totalAmount, paidAmount: r.receivedAmount, outstandingAmount: r.outstandingAmount }; }
+    else if (rec.payableId) { const p = await db.collection('supplierPayables').findOne(tenantFilter(session, { id: rec.payableId }), { projection: { _id: 0 } }); if (p) linked = { kind: 'payable', totalAmount: p.totalAmount, paidAmount: p.paidAmount, outstandingAmount: p.outstandingAmount }; }
+    else if (rec.invoiceId) { const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: rec.invoiceId }), { projection: { _id: 0 } }); if (inv) linked = { kind: 'invoice', invoiceNumber: inv.invoiceNumber, totalAmount: inv.total, paidAmount: inv.paidAmount, outstandingAmount: inv.outstandingAmount }; }
+    return json({ payment: rec, refunds, linked });
+  }
+  return err('not found', 404);
+}
+
+async function paymentsPost(db, session, path, body) {
+  const now = new Date().toISOString();
+  const parts = path.split('/');
+  // Refund: POST /payments/:id/refund
+  if (parts.length === 4 && parts[3] === 'refund') {
+    if (!can(session.role, 'payments:refund')) return err('forbidden', 403);
+    const id = parts[2];
+    const pay = await db.collection('payments').findOne(tenantFilter(session, { id }));
+    if (!pay) return err('Payment not found', 404);
+    if (pay.type !== 'customer') return err('Only customer payments can be refunded');
+    if (!['completed', 'partially_refunded'].includes(pay.status)) return err('Only a completed payment can be refunded');
+    const amount = nonNeg(body.amount);
+    if (amount <= 0) return err('Refund amount must be greater than zero');
+    const already = nonNeg(pay.refundedAmount);
+    const refundable = round2(pay.amount - already);
+    if (amount > refundable + 0.001) return err('Refund exceeds the refundable amount');
+    const refund = withAgency(session, { id: uuidv4(), paymentId: pay.id, paymentNumber: pay.paymentNumber, amount, refundDate: str(body.refundDate, 40) || today10(), refundReference: str(body.refundReference, 200), status: REFUND_STATUSES.includes(body.status) ? body.status : 'completed', notes: str(body.notes, 2000), createdBy: session.userId, createdAt: now });
+    await db.collection('paymentRefunds').insertOne(refund);
+    const newRefunded = round2(already + amount);
+    const pStatus = newRefunded >= round2(pay.amount) - 0.001 ? 'refunded' : 'partially_refunded';
+    await db.collection('payments').updateOne(tenantFilter(session, { id }), { $set: { refundedAmount: newRefunded, status: pStatus, updatedAt: now } });
+    if (refund.status === 'completed') {
+      await createTxn(db, session, { type: 'expense', category: 'refund', amount, clientId: pay.clientId || '', clientName: pay.clientName || '', bookingId: pay.bookingId || '', bookingNumber: pay.bookingNumber || '', referenceType: 'refund', referenceId: refund.id, paymentMethod: pay.paymentMethod, transactionDate: refund.refundDate, status: 'completed', description: `Refund against ${pay.paymentNumber}`, notes: str(body.notes, 2000) });
+    }
+    await logActivity(db, session, { type: 'payment_refunded', message: `Refund of ${amount} recorded against ${pay.paymentNumber}`, refType: 'payment', refId: pay.id });
+    const { _id, ...safe } = refund;
+    const payment = await db.collection('payments').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    return json({ refund: safe, payment });
+  }
+  // Create: POST /payments
+  if (path === '/payments') {
+    const type = body.type === 'supplier' ? 'supplier' : 'customer';
+    const direction = type === 'supplier' ? 'outgoing' : 'incoming';
+    const amount = nonNeg(body.amount);
+    if (amount <= 0) return err('Payment amount must be greater than zero');
+    const status = PAYMENT_STATUSES.includes(body.status) && !['refunded', 'partially_refunded'].includes(body.status) ? body.status : 'completed';
+    const refs = await resolveFinanceRefs(db, session, body);
+    let receivable = null; let payable = null;
+    if (type === 'customer' && body.receivableId) { receivable = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: String(body.receivableId) })); if (!receivable) return err('Receivable not found', 404); }
+    if (type === 'supplier' && body.payableId) { payable = await db.collection('supplierPayables').findOne(tenantFilter(session, { id: String(body.payableId) })); if (!payable) return err('Payable not found', 404); }
+    let invoice = null;
+    if (refs.invoiceId) { invoice = await db.collection('invoices').findOne(tenantFilter(session, { id: refs.invoiceId })); }
+    if (invoice && invoice.status === 'cancelled') return err('Cannot record a payment against a cancelled invoice');
+    if (receivable && receivable.status === 'cancelled') return err('Cannot record a payment against a cancelled receivable');
+    if (payable && payable.status === 'cancelled') return err('Cannot record a payment against a cancelled payable');
+    if (status === 'completed') {
+      const target = type === 'customer' ? receivable : payable;
+      if (target) { if (amount > round2(target.outstandingAmount) + 0.001) return err('Payment exceeds the outstanding amount'); }
+      else if (type === 'customer' && invoice) { if (amount > round2(invoice.outstandingAmount) + 0.001) return err('Payment exceeds the invoice outstanding amount'); }
+    }
+    const paymentNumber = await nextPaymentNumber(db, session);
+    const doc = withAgency(session, {
+      id: uuidv4(), paymentNumber, type, direction,
+      clientId: refs.clientId, clientName: refs.clientName, supplierId: refs.supplierId, supplierName: refs.supplierName,
+      bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, invoiceId: refs.invoiceId,
+      receivableId: receivable ? receivable.id : '', payableId: payable ? payable.id : '',
+      amount, currency: str(body.currency, 8) || DEFAULT_CURRENCY,
+      paymentMethod: PAYMENT_METHODS.includes(body.paymentMethod) ? body.paymentMethod : 'other',
+      transactionReference: str(body.transactionReference, 200), paymentDate: str(body.paymentDate, 40) || today10(),
+      status, refundedAmount: 0, transactionId: '', notes: str(body.notes, 2000), createdBy: session.userId, createdAt: now, updatedAt: now,
+    });
+    let transactionId = '';
+    if (status === 'completed') {
+      await applyPaymentSettlement(db, session, { type, amount, receivable, payable, invoice, now });
+      const txn = await createTxn(db, session, { type: type === 'customer' ? 'income' : 'expense', category: type === 'customer' ? 'customer_payment' : 'supplier_payment', amount, clientId: refs.clientId, clientName: refs.clientName, supplierId: refs.supplierId, supplierName: refs.supplierName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, referenceType: 'payment', referenceId: doc.id, paymentMethod: doc.paymentMethod, transactionDate: doc.paymentDate, status: 'completed', description: str(body.transactionReference, 200) || (type === 'customer' ? 'Customer payment received' : 'Supplier payment made'), notes: str(body.notes, 2000) });
+      transactionId = txn.id;
+    }
+    doc.transactionId = transactionId;
+    await db.collection('payments').insertOne(doc);
+    await logActivity(db, session, { type: 'payment_recorded', message: `${type === 'customer' ? 'Customer' : 'Supplier'} payment ${paymentNumber} (${amount}) recorded`, refType: 'payment', refId: doc.id });
+    const { _id, ...safe } = doc;
+    return json({ payment: safe }, 201);
+  }
+  return err('not found', 404);
+}
+
+async function paymentsPut(db, session, path, body) {
+  const now = new Date().toISOString();
+  const parts = path.split('/'); // ['', 'payments', id, 'status']
+  const id = parts[2]; const action = parts[3];
+  if (action !== 'status') return err('not found', 404);
+  const to = body.status;
+  if (!PAYMENT_STATUSES.includes(to)) return err('Invalid payment status');
+  if (['refunded', 'partially_refunded'].includes(to)) return err('Use the refund action to refund a payment');
+  const pay = await db.collection('payments').findOne(tenantFilter(session, { id }));
+  if (!pay) return err('Payment not found', 404);
+  if (pay.status === to) { const same = await db.collection('payments').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } }); return json({ payment: same }); }
+  if (['refunded', 'partially_refunded'].includes(pay.status)) return err('A refunded payment cannot change status');
+  let transactionId = pay.transactionId || '';
+  if (pay.status === 'pending' && to === 'completed') {
+    const receivable = pay.receivableId ? await db.collection('customerReceivables').findOne(tenantFilter(session, { id: pay.receivableId })) : null;
+    const payable = pay.payableId ? await db.collection('supplierPayables').findOne(tenantFilter(session, { id: pay.payableId })) : null;
+    const invoice = pay.invoiceId ? await db.collection('invoices').findOne(tenantFilter(session, { id: pay.invoiceId })) : null;
+    if (invoice && invoice.status === 'cancelled') return err('Linked invoice is cancelled');
+    const target = pay.type === 'customer' ? receivable : payable;
+    if (target && nonNeg(pay.amount) > round2(target.outstandingAmount) + 0.001) return err('Payment exceeds the outstanding amount');
+    await applyPaymentSettlement(db, session, { type: pay.type, amount: nonNeg(pay.amount), receivable, payable, invoice, now });
+    const txn = await createTxn(db, session, { type: pay.type === 'customer' ? 'income' : 'expense', category: pay.type === 'customer' ? 'customer_payment' : 'supplier_payment', amount: nonNeg(pay.amount), clientId: pay.clientId || '', clientName: pay.clientName || '', supplierId: pay.supplierId || '', supplierName: pay.supplierName || '', bookingId: pay.bookingId || '', bookingNumber: pay.bookingNumber || '', referenceType: 'payment', referenceId: pay.id, paymentMethod: pay.paymentMethod, transactionDate: pay.paymentDate, status: 'completed', description: pay.transactionReference || (pay.type === 'customer' ? 'Customer payment received' : 'Supplier payment made') });
+    transactionId = txn.id;
+  } else if (pay.status === 'completed' && (to === 'cancelled' || to === 'failed')) {
+    await reversePaymentSettlement(db, session, pay, now);
+  } else if (!(pay.status === 'pending' && (to === 'cancelled' || to === 'failed'))) {
+    return err('Unsupported status transition');
+  }
+  await db.collection('payments').updateOne(tenantFilter(session, { id }), { $set: { status: to, transactionId, updatedAt: now } });
+  await logActivity(db, session, { type: 'payment_status', message: `Payment ${pay.paymentNumber} marked ${to}`, refType: 'payment', refId: id });
+  const payment = await db.collection('payments').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+  return json({ payment });
+}
+
+
 export async function GET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
@@ -967,6 +1182,14 @@ export async function GET(request, context) {
       if (!can(session.role, 'finance:read')) return err('forbidden', 403);
       const db = await getDb();
       return financeGet(db, session, path, new URL(request.url).searchParams);
+    }
+
+    if (path.startsWith('/payments')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'payments:read')) return err('forbidden', 403);
+      const db = await getDb();
+      return paymentsGet(db, session, path);
     }
 
     if (path === '/fleet/stats') {
@@ -1305,6 +1528,15 @@ export async function POST(request, context) {
       if (!can(fsess.role, 'finance:create')) return err('forbidden', 403);
       const body = await readBody(request);
       return financePost(db, fsess, path, body);
+    }
+
+    if (path.startsWith('/payments')) {
+      const psess = getSession(request);
+      if (!psess) return err('unauthenticated', 401);
+      const needRefund = path.endsWith('/refund');
+      if (!can(psess.role, needRefund ? 'payments:refund' : 'payments:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+      return paymentsPost(db, psess, path, body);
     }
 
     // ---- Suppliers ----
@@ -1654,6 +1886,12 @@ export async function PUT(request, context) {
       if (!can(session.role, 'finance:update')) return err('forbidden', 403);
       const body = await readBody(request);
       return financePut(db, session, path, body);
+    }
+
+    if (path.startsWith('/payments')) {
+      if (!can(session.role, 'payments:update')) return err('forbidden', 403);
+      const body = await readBody(request);
+      return paymentsPut(db, session, path, body);
     }
 
     // ---- Booking: fleet assignment (vehicle/driver) — does not affect booking totals ----

@@ -37,6 +37,7 @@ import {
   Store, Phone, Mail, ClipboardList, Wallet, Truck,
   Wifi, WifiOff, RefreshCw, CloudOff,
   Receipt, TrendingUp, CreditCard, BarChart3,
+  Banknote, Printer, Undo2,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -230,6 +231,7 @@ const NAV = [
       { id: 'fin_payables', label: 'Supplier Payables', icon: Store },
       { id: 'fin_expenses', label: 'Expenses', icon: CreditCard },
       { id: 'fin_invoices', label: 'Invoices', icon: FileText },
+      { id: 'fin_payments', label: 'Payments', icon: Banknote },
       { id: 'fin_reports', label: 'Reports', icon: BarChart3 },
     ],
   },
@@ -248,6 +250,7 @@ const SECTION_TITLES = {
   fin_dashboard: 'Finance Dashboard', fin_transactions: 'Transactions',
   fin_receivables: 'Customer Receivables', fin_payables: 'Supplier Payables',
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
+  fin_payments: 'Payments',
   team: 'Team', settings: 'Settings',
 };
 
@@ -4287,6 +4290,173 @@ function InvoicesPane({ session }) {
   );
 }
 
+// ======================= PAYMENTS (Phase 5.2) =======================
+const PAY_STATUS_META = {
+  pending: { label: 'Pending', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  completed: { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  failed: { label: 'Failed', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  cancelled: { label: 'Cancelled', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  refunded: { label: 'Refunded', cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+  partially_refunded: { label: 'Partially Refunded', cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+};
+function KV({ k, v }) { return (<div className="min-w-0"><div className="text-xs text-muted-foreground">{k}</div><div className="truncate">{v}</div></div>); }
+
+function FinInvoicePicker({ value, onChange }) {
+  const [opts, setOpts] = useState([]);
+  useEffect(() => { (async () => { try { const d = await api('/finance/invoices'); setOpts((d.invoices || []).filter((i) => i.status !== 'cancelled')); } catch { /* */ } })(); }, []);
+  return (<Select value={value || 'none'} onValueChange={(v) => onChange(v === 'none' ? '' : v)}><SelectTrigger><SelectValue placeholder="No invoice" /></SelectTrigger><SelectContent><SelectItem value="none">No invoice</SelectItem>{opts.map((o) => <SelectItem key={o.id} value={o.id}>{o.invoiceNumber} · {money(o.outstandingAmount)} due</SelectItem>)}</SelectContent></Select>);
+}
+function FinReceivablePicker({ value, onChange }) {
+  const [opts, setOpts] = useState([]);
+  useEffect(() => { (async () => { try { const d = await api('/finance/receivables'); setOpts((d.receivables || []).filter((r) => r.status !== 'cancelled' && r.outstandingAmount > 0)); } catch { /* */ } })(); }, []);
+  return (<Select value={value || 'none'} onValueChange={(v) => onChange(v === 'none' ? '' : v)}><SelectTrigger><SelectValue placeholder="No receivable" /></SelectTrigger><SelectContent><SelectItem value="none">No receivable</SelectItem>{opts.map((o) => <SelectItem key={o.id} value={o.id}>{(o.clientName || 'Customer')} · {money(o.outstandingAmount)} due</SelectItem>)}</SelectContent></Select>);
+}
+function FinPayablePicker({ value, onChange }) {
+  const [opts, setOpts] = useState([]);
+  useEffect(() => { (async () => { try { const d = await api('/finance/payables'); setOpts((d.payables || []).filter((r) => r.status !== 'cancelled' && r.outstandingAmount > 0)); } catch { /* */ } })(); }, []);
+  return (<Select value={value || 'none'} onValueChange={(v) => onChange(v === 'none' ? '' : v)}><SelectTrigger><SelectValue placeholder="No payable" /></SelectTrigger><SelectContent><SelectItem value="none">No payable</SelectItem>{opts.map((o) => <SelectItem key={o.id} value={o.id}>{(o.supplierName || 'Supplier')} · {money(o.outstandingAmount)} due</SelectItem>)}</SelectContent></Select>);
+}
+
+function PaymentForm({ f, setF, onSave, onCancel }) {
+  const isCust = f.type === 'customer';
+  return (<Card><CardContent className="grid gap-3 p-4 sm:grid-cols-3">
+    <div className="space-y-1"><Label>Payment type</Label><Select value={f.type} onValueChange={(v) => setF({ ...f, type: v, clientId: '', supplierId: '', invoiceId: '', receivableId: '', payableId: '' })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="customer">Customer payment</SelectItem><SelectItem value="supplier">Supplier payment</SelectItem></SelectContent></Select></div>
+    {isCust ? <div className="space-y-1"><Label>Client</Label><FinClientPicker value={f.clientId} onChange={(v) => setF({ ...f, clientId: v })} /></div> : <div className="space-y-1"><Label>Supplier</Label><FinSupplierPicker value={f.supplierId} onChange={(v) => setF({ ...f, supplierId: v })} /></div>}
+    <div className="space-y-1"><Label>Booking</Label><FinBookingPicker value={f.bookingId} onChange={(v) => setF({ ...f, bookingId: v })} /></div>
+    {isCust && <div className="space-y-1"><Label>Invoice</Label><FinInvoicePicker value={f.invoiceId} onChange={(v) => setF({ ...f, invoiceId: v })} /></div>}
+    {isCust && <div className="space-y-1"><Label>Receivable</Label><FinReceivablePicker value={f.receivableId} onChange={(v) => setF({ ...f, receivableId: v })} /></div>}
+    {!isCust && <div className="space-y-1"><Label>Payable</Label><FinPayablePicker value={f.payableId} onChange={(v) => setF({ ...f, payableId: v })} /></div>}
+    <div className="space-y-1"><Label>Amount</Label><Input type="number" min="0" value={f.amount} onChange={(e) => setF({ ...f, amount: Math.max(0, Number(e.target.value) || 0) })} /></div>
+    <div className="space-y-1"><Label>Date</Label><Input type="date" value={f.paymentDate} onChange={(e) => setF({ ...f, paymentDate: e.target.value })} /></div>
+    <div className="space-y-1"><Label>Method</Label><Select value={f.paymentMethod} onValueChange={(v) => setF({ ...f, paymentMethod: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{FIN_PAYMENT_METHODS.map((m) => <SelectItem key={m} value={m}>{FIN_PM_LABEL[m]}</SelectItem>)}</SelectContent></Select></div>
+    <div className="space-y-1"><Label>Status</Label><Select value={f.status} onValueChange={(v) => setF({ ...f, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="completed">Completed</SelectItem><SelectItem value="pending">Pending</SelectItem></SelectContent></Select></div>
+    <div className="space-y-1 sm:col-span-2"><Label>Transaction reference</Label><Input value={f.transactionReference} onChange={(e) => setF({ ...f, transactionReference: e.target.value })} /></div>
+    <div className="space-y-1 sm:col-span-3"><Label>Notes</Label><Textarea rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
+    <div className="sm:col-span-3 flex gap-2"><Button size="sm" onClick={onSave}>Record payment</Button><Button size="sm" variant="outline" onClick={onCancel}>Cancel</Button></div>
+  </CardContent></Card>);
+}
+
+function PaymentReceipt({ id, onClose }) {
+  const [r, setR] = useState(null);
+  useEffect(() => { (async () => { try { const d = await api(`/payments/${id}/receipt`); setR(d.receipt); } catch (e) { toast.error(friendlyError(e)); } })(); }, [id]);
+  if (!r) return <div className="h-32 rounded-lg border bg-muted/30 animate-pulse" />;
+  const a = r.agency || {}; const p = r.payment || {};
+  return (<div className="rounded-lg border p-4 space-y-2">
+    <div className="flex items-center justify-between gap-2"><div className="min-w-0"><div className="font-bold truncate">{a.name || 'Agency'}</div><div className="text-xs text-muted-foreground truncate">{a.email || ''}{a.phone ? ` · ${a.phone}` : ''}</div></div><div className="text-right shrink-0"><div className="text-xs text-muted-foreground">Payment receipt</div><div className="font-semibold">{p.paymentNumber}</div></div></div>
+    <Separator />
+    <div className="grid grid-cols-2 gap-2 text-sm">
+      <KV k={p.type === 'customer' ? 'Received from' : 'Paid to'} v={p.clientName || p.supplierName || '—'} />
+      <KV k="Date" v={p.paymentDate || '—'} />
+      <KV k="Booking" v={p.bookingNumber || '—'} />
+      <KV k="Method" v={FIN_PM_LABEL[p.paymentMethod] || '—'} />
+      <KV k="Reference" v={p.transactionReference || '—'} />
+      <KV k="Status" v={(PAY_STATUS_META[p.status] || {}).label || titleCase(p.status)} />
+    </div>
+    {p.notes && <div className="rounded-md bg-muted/40 p-2 text-sm text-muted-foreground">{p.notes}</div>}
+    <Separator />
+    <div className="flex items-center justify-between"><span className="text-muted-foreground">Amount</span><span className="text-lg font-bold">{money(p.amount)} {p.currency || ''}</span></div>
+    <div className="flex gap-2 pt-1"><Button size="sm" onClick={() => window.print()}><Printer className="h-4 w-4 mr-1" /> Print</Button><Button size="sm" variant="outline" onClick={onClose}>Close</Button></div>
+  </div>);
+}
+
+function PaymentDetailDialog({ id, session, onClose, onChanged }) {
+  const role = session.user.role;
+  const canRefund = can(role, 'payments:refund'); const canUpdate = can(role, 'payments:update');
+  const [data, setData] = useState(null); const [loading, setLoading] = useState(true);
+  const [showRefund, setShowRefund] = useState(false); const [rf, setRf] = useState({ amount: 0, refundDate: '', refundReference: '', notes: '' });
+  const [showReceipt, setShowReceipt] = useState(false);
+  const load = async () => { setLoading(true); try { const d = await api(`/payments/${id}`); setData(d); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, [id]);
+  const p = data && data.payment;
+  const setStatus = async (status) => { try { await api(`/payments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }); toast.success('Status updated'); load(); if (onChanged) onChanged(); } catch (e) { toast.error(friendlyError(e)); } };
+  const doRefund = async () => { if (!(Number(rf.amount) > 0)) { toast.error('Refund amount must be greater than zero'); return; } try { await api(`/payments/${id}/refund`, { method: 'POST', body: JSON.stringify(rf) }); toast.success('Refund recorded'); setShowRefund(false); setRf({ amount: 0, refundDate: '', refundReference: '', notes: '' }); load(); if (onChanged) onChanged(); } catch (e) { toast.error(friendlyError(e)); } };
+  return (<Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+    <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogHeader><DialogTitle>{p ? p.paymentNumber : 'Payment'}</DialogTitle></DialogHeader>
+      {loading && <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />}
+      {!loading && p && (<div className="space-y-3 text-sm">
+        <div className="flex items-center justify-between"><MetaBadge meta={PAY_STATUS_META[p.status] || PAY_STATUS_META.pending} /><span className={`text-lg font-bold ${p.direction === 'incoming' ? 'text-emerald-700' : 'text-rose-700'}`}>{p.direction === 'incoming' ? '+' : '-'}{money(p.amount)}</span></div>
+        <div className="grid grid-cols-2 gap-2">
+          <KV k="Type" v={titleCase(p.type)} /><KV k="Direction" v={titleCase(p.direction)} />
+          <KV k={p.type === 'customer' ? 'Customer' : 'Supplier'} v={p.clientName || p.supplierName || '—'} />
+          <KV k="Booking" v={p.bookingNumber || '—'} />
+          <KV k="Date" v={p.paymentDate || '—'} /><KV k="Method" v={FIN_PM_LABEL[p.paymentMethod] || '—'} />
+          <KV k="Reference" v={p.transactionReference || '—'} />
+          {p.refundedAmount > 0 && <KV k="Refunded" v={money(p.refundedAmount)} />}
+        </div>
+        {p.notes && <div className="rounded-md bg-muted/40 p-2 text-muted-foreground">{p.notes}</div>}
+        {data.linked && (<div className="rounded-lg border p-3"><div className="mb-1 font-medium">{titleCase(data.linked.kind)}{data.linked.invoiceNumber ? ` · ${data.linked.invoiceNumber}` : ''}</div><div className="grid grid-cols-3 gap-2"><div><div className="text-xs text-muted-foreground">Original</div>{money(data.linked.totalAmount)}</div><div><div className="text-xs text-muted-foreground">Paid</div>{money(data.linked.paidAmount)}</div><div><div className="text-xs text-muted-foreground">Outstanding</div><span className="font-medium">{money(data.linked.outstandingAmount)}</span></div></div></div>)}
+        {data.refunds && data.refunds.length > 0 && (<div className="rounded-lg border p-3"><div className="mb-1 font-medium">Refund history</div>{data.refunds.map((r) => (<div key={r.id} className="flex justify-between border-t py-1 first:border-t-0"><span className="text-muted-foreground">{r.refundDate} · {titleCase(r.status)}{r.refundReference ? ` · ${r.refundReference}` : ''}</span><span className="font-medium text-rose-700">-{money(r.amount)}</span></div>))}</div>)}
+        <div className="flex flex-wrap gap-2 pt-1">
+          <Button size="sm" variant="outline" onClick={() => setShowReceipt((v) => !v)}><Printer className="h-4 w-4 mr-1" /> Receipt</Button>
+          {canUpdate && p.status === 'pending' && <Button size="sm" onClick={() => setStatus('completed')}>Mark completed</Button>}
+          {canUpdate && (p.status === 'pending' || p.status === 'completed') && <Button size="sm" variant="outline" onClick={() => setStatus('cancelled')}>Cancel payment</Button>}
+          {canRefund && p.type === 'customer' && (p.status === 'completed' || p.status === 'partially_refunded') && <Button size="sm" variant="outline" onClick={() => setShowRefund((v) => !v)}><Undo2 className="h-4 w-4 mr-1" /> Refund</Button>}
+        </div>
+        {showRefund && (<div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1"><Label className="text-xs">Refund amount</Label><Input type="number" min="0" value={rf.amount} onChange={(e) => setRf({ ...rf, amount: Math.max(0, Number(e.target.value) || 0) })} /></div>
+            <div className="space-y-1"><Label className="text-xs">Date</Label><Input type="date" value={rf.refundDate} onChange={(e) => setRf({ ...rf, refundDate: e.target.value })} /></div>
+            <div className="space-y-1 col-span-2"><Label className="text-xs">Reference</Label><Input value={rf.refundReference} onChange={(e) => setRf({ ...rf, refundReference: e.target.value })} /></div>
+            <div className="space-y-1 col-span-2"><Label className="text-xs">Notes</Label><Input value={rf.notes} onChange={(e) => setRf({ ...rf, notes: e.target.value })} /></div>
+          </div>
+          <div className="flex gap-2"><Button size="sm" onClick={doRefund}>Record refund</Button><Button size="sm" variant="outline" onClick={() => setShowRefund(false)}>Cancel</Button></div>
+        </div>)}
+        {showReceipt && <PaymentReceipt id={id} onClose={() => setShowReceipt(false)} />}
+      </div>)}
+    </DialogContent>
+  </Dialog>);
+}
+
+function PaymentsPane({ session }) {
+  const role = session.user.role;
+  const canCreate = can(role, 'payments:create');
+  const [rows, setRows] = useState([]); const [dash, setDash] = useState(null); const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState(''); const [typeF, setTypeF] = useState('all'); const [statusF, setStatusF] = useState('all'); const [methodF, setMethodF] = useState('all');
+  const [show, setShow] = useState(false); const [detailId, setDetailId] = useState(null);
+  const blank = { type: 'customer', clientId: '', supplierId: '', bookingId: '', invoiceId: '', receivableId: '', payableId: '', amount: 0, paymentMethod: 'cash', transactionReference: '', paymentDate: '', notes: '', status: 'completed' };
+  const [f, setF] = useState(blank);
+  const load = async () => { setLoading(true); try { const [d, dd] = await Promise.all([api('/payments'), api('/payments/dashboard')]); setRows(d.payments || []); setDash(dd.dashboard); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const save = async () => {
+    if (f.type === 'customer' && !f.clientId && !f.invoiceId && !f.receivableId && !f.bookingId) { toast.error('Select a customer, invoice, receivable or booking'); return; }
+    if (f.type === 'supplier' && !f.supplierId && !f.payableId) { toast.error('Select a supplier or payable'); return; }
+    if (!(Number(f.amount) > 0)) { toast.error('Amount must be greater than zero'); return; }
+    try { await api('/payments', { method: 'POST', body: JSON.stringify(f) }); toast.success('Payment recorded'); setShow(false); setF(blank); load(); } catch (e) { toast.error(friendlyError(e)); }
+  };
+  const q = query.trim().toLowerCase();
+  const rr = rows.filter((r) => (!q || [r.paymentNumber, r.clientName, r.supplierName, r.bookingNumber, r.transactionReference].some((v) => String(v || '').toLowerCase().includes(q))) && (typeF === 'all' || r.type === typeF) && (statusF === 'all' || r.status === statusF) && (methodF === 'all' || r.paymentMethod === methodF));
+  const filters = (<>
+    <Select value={typeF} onValueChange={setTypeF}><SelectTrigger className="sm:w-32"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger><SelectContent><SelectItem value="all">All types</SelectItem><SelectItem value="customer">Customer</SelectItem><SelectItem value="supplier">Supplier</SelectItem></SelectContent></Select>
+    <Select value={statusF} onValueChange={setStatusF}><SelectTrigger className="sm:w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{Object.keys(PAY_STATUS_META).map((s) => <SelectItem key={s} value={s}>{PAY_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select>
+    <Select value={methodF} onValueChange={setMethodF}><SelectTrigger className="sm:w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All methods</SelectItem>{FIN_PAYMENT_METHODS.map((m) => <SelectItem key={m} value={m}>{FIN_PM_LABEL[m]}</SelectItem>)}</SelectContent></Select>
+  </>);
+  const x = dash || {};
+  const cards = [
+    { label: 'Total payments', value: x.totalPayments, icon: Banknote, tint: 'bg-emerald-50 text-emerald-600' },
+    { label: 'Customer payments', value: x.customerPayments, icon: TrendingUp, tint: 'bg-violet-50 text-violet-600' },
+    { label: 'Supplier payments', value: x.supplierPayments, icon: Store, tint: 'bg-sky-50 text-sky-600' },
+    { label: 'Pending', value: x.pendingPayments, icon: Clock, tint: 'bg-amber-50 text-amber-600' },
+    { label: 'Refunded', value: x.refundedAmount, icon: Undo2, tint: 'bg-rose-50 text-rose-600' },
+    { label: 'This month', value: x.monthPayments, icon: CalendarDays, tint: 'bg-teal-50 text-teal-600' },
+  ];
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        {cards.map((c) => { const Icon = c.icon; return (<Card key={c.label}><CardContent className="flex items-center gap-3 p-4"><div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${c.tint}`}><Icon className="h-5 w-5" /></div><div className="min-w-0"><div className="text-lg font-bold leading-none">{money(c.value || 0)}</div><div className="mt-1 text-xs text-muted-foreground truncate">{c.label}</div></div></CardContent></Card>); })}
+      </div>
+      <FinListShell canCreate={canCreate} createLabel="Record payment" onCreate={() => { setF(blank); setShow((v) => !v); }} query={query} setQuery={setQuery} searchPlaceholder="Search payments" filters={filters}>
+        {show && <PaymentForm f={f} setF={setF} onSave={save} onCancel={() => { setShow(false); setF(blank); }} />}
+        {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
+        {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No payments yet. Record a customer or supplier payment to get started.</CardContent></Card>}
+        {!loading && rr.length > 0 && (<Card className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Payment #</TableHead><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Party</TableHead><TableHead>Booking</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Method</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
+          <TableBody>{rr.map((r) => (<TableRow key={r.id} className="cursor-pointer" onClick={() => setDetailId(r.id)}><TableCell className="font-medium">{r.paymentNumber}</TableCell><TableCell className="text-muted-foreground">{r.paymentDate}</TableCell><TableCell><Badge variant="outline" className={`font-normal ${r.type === 'customer' ? 'text-violet-700' : 'text-sky-700'}`}>{titleCase(r.type)}</Badge></TableCell><TableCell>{r.clientName || r.supplierName || '—'}</TableCell><TableCell className="text-muted-foreground">{r.bookingNumber || '—'}</TableCell><TableCell className={`text-right font-medium ${r.direction === 'incoming' ? 'text-emerald-700' : 'text-rose-700'}`}>{r.direction === 'incoming' ? '+' : '-'}{money(r.amount)}</TableCell><TableCell className="text-muted-foreground">{FIN_PM_LABEL[r.paymentMethod] || '—'}</TableCell><TableCell><MetaBadge meta={PAY_STATUS_META[r.status] || PAY_STATUS_META.pending} /></TableCell><TableCell><Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setDetailId(r.id); }}><Eye className="h-4 w-4" /></Button></TableCell></TableRow>))}</TableBody></Table></Card>)}
+      </FinListShell>
+      {detailId && <PaymentDetailDialog id={detailId} session={session} onClose={() => setDetailId(null)} onChanged={load} />}
+    </div>
+  );
+}
+
 function Finance({ session, tab, onNav }) {
   const current = tab || 'dashboard';
   const tabs = [
@@ -4296,6 +4466,7 @@ function Finance({ session, tab, onNav }) {
     { id: 'payables', label: 'Payables', icon: Store },
     { id: 'expenses', label: 'Expenses', icon: CreditCard },
     { id: 'invoices', label: 'Invoices', icon: FileText },
+    { id: 'payments', label: 'Payments', icon: Banknote },
     { id: 'reports', label: 'Reports', icon: BarChart3 },
   ];
   return (
@@ -4310,6 +4481,7 @@ function Finance({ session, tab, onNav }) {
       {current === 'payables' && <PayablesPane session={session} />}
       {current === 'expenses' && <ExpensesPane session={session} />}
       {current === 'invoices' && <InvoicesPane session={session} />}
+      {current === 'payments' && <PaymentsPane session={session} />}
       {current === 'reports' && <FinReports />}
     </div>
   );
