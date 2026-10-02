@@ -26,6 +26,7 @@ import {
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { can } from '@/lib/rbac';
+import { useSync } from '@/lib/offline/useSync';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
   Trash2, Lock, Globe, Layers, ArrowLeft, Menu, X, Search, Pencil, Eye,
@@ -34,6 +35,7 @@ import {
   Package, Map, Clock, Utensils, Car, BedDouble,
   ChevronDown, ChevronUp, CalendarDays,
   Store, Phone, Mail, ClipboardList, Wallet, Truck,
+  Wifi, WifiOff, RefreshCw, CloudOff,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -268,6 +270,33 @@ function NavList({ active, onSelect, mobile }) {
   );
 }
 
+function SyncStatusIndicator() {
+  const { online, status, pendingCount, syncNow } = useSync();
+  // Unobtrusive: fully synced + online with nothing pending => subtle dot only.
+  if (online && status === 'synced' && !pendingCount) {
+    return (
+      <span className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground" title="Online — all changes synced">
+        <span className="h-2 w-2 rounded-full bg-emerald-500" /> Online
+      </span>
+    );
+  }
+  let cfg;
+  if (!online) cfg = { icon: WifiOff, text: 'Offline', cls: 'bg-muted text-muted-foreground border-border' };
+  else if (status === 'syncing') cfg = { icon: RefreshCw, text: 'Syncing…', cls: 'bg-sky-50 text-sky-700 border-sky-200', spin: true };
+  else if (status === 'error') cfg = { icon: CloudOff, text: 'Sync error', cls: 'bg-rose-50 text-rose-700 border-rose-200' };
+  else if (pendingCount) cfg = { icon: RefreshCw, text: `${pendingCount} pending`, cls: 'bg-amber-50 text-amber-700 border-amber-200' };
+  else cfg = { icon: Wifi, text: 'Online', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  const Icon = cfg.icon;
+  const clickable = online && (status === 'error' || pendingCount > 0);
+  return (
+    <button type="button" disabled={!clickable} onClick={() => clickable && syncNow()}
+      title={clickable ? 'Sync now' : cfg.text}
+      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${cfg.cls} ${clickable ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>
+      <Icon className={`h-3.5 w-3.5 ${cfg.spin ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">{cfg.text}</span>
+    </button>
+  );
+}
+
 function Dashboard({ session, onLogout }) {
   const [active, setActive] = useState('overview');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -310,6 +339,7 @@ function Dashboard({ session, onLogout }) {
               <div className="text-xs text-muted-foreground">{user?.email}</div>
             </div>
             <RoleBadge role={user?.role} />
+            <SyncStatusIndicator />
             <Button variant="outline" size="sm" onClick={onLogout}>
               <LogOut className="h-4 w-4 mr-1" /> Sign out
             </Button>

@@ -4,6 +4,7 @@ import { Providers } from './providers'
 export const metadata = {
   title: 'SafarOS — B2B OS for Travel Agencies',
   description: 'Multi-tenant SaaS foundation for travel agencies.',
+  manifest: '/manifest.json',
 }
 
 export default function RootLayout({ children }) {

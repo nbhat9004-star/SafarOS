@@ -1,0 +1,11 @@
+{
+  "name": "SafarOS — B2B OS for Travel Agencies",
+  "short_name": "SafarOS",
+  "description": "Multi-tenant operating system for travel agencies.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#7c3aed"
+}

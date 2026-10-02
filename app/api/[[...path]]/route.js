@@ -713,6 +713,14 @@ export async function GET(request, context) {
       return json({ booking });
     }
 
+    if (path === '/sync/status') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      // Authenticated reachability + server clock reference for the offline sync engine.
+      // agencyId is derived server-side only; never trusted from the client.
+      return json({ ok: true, serverTime: new Date().toISOString(), agencyId: session.agencyId });
+    }
+
     if (path === '/fleet/stats') {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
