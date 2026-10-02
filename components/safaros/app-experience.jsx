@@ -38,6 +38,7 @@ import {
   Wifi, WifiOff, RefreshCw, CloudOff,
   Receipt, TrendingUp, CreditCard, BarChart3,
   Banknote, Printer, Undo2,
+  MessageSquare, Sparkles, Send, Bot, Megaphone, UserCog, ExternalLink,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -235,6 +236,17 @@ const NAV = [
       { id: 'fin_reports', label: 'Reports', icon: BarChart3 },
     ],
   },
+  {
+    group: 'Communications',
+    items: [
+      { id: 'comm_inbox', label: 'Inbox', icon: MessageSquare },
+      { id: 'comm_conversations', label: 'Conversations', icon: Contact },
+      { id: 'comm_templates', label: 'Templates', icon: FileText },
+      { id: 'comm_activity', label: 'Activity', icon: Activity },
+    ],
+  },
+  { id: 'copilot', label: 'Copilot', icon: Sparkles },
+  { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck },
   { id: 'team', label: 'Team', icon: Users },
   { id: 'settings', label: 'Settings', icon: Building2 },
 ];
@@ -251,6 +263,8 @@ const SECTION_TITLES = {
   fin_receivables: 'Customer Receivables', fin_payables: 'Supplier Payables',
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
   fin_payments: 'Payments',
+  comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
+  copilot: 'AI Copilot', portal_admin: 'Customer Portal Access',
   team: 'Team', settings: 'Settings',
 };
 
@@ -382,10 +396,15 @@ function Dashboard({ session, onLogout }) {
           {active === 'bookings' && <Bookings key="bk" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'fleet' && <Fleet key="fleet" session={session} />}
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
+          {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
+          {active === 'copilot' && <CopilotWorkspace session={session} />}
+          {active === 'portal_admin' && <PortalAdmin session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
         </div>
       </main>
+
+      <CopilotFab session={session} />
 
       {/* Mobile navigation drawer */}
       <div className={`fixed inset-0 z-50 overflow-hidden md:hidden ${menuOpen ? '' : 'pointer-events-none'}`}>
@@ -4616,6 +4635,224 @@ export function AppExperience({ initialTab = 'login' }) {
       <Toaster richColors position="top-right" />
     </>
   );
+}
+
+// ======================= COMMUNICATIONS UI (Phase 5.3) =======================
+const COMM_CH = [
+  { id: 'whatsapp', label: 'WhatsApp' }, { id: 'email', label: 'Email' }, { id: 'phone', label: 'Phone' },
+  { id: 'sms', label: 'SMS' }, { id: 'note', label: 'Internal Note' }, { id: 'other', label: 'Other' },
+];
+const COMM_CH_LABEL = Object.fromEntries(COMM_CH.map((c) => [c.id, c.label]));
+const COMM_DIR = ['incoming', 'outgoing', 'internal'];
+const COMM_ST_META = {
+  draft: { label: 'Draft', cls: 'bg-slate-50 text-slate-700 border-slate-200' },
+  sent: { label: 'Sent', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  delivered: { label: 'Delivered', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  read: { label: 'Read', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  failed: { label: 'Failed', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  archived: { label: 'Archived', cls: 'bg-muted text-muted-foreground border-border' },
+};
+function waLink(phone, text) { const d = String(phone || '').replace(/[^0-9]/g, ''); return `https://wa.me/${d}${text ? `?text=${encodeURIComponent(text)}` : ''}`; }
+
+function CommLeadPicker({ value, onChange }) {
+  const [opts, setOpts] = useState([]);
+  useEffect(() => { (async () => { try { const d = await api('/leads'); setOpts(d.leads || []); } catch { /* */ } })(); }, []);
+  return (<Select value={value || 'none'} onValueChange={(v) => onChange(v === 'none' ? '' : v)}><SelectTrigger><SelectValue placeholder="No lead" /></SelectTrigger><SelectContent><SelectItem value="none">No lead</SelectItem>{opts.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}</SelectContent></Select>);
+}
+
+function CommForm({ onSaved, onCancel }) {
+  const blank = { channel: 'whatsapp', direction: 'outgoing', type: 'message', clientId: '', leadId: '', supplierId: '', bookingId: '', subject: '', message: '', phone: '', status: '' };
+  const [f, setF] = useState(blank); const [saving, setSaving] = useState(false);
+  const save = async () => { if (!f.message.trim() && !f.subject.trim()) { toast.error('Enter a message'); return; } setSaving(true); try { const d = await api('/communications', { method: 'POST', body: JSON.stringify(f) }); toast.success('Communication logged'); if (onSaved) onSaved(d.communication); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
+  const openWa = () => { if (!f.phone.trim()) { toast.error('Enter a phone number for WhatsApp'); return; } window.open(waLink(f.phone, f.message), '_blank'); };
+  return (<Card><CardContent className="grid gap-3 p-4 sm:grid-cols-3">
+    <div className="space-y-1"><Label>Channel</Label><Select value={f.channel} onValueChange={(v) => setF({ ...f, channel: v, direction: v === 'note' ? 'internal' : f.direction })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{COMM_CH.map((c) => <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>)}</SelectContent></Select></div>
+    <div className="space-y-1"><Label>Direction</Label><Select value={f.direction} onValueChange={(v) => setF({ ...f, direction: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{COMM_DIR.map((d) => <SelectItem key={d} value={d}>{titleCase(d)}</SelectItem>)}</SelectContent></Select></div>
+    <div className="space-y-1"><Label>Status</Label><Select value={f.status || 'auto'} onValueChange={(v) => setF({ ...f, status: v === 'auto' ? '' : v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="auto">Auto</SelectItem>{Object.keys(COMM_ST_META).map((s) => <SelectItem key={s} value={s}>{COMM_ST_META[s].label}</SelectItem>)}</SelectContent></Select></div>
+    <div className="space-y-1"><Label>Client</Label><FinClientPicker value={f.clientId} onChange={(v) => setF({ ...f, clientId: v })} /></div>
+    <div className="space-y-1"><Label>Lead</Label><CommLeadPicker value={f.leadId} onChange={(v) => setF({ ...f, leadId: v })} /></div>
+    <div className="space-y-1"><Label>Supplier</Label><FinSupplierPicker value={f.supplierId} onChange={(v) => setF({ ...f, supplierId: v })} /></div>
+    <div className="space-y-1"><Label>Booking</Label><FinBookingPicker value={f.bookingId} onChange={(v) => setF({ ...f, bookingId: v })} /></div>
+    <div className="space-y-1"><Label>Phone (for WhatsApp)</Label><Input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="+91..." /></div>
+    {f.channel === 'email' && <div className="space-y-1 sm:col-span-2"><Label>Subject</Label><Input value={f.subject} onChange={(e) => setF({ ...f, subject: e.target.value })} /></div>}
+    <div className="space-y-1 sm:col-span-3"><Label>Message</Label><Textarea rows={3} value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} /></div>
+    <div className="sm:col-span-3 flex flex-wrap gap-2"><Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Log communication'}</Button>{f.channel === 'whatsapp' && <Button size="sm" variant="outline" onClick={openWa}><Phone className="h-4 w-4 mr-1" /> Open WhatsApp</Button>}<Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button></div>
+  </CardContent></Card>);
+}
+
+function CommRow({ r }) {
+  const contact = r.clientName || r.leadName || r.supplierName || (r.bookingNumber ? `Booking ${r.bookingNumber}` : 'General');
+  return (<Card><CardContent className="flex items-start gap-3 p-3">
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted"><MessageSquare className="h-4 w-4 text-muted-foreground" /></div>
+    <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-2"><span className="font-medium truncate">{contact}</span><Badge variant="outline" className="font-normal">{COMM_CH_LABEL[r.channel] || r.channel}</Badge><Badge variant="outline" className="font-normal text-muted-foreground">{titleCase(r.direction)}</Badge><MetaBadge meta={COMM_ST_META[r.status] || COMM_ST_META.sent} /></div>
+      {r.subject && <div className="mt-0.5 text-sm font-medium">{r.subject}</div>}
+      {r.message && <div className="mt-0.5 text-sm text-muted-foreground whitespace-pre-wrap">{r.message}</div>}
+      <div className="mt-1 text-xs text-muted-foreground">{new Date(r.createdAt).toLocaleString()}</div>
+    </div>
+  </CardContent></Card>);
+}
+
+function CommInbox({ activity, canCreate }) {
+  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [q, setQ] = useState(''); const [chan, setChan] = useState('all'); const [show, setShow] = useState(false);
+  const load = async () => { setLoading(true); try { const d = await api('/communications'); setRows(d.communications || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const ql = q.trim().toLowerCase();
+  const rr = rows.filter((r) => (!ql || [r.subject, r.message, r.clientName, r.leadName, r.supplierName, r.bookingNumber].some((v) => String(v || '').toLowerCase().includes(ql))) && (chan === 'all' || r.channel === chan));
+  return (<div className="space-y-3">
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="relative flex-1 min-w-[180px]"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search communications" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <Select value={chan} onValueChange={setChan}><SelectTrigger className="w-40"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger><SelectContent><SelectItem value="all">All channels</SelectItem>{COMM_CH.map((c) => <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>)}</SelectContent></Select>
+      {canCreate && !activity && <Button size="sm" onClick={() => setShow((v) => !v)}><Plus className="h-4 w-4 mr-1" /> Log</Button>}
+    </div>
+    {show && <CommForm onSaved={() => { setShow(false); load(); }} onCancel={() => setShow(false)} />}
+    {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
+    {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No communications yet.{canCreate && !activity ? ' Log your first message above.' : ''}</CardContent></Card>}
+    {!loading && rr.length > 0 && <div className="space-y-2">{rr.map((r) => <CommRow key={r.id} r={r} />)}</div>}
+  </div>);
+}
+
+function CommConversations() {
+  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [sel, setSel] = useState(null);
+  const load = async () => { setLoading(true); try { const d = await api('/communications'); setRows(d.communications || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const groups = {};
+  rows.forEach((r) => { const key = r.clientId ? `client:${r.clientId}` : r.leadId ? `lead:${r.leadId}` : r.supplierId ? `supplier:${r.supplierId}` : r.bookingId ? `booking:${r.bookingId}` : 'general'; const name = r.clientName || r.leadName || r.supplierName || (r.bookingNumber ? `Booking ${r.bookingNumber}` : 'General'); if (!groups[key]) groups[key] = { key, name, items: [] }; groups[key].items.push(r); });
+  const list = Object.values(groups).sort((a, b) => String((b.items[0] || {}).createdAt).localeCompare(String((a.items[0] || {}).createdAt)));
+  if (loading) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
+  if (rows.length === 0) return <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No conversations yet.</CardContent></Card>;
+  const current = list.find((g) => g.key === sel) || list[0];
+  return (<div className="grid gap-3 md:grid-cols-[260px_1fr]">
+    <Card className="overflow-hidden"><div className="max-h-[70vh] overflow-auto divide-y">{list.map((g) => { const on = current && g.key === current.key; return (<button key={g.key} onClick={() => setSel(g.key)} className={`block w-full text-left px-3 py-2.5 ${on ? 'bg-accent' : ''}`}><div className="font-medium truncate">{g.name}</div><div className="text-xs text-muted-foreground truncate">{g.items.length} message{g.items.length > 1 ? 's' : ''} · {COMM_CH_LABEL[g.items[0].channel] || g.items[0].channel}</div></button>); })}</div></Card>
+    <Card><CardContent className="p-4 space-y-3 max-h-[70vh] overflow-auto">{current && current.items.slice().sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).map((m) => (<div key={m.id} className={`flex ${m.direction === 'incoming' ? 'justify-start' : 'justify-end'}`}><div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${m.direction === 'incoming' ? 'bg-muted' : m.direction === 'internal' ? 'bg-amber-50 border border-amber-200' : 'bg-primary text-primary-foreground'}`}>{m.subject && <div className="font-medium">{m.subject}</div>}<div className="whitespace-pre-wrap">{m.message}</div><div className={`mt-1 text-[10px] ${m.direction === 'outgoing' ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>{COMM_CH_LABEL[m.channel]} · {new Date(m.createdAt).toLocaleString()}</div></div></div>))}</CardContent></Card>
+  </div>);
+}
+
+function CommTemplates({ role }) {
+  const canCreate = can(role, 'communications:create'); const canUpdate = can(role, 'communications:update');
+  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [edit, setEdit] = useState(null); const [show, setShow] = useState(false);
+  const blank = { name: '', channel: 'whatsapp', subject: '', body: '', variablesText: '' };
+  const [f, setF] = useState(blank);
+  const load = async () => { setLoading(true); try { const d = await api('/communications/templates'); setRows(d.templates || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const save = async () => { if (!f.name.trim()) { toast.error('Template name is required'); return; } const payload = { name: f.name, channel: f.channel, subject: f.subject, body: f.body, variables: f.variablesText.split(',').map((s) => s.trim()).filter(Boolean) }; try { if (edit) await api(`/communications/templates/${edit}`, { method: 'PUT', body: JSON.stringify(payload) }); else await api('/communications/templates', { method: 'POST', body: JSON.stringify(payload) }); toast.success('Template saved'); setShow(false); setEdit(null); setF(blank); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const startEdit = (t) => { setEdit(t.id); setF({ name: t.name, channel: t.channel, subject: t.subject || '', body: t.body || '', variablesText: (t.variables || []).join(', ') }); setShow(true); };
+  return (<div className="space-y-3">
+    <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm text-muted-foreground">Reusable drafts with variables like {'{{clientName}}'}, {'{{bookingNumber}}'}.</div>{canCreate && <Button size="sm" onClick={() => { setEdit(null); setF(blank); setShow((v) => !v); }}><Plus className="h-4 w-4 mr-1" /> New template</Button>}</div>
+    {show && <Card><CardContent className="grid gap-3 p-4 sm:grid-cols-2">
+      <div className="space-y-1"><Label>Name</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
+      <div className="space-y-1"><Label>Channel</Label><Select value={f.channel} onValueChange={(v) => setF({ ...f, channel: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{COMM_CH.map((c) => <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>)}</SelectContent></Select></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Subject (optional)</Label><Input value={f.subject} onChange={(e) => setF({ ...f, subject: e.target.value })} /></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Body</Label><Textarea rows={4} value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} /></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Variables (comma separated)</Label><Input value={f.variablesText} onChange={(e) => setF({ ...f, variablesText: e.target.value })} placeholder="clientName, bookingNumber, destination" /></div>
+      <div className="sm:col-span-2 flex gap-2"><Button size="sm" onClick={save}>Save template</Button><Button size="sm" variant="ghost" onClick={() => { setShow(false); setEdit(null); setF(blank); }}>Cancel</Button></div>
+    </CardContent></Card>}
+    {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
+    {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No templates yet.</CardContent></Card>}
+    {!loading && rows.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{rows.map((t) => (<Card key={t.id}><CardContent className="p-4 space-y-1"><div className="flex items-center justify-between"><span className="font-medium">{t.name}</span><Badge variant="outline" className="font-normal">{COMM_CH_LABEL[t.channel] || t.channel}</Badge></div>{t.subject && <div className="text-sm font-medium">{t.subject}</div>}<div className="text-sm text-muted-foreground whitespace-pre-wrap">{t.body}</div>{(t.variables || []).length > 0 && <div className="flex flex-wrap gap-1 pt-1">{t.variables.map((v) => <Badge key={v} variant="secondary" className="font-normal">{`{{${v}}}`}</Badge>)}</div>}{canUpdate && <div className="pt-2"><Button size="sm" variant="outline" onClick={() => startEdit(t)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button></div>}</CardContent></Card>))}</div>}
+  </div>);
+}
+
+function Communications({ session, tab, onNav }) {
+  const role = session.user.role;
+  const canCreate = can(role, 'communications:create');
+  const TABS = [
+    { id: 'inbox', label: 'Inbox', icon: MessageSquare },
+    { id: 'conversations', label: 'Conversations', icon: Contact },
+    { id: 'templates', label: 'Templates', icon: FileText },
+    { id: 'activity', label: 'Activity', icon: Activity },
+  ];
+  const current = TABS.some((t) => t.id === tab) ? tab : 'inbox';
+  return (<div className="space-y-4">
+    <div className="flex gap-1 overflow-x-auto rounded-lg border bg-muted/40 p-1">
+      {TABS.map((t) => { const Icon = t.icon; const on = current === t.id; return (<button key={t.id} onClick={() => onNav(t.id)} className={`flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm ${on ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'}`}><Icon className="h-4 w-4" />{t.label}</button>); })}
+    </div>
+    {(current === 'inbox' || current === 'activity') && <CommInbox activity={current === 'activity'} canCreate={canCreate} />}
+    {current === 'conversations' && <CommConversations />}
+    {current === 'templates' && <CommTemplates role={role} />}
+  </div>);
+}
+
+// ======================= AI COPILOT UI (Phase 5.4) =======================
+const COPILOT_SUGGESTIONS = [
+  "Give me today's business priorities",
+  'Which follow-ups are due?',
+  'What bookings are coming up?',
+  'Show outstanding customer payments',
+  'Summarize recent activity',
+  'Draft a friendly payment reminder',
+];
+
+function CopilotChat({ session }) {
+  const [status, setStatus] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [conv, setConv] = useState(null);
+  useEffect(() => { (async () => { try { const s = await api('/ai/status'); setStatus(s); } catch { setStatus({ configured: false }); } })(); }, []);
+  const send = async (text) => { const msg = (text || input).trim(); if (!msg || busy) return; setInput(''); setMessages((m) => [...m, { role: 'user', text: msg }]); setBusy(true); try { const d = await api('/ai/chat', { method: 'POST', body: JSON.stringify({ conversationId: conv, message: msg }) }); setConv(d.conversationId); setMessages((m) => [...m, { role: 'assistant', text: d.reply }]); } catch (e) { setMessages((m) => [...m, { role: 'assistant', text: friendlyError(e), error: true }]); } finally { setBusy(false); } };
+  return (<div className="flex flex-col h-full min-h-0">
+    {status && !status.configured && <div className="m-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">AI Copilot is not configured. Set <code>ANTHROPIC_API_KEY</code> on the server to enable it — the rest of SafarOS keeps working normally.</div>}
+    <div className="flex-1 min-h-0 overflow-auto space-y-3 p-3">
+      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
+      {messages.map((m, i) => (<div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.role === 'user' ? 'bg-primary text-primary-foreground' : m.error ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-muted'}`}>{m.text}</div></div>))}
+      {busy && <div className="flex justify-start"><div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Thinking…</div></div>}
+    </div>
+    <div className="border-t p-2 flex gap-2">
+      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask the Copilot…" disabled={busy} />
+      <Button size="icon" onClick={() => send()} disabled={busy || !input.trim()}><Send className="h-4 w-4" /></Button>
+    </div>
+  </div>);
+}
+
+function CopilotWorkspace({ session }) {
+  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> AI Copilot</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
+}
+
+function CopilotFab({ session }) {
+  const [open, setOpen] = useState(false);
+  const role = session && session.user && session.user.role;
+  if (role && !can(role, 'ai:use')) return null;
+  return (<>
+    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Copilot">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
+    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Copilot</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
+  </>);
+}
+
+// ======================= CUSTOMER PORTAL ADMIN (Phase 5.5, staff side) =======================
+function PortalAccessDialog({ client, onClose }) {
+  const [info, setInfo] = useState(null); const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState(client.email || ''); const [password, setPassword] = useState(''); const [saving, setSaving] = useState(false);
+  const load = async () => { setLoading(true); try { const d = await api(`/portal-access?clientId=${encodeURIComponent(client.id)}`); setInfo(d.portalAccess); if (d.portalAccess && d.portalAccess.email) setEmail(d.portalAccess.email); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, [client.id]);
+  const save = async () => { if (!email.trim()) { toast.error('Email is required'); return; } if (password.length < 6) { toast.error('Password must be at least 6 characters'); return; } setSaving(true); try { await api('/portal-access', { method: 'POST', body: JSON.stringify({ clientId: client.id, email, password }) }); toast.success(info ? 'Portal access updated' : 'Portal access created'); setPassword(''); load(); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
+  const toggle = async () => { try { await api(`/portal-access/${info.id}/status`, { method: 'PUT', body: JSON.stringify({ status: info.status === 'active' ? 'disabled' : 'active' }) }); toast.success('Status updated'); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  return (<Dialog open onOpenChange={(o) => { if (!o) onClose(); }}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>Portal access · {client.name}</DialogTitle></DialogHeader>
+    {loading ? <div className="h-32 rounded-lg border bg-muted/30 animate-pulse" /> : (<div className="space-y-3 text-sm">
+      {info ? <div className="flex flex-wrap items-center gap-2"><MetaBadge meta={info.status === 'active' ? { label: 'Active', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' } : { label: 'Disabled', cls: 'bg-rose-50 text-rose-700 border-rose-200' }} />{info.lastLoginAt ? <span className="text-xs text-muted-foreground">Last login {new Date(info.lastLoginAt).toLocaleString()}</span> : <span className="text-xs text-muted-foreground">Never logged in</span>}</div> : <div className="text-muted-foreground">No portal access yet. Create a login below.</div>}
+      <div className="space-y-1"><Label>Login email</Label><Input value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+      <div className="space-y-1"><Label>{info ? 'Reset password' : 'Password'}</Label><Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" /></div>
+      <div className="flex flex-wrap gap-2 pt-1"><Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : (info ? 'Update access' : 'Create access')}</Button>{info && <Button size="sm" variant="outline" onClick={toggle}>{info.status === 'active' ? 'Disable' : 'Enable'}</Button>}<Button size="sm" variant="ghost" onClick={onClose}>Close</Button></div>
+      <div className="text-xs text-muted-foreground">Customers sign in at <code>/portal</code> with this email and password.</div>
+    </div>)}
+  </DialogContent></Dialog>);
+}
+
+function PortalAdmin({ session }) {
+  const role = session.user.role; const canManage = can(role, 'portal:manage');
+  const [clients, setClients] = useState([]); const [loading, setLoading] = useState(true); const [q, setQ] = useState(''); const [sel, setSel] = useState(null);
+  const load = async () => { setLoading(true); try { const d = await api('/clients'); setClients(d.clients || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const ql = q.trim().toLowerCase();
+  const rr = clients.filter((c) => !ql || [c.name, c.email, c.phone].some((v) => String(v || '').toLowerCase().includes(ql)));
+  return (<div className="space-y-4">
+    <Card><CardContent className="flex flex-wrap items-center justify-between gap-2 p-4"><div className="text-sm"><div className="font-medium">Customer Portal</div><div className="text-muted-foreground">Grant existing clients secure access to their trips, invoices and payments.</div></div><a href="/portal" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-violet-600 hover:underline"><ExternalLink className="h-4 w-4" /> Open portal</a></CardContent></Card>
+    <div className="relative max-w-sm"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search clients" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+    {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
+    {!loading && clients.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No clients yet. Add clients in CRM to grant portal access.</CardContent></Card>}
+    {!loading && rr.length > 0 && <Card className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Client</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>{rr.map((c) => (<TableRow key={c.id}><TableCell className="font-medium">{c.name}</TableCell><TableCell className="text-muted-foreground">{c.email || '—'}</TableCell><TableCell className="text-muted-foreground">{c.phone || '—'}</TableCell><TableCell className="text-right">{canManage && <Button size="sm" variant="outline" onClick={() => setSel(c)}><UserCog className="h-4 w-4 mr-1" /> Portal access</Button>}</TableCell></TableRow>))}</TableBody></Table></Card>}
+    {sel && <PortalAccessDialog client={sel} onClose={() => setSel(null)} />}
+  </div>);
 }
 
 export default AppExperience;
