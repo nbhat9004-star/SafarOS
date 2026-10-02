@@ -39,6 +39,7 @@ import {
   Receipt, TrendingUp, CreditCard, BarChart3,
   Banknote, Printer, Undo2,
   MessageSquare, Sparkles, Send, Bot, Megaphone, UserCog, ExternalLink,
+  Palette, Gauge, PieChart,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -245,6 +246,27 @@ const NAV = [
       { id: 'comm_activity', label: 'Activity', icon: Activity },
     ],
   },
+  {
+    group: 'Website',
+    items: [
+      { id: 'web_dashboard', label: 'Website', icon: Globe },
+      { id: 'web_settings', label: 'Settings', icon: Building2 },
+      { id: 'web_appearance', label: 'Appearance', icon: Palette },
+      { id: 'web_pages', label: 'Pages', icon: FileText },
+      { id: 'web_seo', label: 'SEO', icon: Search },
+      { id: 'web_preview', label: 'Preview', icon: Eye },
+    ],
+  },
+  {
+    group: 'Analytics',
+    items: [
+      { id: 'an_overview', label: 'Overview', icon: Gauge },
+      { id: 'an_sales', label: 'Sales', icon: TrendingUp },
+      { id: 'an_crm', label: 'CRM', icon: Contact },
+      { id: 'an_finance', label: 'Finance', icon: Wallet },
+      { id: 'an_operations', label: 'Operations', icon: Truck },
+    ],
+  },
   { id: 'copilot', label: 'Copilot', icon: Sparkles },
   { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck },
   { id: 'team', label: 'Team', icon: Users },
@@ -265,6 +287,8 @@ const SECTION_TITLES = {
   fin_payments: 'Payments',
   comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
   copilot: 'AI Copilot', portal_admin: 'Customer Portal Access',
+  web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
+  an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   team: 'Team', settings: 'Settings',
 };
 
@@ -398,6 +422,8 @@ function Dashboard({ session, onLogout }) {
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
           {active === 'copilot' && <CopilotWorkspace session={session} />}
+          {String(active).startsWith('web_') && <Website key="web" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('web_' + t)} />}
+          {String(active).startsWith('an_') && <Analytics key="an" session={session} tab={String(active).slice(3)} onNav={(t) => setActive('an_' + t)} />}
           {active === 'portal_admin' && <PortalAdmin session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
@@ -4852,6 +4878,168 @@ function PortalAdmin({ session }) {
     {!loading && clients.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No clients yet. Add clients in CRM to grant portal access.</CardContent></Card>}
     {!loading && rr.length > 0 && <Card className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Client</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>{rr.map((c) => (<TableRow key={c.id}><TableCell className="font-medium">{c.name}</TableCell><TableCell className="text-muted-foreground">{c.email || '—'}</TableCell><TableCell className="text-muted-foreground">{c.phone || '—'}</TableCell><TableCell className="text-right">{canManage && <Button size="sm" variant="outline" onClick={() => setSel(c)}><UserCog className="h-4 w-4 mr-1" /> Portal access</Button>}</TableCell></TableRow>))}</TableBody></Table></Card>}
     {sel && <PortalAccessDialog client={sel} onClose={() => setSel(null)} />}
+  </div>);
+}
+
+// ======================= WEBSITE BUILDER + SEO UI (5.6/5.7) =======================
+function WebsiteDashboard({ data, siteUrl, canManage, onChanged }) {
+  const s = data.settings; const published = s.status === 'published';
+  const toggle = async () => { try { await api('/website/settings', { method: 'PUT', body: JSON.stringify({ status: published ? 'draft' : 'published' }) }); toast.success(published ? 'Website unpublished' : 'Website published'); onChanged(); } catch (e) { toast.error(friendlyError(e)); } };
+  return (<div className="grid gap-4 md:grid-cols-2">
+    <Card><CardContent className="space-y-3 p-5"><div className="flex items-center justify-between"><span className="font-semibold">Status</span><MetaBadge meta={published ? { label: 'Published', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' } : { label: 'Draft', cls: 'bg-amber-50 text-amber-700 border-amber-200' }} /></div><div className="text-sm text-muted-foreground">{published ? 'Your website is publicly visible.' : 'Your website is private until you publish it.'}</div>{canManage && <Button size="sm" onClick={toggle}>{published ? 'Unpublish' : 'Publish website'}</Button>}</CardContent></Card>
+    <Card><CardContent className="space-y-2 p-5"><span className="font-semibold">Public address</span><div className="break-all text-sm text-violet-600">{siteUrl}</div><a href={siteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-violet-600 hover:underline"><ExternalLink className="h-4 w-4" /> Open website</a></CardContent></Card>
+  </div>);
+}
+
+function WebsiteSettings({ data, canManage, onSaved }) {
+  const s = data.settings;
+  const [f, setF] = useState({ siteTitle: s.siteTitle || '', tagline: s.tagline || '', logo: s.logo || '', favicon: s.favicon || '', contactEmail: s.contactEmail || '', phone: s.phone || '', address: s.address || '', social: { facebook: '', instagram: '', twitter: '', youtube: '', linkedin: '', website: '', ...(s.social || {}) } });
+  const [saving, setSaving] = useState(false);
+  const save = async () => { setSaving(true); try { await api('/website/settings', { method: 'PUT', body: JSON.stringify(f) }); toast.success('Settings saved'); onSaved(); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
+  const field = (k, label) => (<div className="space-y-1"><Label>{label}</Label><Input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} disabled={!canManage} /></div>);
+  const soc = (k, label) => (<div className="space-y-1"><Label>{label}</Label><Input value={f.social[k]} onChange={(e) => setF({ ...f, social: { ...f.social, [k]: e.target.value } })} disabled={!canManage} /></div>);
+  return (<Card><CardContent className="grid gap-3 p-5 sm:grid-cols-2">
+    {field('siteTitle', 'Website title')}{field('tagline', 'Tagline')}
+    {field('contactEmail', 'Contact email')}{field('phone', 'Phone')}
+    <div className="space-y-1 sm:col-span-2"><Label>Address</Label><Textarea rows={2} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} disabled={!canManage} /></div>
+    {field('logo', 'Logo URL')}{field('favicon', 'Favicon URL')}
+    {soc('facebook', 'Facebook')}{soc('instagram', 'Instagram')}{soc('twitter', 'Twitter / X')}{soc('youtube', 'YouTube')}{soc('linkedin', 'LinkedIn')}{soc('website', 'Website')}
+    {canManage && <div className="sm:col-span-2"><Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</Button></div>}
+  </CardContent></Card>);
+}
+
+function WebsiteAppearance({ data, canManage, onSaved }) {
+  const s = data.settings;
+  const [f, setF] = useState({ primaryColor: s.primaryColor || '#7c3aed', secondaryColor: s.secondaryColor || '#0ea5e9', font: s.font || 'Inter', theme: s.theme || 'classic', logo: s.logo || '' });
+  const [saving, setSaving] = useState(false);
+  const save = async () => { setSaving(true); try { await api('/website/settings', { method: 'PUT', body: JSON.stringify(f) }); toast.success('Appearance saved'); onSaved(); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
+  return (<Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+    <div className="space-y-1"><Label>Primary color</Label><div className="flex gap-2"><input type="color" value={f.primaryColor} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} disabled={!canManage} className="h-9 w-12 rounded border" /><Input value={f.primaryColor} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} disabled={!canManage} /></div></div>
+    <div className="space-y-1"><Label>Secondary color</Label><div className="flex gap-2"><input type="color" value={f.secondaryColor} onChange={(e) => setF({ ...f, secondaryColor: e.target.value })} disabled={!canManage} className="h-9 w-12 rounded border" /><Input value={f.secondaryColor} onChange={(e) => setF({ ...f, secondaryColor: e.target.value })} disabled={!canManage} /></div></div>
+    <div className="space-y-1"><Label>Font</Label><Select value={f.font} onValueChange={(v) => setF({ ...f, font: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['Inter', 'Poppins', 'Roboto', 'Lato', 'Montserrat'].map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select></div>
+    <div className="space-y-1"><Label>Theme</Label><Select value={f.theme} onValueChange={(v) => setF({ ...f, theme: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['classic', 'modern', 'minimal'].map((x) => <SelectItem key={x} value={x}>{titleCase(x)}</SelectItem>)}</SelectContent></Select></div>
+    <div className="space-y-1 sm:col-span-2"><Label>Logo URL</Label><Input value={f.logo} onChange={(e) => setF({ ...f, logo: e.target.value })} disabled={!canManage} /></div>
+    <div className="flex items-center gap-3 sm:col-span-2"><div className="flex items-center gap-2 text-sm"><span className="h-6 w-6 rounded" style={{ background: f.primaryColor }} /><span className="h-6 w-6 rounded" style={{ background: f.secondaryColor }} /><span className="text-muted-foreground">Palette preview</span></div>{canManage && <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save appearance'}</Button>}</div>
+  </CardContent></Card>);
+}
+
+function WebsitePageDialog({ page, onClose, onSaved }) {
+  const isNew = !page.id;
+  const [f, setF] = useState({ title: page.title || '', slug: page.slug || '', pageType: page.pageType || 'custom', content: page.content || '', status: page.status || 'draft', seoTitle: page.seoTitle || '', seoDescription: page.seoDescription || '', canonicalUrl: page.canonicalUrl || '', noindex: Boolean(page.noindex), ogTitle: page.ogTitle || '', ogDescription: page.ogDescription || '' });
+  const [saving, setSaving] = useState(false);
+  const save = async () => { if (!f.title.trim()) { toast.error('Title is required'); return; } setSaving(true); try { if (isNew) await api('/website/pages', { method: 'POST', body: JSON.stringify(f) }); else await api(`/website/pages/${page.id}`, { method: 'PUT', body: JSON.stringify(f) }); toast.success('Page saved'); onSaved(); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
+  return (<Dialog open onOpenChange={(o) => { if (!o) onClose(); }}><DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{isNew ? 'New page' : 'Edit page'}</DialogTitle></DialogHeader>
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1"><Label>Title</Label><Input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
+      <div className="space-y-1"><Label>Slug</Label><Input value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value })} placeholder="auto from title" /></div>
+      <div className="space-y-1"><Label>Type</Label><Select value={f.pageType} onValueChange={(v) => setF({ ...f, pageType: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['home', 'about', 'contact', 'packages', 'destinations', 'custom'].map((x) => <SelectItem key={x} value={x}>{titleCase(x)}</SelectItem>)}</SelectContent></Select></div>
+      <div className="space-y-1"><Label>Status</Label><Select value={f.status} onValueChange={(v) => setF({ ...f, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="draft">Draft</SelectItem><SelectItem value="published">Published</SelectItem></SelectContent></Select></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Content</Label><Textarea rows={4} value={f.content} onChange={(e) => setF({ ...f, content: e.target.value })} /></div>
+      <div className="sm:col-span-2 border-t pt-2 text-sm font-medium text-muted-foreground">SEO</div>
+      <div className="space-y-1 sm:col-span-2"><Label>SEO title</Label><Input value={f.seoTitle} onChange={(e) => setF({ ...f, seoTitle: e.target.value })} /></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Meta description</Label><Textarea rows={2} value={f.seoDescription} onChange={(e) => setF({ ...f, seoDescription: e.target.value })} /></div>
+      <div className="space-y-1"><Label>Canonical URL</Label><Input value={f.canonicalUrl} onChange={(e) => setF({ ...f, canonicalUrl: e.target.value })} /></div>
+      <div className="flex items-center gap-2 pt-6"><input type="checkbox" checked={f.noindex} onChange={(e) => setF({ ...f, noindex: e.target.checked })} id="noidx" /><Label htmlFor="noidx">No-index this page</Label></div>
+      <div className="space-y-1 sm:col-span-2"><Label>OG title</Label><Input value={f.ogTitle} onChange={(e) => setF({ ...f, ogTitle: e.target.value })} /></div>
+      <div className="space-y-1 sm:col-span-2"><Label>OG description</Label><Textarea rows={2} value={f.ogDescription} onChange={(e) => setF({ ...f, ogDescription: e.target.value })} /></div>
+    </div>
+    <DialogFooter><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save page'}</Button></DialogFooter>
+  </DialogContent></Dialog>);
+}
+
+function WebsitePages({ canManage }) {
+  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [edit, setEdit] = useState(null);
+  const load = async () => { setLoading(true); try { const d = await api('/website/pages'); setRows(d.pages || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const toggle = async (p) => { try { await api(`/website/pages/${p.id}/status`, { method: 'PUT', body: JSON.stringify({ status: p.status === 'published' ? 'draft' : 'published' }) }); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const del = async (p) => { if (!window.confirm('Delete this page?')) return; try { await api(`/website/pages/${p.id}`, { method: 'DELETE' }); toast.success('Page deleted'); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  return (<div className="space-y-3">
+    <div className="flex justify-end">{canManage && <Button size="sm" onClick={() => setEdit({})}><Plus className="h-4 w-4 mr-1" /> New page</Button>}</div>
+    {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
+    {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No pages yet.{canManage ? ' Create your first page.' : ''}</CardContent></Card>}
+    {!loading && rows.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{rows.map((p) => (<Card key={p.id}><CardContent className="space-y-1 p-4"><div className="flex items-center justify-between gap-2"><span className="font-medium">{p.title}</span><MetaBadge meta={p.status === 'published' ? { label: 'Published', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' } : { label: 'Draft', cls: 'bg-amber-50 text-amber-700 border-amber-200' }} /></div><div className="text-xs text-muted-foreground">/{p.slug} · {titleCase(p.pageType)}</div>{canManage && <div className="flex gap-2 pt-2"><Button size="sm" variant="outline" onClick={() => setEdit(p)}><Pencil className="h-4 w-4 mr-1" />Edit</Button><Button size="sm" variant="outline" onClick={() => toggle(p)}>{p.status === 'published' ? 'Unpublish' : 'Publish'}</Button><Button size="sm" variant="ghost" onClick={() => del(p)}><Trash2 className="h-4 w-4" /></Button></div>}</CardContent></Card>))}</div>}
+    {edit !== null && <WebsitePageDialog page={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}
+  </div>);
+}
+
+function WebsiteSeo({ data, canManage, onSaved }) {
+  const s = data.settings.seo || {};
+  const [f, setF] = useState({ metaTitle: s.metaTitle || '', metaDescription: s.metaDescription || '', keywords: s.keywords || '', canonicalUrl: s.canonicalUrl || '', robots: s.robots || 'index', ogTitle: s.ogTitle || '', ogDescription: s.ogDescription || '', ogImage: s.ogImage || '' });
+  const [saving, setSaving] = useState(false); const [overview, setOverview] = useState(null);
+  useEffect(() => { (async () => { try { const d = await api('/website/seo/overview'); setOverview(d); } catch { /* */ } })(); }, []);
+  const save = async () => { setSaving(true); try { await api('/website/settings', { method: 'PUT', body: JSON.stringify({ seo: f }) }); toast.success('SEO saved'); onSaved(); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
+  const Check = ({ ok, label }) => (<span className={`inline-flex items-center gap-1 text-xs ${ok ? 'text-emerald-600' : 'text-muted-foreground'}`}>{ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}{label}</span>);
+  return (<div className="space-y-4">
+    <Card><CardContent className="grid gap-3 p-5 sm:grid-cols-2">
+      <div className="sm:col-span-2 text-sm font-medium">Site SEO defaults</div>
+      <div className="space-y-1 sm:col-span-2"><Label>Meta title</Label><Input value={f.metaTitle} onChange={(e) => setF({ ...f, metaTitle: e.target.value })} disabled={!canManage} /></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Meta description</Label><Textarea rows={2} value={f.metaDescription} onChange={(e) => setF({ ...f, metaDescription: e.target.value })} disabled={!canManage} /></div>
+      <div className="space-y-1"><Label>Default keywords</Label><Input value={f.keywords} onChange={(e) => setF({ ...f, keywords: e.target.value })} disabled={!canManage} /></div>
+      <div className="space-y-1"><Label>Canonical URL</Label><Input value={f.canonicalUrl} onChange={(e) => setF({ ...f, canonicalUrl: e.target.value })} disabled={!canManage} /></div>
+      <div className="space-y-1"><Label>Indexing</Label><Select value={f.robots} onValueChange={(v) => setF({ ...f, robots: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="index">Allow indexing</SelectItem><SelectItem value="noindex">No-index</SelectItem></SelectContent></Select></div>
+      <div className="space-y-1"><Label>OG image URL</Label><Input value={f.ogImage} onChange={(e) => setF({ ...f, ogImage: e.target.value })} disabled={!canManage} /></div>
+      {canManage && <div className="sm:col-span-2"><Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save SEO defaults'}</Button></div>}
+    </CardContent></Card>
+    <Card><CardContent className="space-y-3 p-5">
+      <div className="flex items-center justify-between"><span className="font-medium">Page SEO checklist</span><span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Search Console not connected</span></div>
+      {!overview ? <div className="h-16 animate-pulse rounded bg-muted/30" /> : (overview.pages.length === 0 ? <div className="text-sm text-muted-foreground">No pages to analyze yet.</div> : <div className="space-y-2">{overview.pages.map((p) => (<div key={p.id} className="rounded-lg border p-3"><div className="flex items-center justify-between"><span className="font-medium">{p.title}</span><span className="text-xs text-muted-foreground">/{p.slug}</span></div><div className="mt-2 flex flex-wrap gap-3"><Check ok={p.checks.seoTitle} label="SEO title" /><Check ok={p.checks.metaDescription} label="Meta description" /><Check ok={p.checks.slugValid} label="Valid slug" /><Check ok={p.checks.canonical} label="Canonical" /><span className="text-xs text-muted-foreground">{p.checks.indexing}</span></div></div>))}</div>)}
+    </CardContent></Card>
+  </div>);
+}
+
+function WebsitePreview({ siteUrl, published }) {
+  return (<Card><CardContent className="space-y-3 p-4">
+    {!published && <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Website is in draft. Publish it to make it publicly visible.</div>}
+    <div className="flex items-center justify-between gap-2"><span className="break-all text-sm text-muted-foreground">{siteUrl}</span><a href={siteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-violet-600 hover:underline"><ExternalLink className="h-4 w-4" />Open</a></div>
+    <div className="overflow-hidden rounded-lg border"><iframe title="Website preview" src={siteUrl} className="h-[65vh] w-full bg-white" /></div>
+  </CardContent></Card>);
+}
+
+function Website({ session, tab, onNav }) {
+  const role = session.user.role; const canManage = can(role, 'website:manage');
+  const [data, setData] = useState(null); const [loading, setLoading] = useState(true);
+  const load = async () => { setLoading(true); try { const d = await api('/website/settings'); setData(d); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const TABS = [{ id: 'dashboard', label: 'Dashboard' }, { id: 'settings', label: 'Settings' }, { id: 'appearance', label: 'Appearance' }, { id: 'pages', label: 'Pages' }, { id: 'seo', label: 'SEO' }, { id: 'preview', label: 'Preview' }];
+  const current = TABS.some((t) => t.id === tab) ? tab : 'dashboard';
+  const slug = (data && data.agency && data.agency.slug) || '';
+  const siteUrl = (typeof window !== 'undefined' ? window.location.origin : '') + '/site/' + slug;
+  return (<div className="space-y-4">
+    <div className="flex gap-1 overflow-x-auto rounded-lg border bg-muted/40 p-1">{TABS.map((t) => { const on = current === t.id; return (<button key={t.id} onClick={() => onNav(t.id)} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm ${on ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'}`}>{t.label}</button>); })}</div>
+    {loading || !data ? <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" /> : (<>
+      {current === 'dashboard' && <WebsiteDashboard data={data} siteUrl={siteUrl} canManage={canManage} onChanged={load} />}
+      {current === 'settings' && <WebsiteSettings data={data} canManage={canManage} onSaved={load} />}
+      {current === 'appearance' && <WebsiteAppearance data={data} canManage={canManage} onSaved={load} />}
+      {current === 'pages' && <WebsitePages canManage={canManage} />}
+      {current === 'seo' && <WebsiteSeo data={data} canManage={canManage} onSaved={load} />}
+      {current === 'preview' && <WebsitePreview siteUrl={siteUrl} published={data.settings.status === 'published'} />}
+    </>)}
+  </div>);
+}
+
+// ======================= BUSINESS ANALYTICS UI (5.8) =======================
+const AN_RANGES = [{ id: 'today', label: 'Today' }, { id: 'week', label: 'This Week' }, { id: 'month', label: 'This Month' }, { id: 'year', label: 'This Year' }, { id: 'all', label: 'All Time' }];
+function AnStat({ label, value }) { return (<Card><CardContent className="p-4"><div className="text-xl font-bold text-slate-900">{value}</div><div className="mt-1 text-xs text-muted-foreground">{label}</div></CardContent></Card>); }
+function AnBars({ data }) { const entries = Object.entries(data || {}); const max = Math.max(1, ...entries.map(([, v]) => Number(v) || 0)); if (!entries.length) return <div className="text-sm text-muted-foreground">No data available for this period.</div>; return (<div className="space-y-2">{entries.map(([k, v]) => (<div key={k}><div className="flex justify-between text-xs"><span className="capitalize text-muted-foreground">{String(k).replace(/_/g, ' ')}</span><span className="font-medium">{v}</span></div><div className="h-2 rounded bg-muted"><div className="h-2 rounded bg-violet-500" style={{ width: `${(Number(v) / max) * 100}%` }} /></div></div>))}</div>); }
+
+function Analytics({ session, tab, onNav }) {
+  const TABS = [{ id: 'overview', label: 'Overview' }, { id: 'sales', label: 'Sales' }, { id: 'crm', label: 'CRM' }, { id: 'finance', label: 'Finance' }, { id: 'operations', label: 'Operations' }];
+  const current = TABS.some((t) => t.id === tab) ? tab : 'overview';
+  const [range, setRange] = useState('month'); const [d, setD] = useState(null); const [loading, setLoading] = useState(true);
+  const load = async () => { setLoading(true); try { const r = await api(`/analytics/${current}?range=${range}`); setD(r); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, [current, range]);
+  return (<div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex gap-1 overflow-x-auto rounded-lg border bg-muted/40 p-1">{TABS.map((t) => { const on = current === t.id; return (<button key={t.id} onClick={() => onNav(t.id)} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm ${on ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'}`}>{t.label}</button>); })}</div>
+      <Select value={range} onValueChange={setRange}><SelectTrigger className="w-40"><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4" /><SelectValue /></div></SelectTrigger><SelectContent>{AN_RANGES.map((r) => <SelectItem key={r.id} value={r.id}>{r.label}</SelectItem>)}</SelectContent></Select>
+    </div>
+    {loading ? <div className="grid gap-3 sm:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-20 rounded-lg border bg-muted/30 animate-pulse" />)}</div> : (<>
+      {current === 'overview' && d && d.overview && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><AnStat label="Total revenue" value={money(d.overview.totalRevenue)} /><AnStat label="Total expenses" value={money(d.overview.totalExpenses)} /><AnStat label="Gross profit" value={money(d.overview.grossProfit)} /><AnStat label="Bookings" value={d.overview.totalBookings} /><AnStat label="Active leads" value={d.overview.activeLeads} /><AnStat label="Clients" value={d.overview.totalClients} /><AnStat label="Outstanding receivables" value={money(d.overview.outstandingReceivables)} /><AnStat label="Outstanding payables" value={money(d.overview.outstandingPayables)} /><AnStat label="Customer payments" value={d.overview.totalPayments} /></div>}
+      {current === 'sales' && d && d.sales && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><AnStat label="Quotations" value={d.sales.quotations} /><AnStat label="Approved" value={d.sales.approvedQuotations} /><AnStat label="Bookings" value={d.sales.bookings} /><AnStat label="Conversion" value={`${d.sales.conversionRate}%`} /><AnStat label="Booking value" value={money(d.sales.bookingValue)} /><AnStat label="Quotation value" value={money(d.sales.quotationValue)} /></div><Card><CardContent className="p-5"><div className="mb-3 font-medium">Revenue trend (recent months)</div><AnBars data={Object.fromEntries((d.sales.revenueTrend || []).map((x) => [x.month, x.value]))} /></CardContent></Card></div>}
+      {current === 'crm' && d && d.crm && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><AnStat label="Total leads" value={d.crm.totalLeads} /><AnStat label="Converted" value={d.crm.convertedLeads} /><AnStat label="Conversion" value={`${d.crm.conversionRate}%`} /><AnStat label="Clients" value={d.crm.totalClients} /><AnStat label="Pending follow-ups" value={d.crm.pendingFollowups} /><AnStat label="Open tasks" value={d.crm.openTasks} /></div><div className="grid gap-4 md:grid-cols-2"><Card><CardContent className="p-5"><div className="mb-3 font-medium">Leads by status</div><AnBars data={d.crm.leadsByStatus} /></CardContent></Card><Card><CardContent className="p-5"><div className="mb-3 font-medium">Lead sources</div><AnBars data={d.crm.leadSources} /></CardContent></Card></div></div>}
+      {current === 'finance' && d && d.finance && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><AnStat label="Income" value={money(d.finance.income)} /><AnStat label="Expenses" value={money(d.finance.expenses)} /><AnStat label="Profit" value={money(d.finance.profit)} /><AnStat label="Receivables" value={money(d.finance.receivables)} /><AnStat label="Payables" value={money(d.finance.payables)} /></div><div className="grid gap-4 md:grid-cols-2"><Card><CardContent className="p-5"><div className="mb-3 font-medium">Invoice status</div><AnBars data={d.finance.invoiceStatus} /></CardContent></Card><Card><CardContent className="p-5"><div className="mb-3 font-medium">Payment status</div><AnBars data={d.finance.paymentStatus} /></CardContent></Card></div></div>}
+      {current === 'operations' && d && d.operations && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><AnStat label="Upcoming bookings" value={d.operations.upcomingBookings} /><AnStat label="Suppliers" value={d.operations.totalSuppliers} /><AnStat label="Vehicles" value={d.operations.vehicles.total} /><AnStat label="Drivers" value={d.operations.drivers.total} /><AnStat label="Packages" value={d.operations.totalPackages} /></div><div className="grid gap-4 md:grid-cols-2"><Card><CardContent className="p-5"><div className="mb-3 font-medium">Bookings by status</div><AnBars data={d.operations.bookingsByStatus} /></CardContent></Card><Card><CardContent className="p-5"><div className="mb-3 font-medium">Vehicles by status</div><AnBars data={d.operations.vehicles.byStatus} /></CardContent></Card></div></div>}
+    </>)}
   </div>);
 }
 

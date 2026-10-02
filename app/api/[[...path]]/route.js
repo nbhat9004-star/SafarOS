@@ -1281,6 +1281,329 @@ async function portalAccessStatus(db, session, id, body) {
   return json({ portalAccess: { id, status } });
 }
 
+// ======================= WEBSITE BUILDER (5.6) + SEO (5.7) =======================
+const PAGE_TYPES = ['home', 'about', 'contact', 'packages', 'destinations', 'custom'];
+const WEBSITE_STATUS = ['draft', 'published'];
+function slugify(s) { return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 80); }
+
+function defaultWebsiteSettings(session, agency) {
+  const now = new Date().toISOString();
+  return {
+    id: session.agencyId, agencyId: session.agencyId,
+    siteTitle: (agency && agency.name) || '', tagline: '', logo: '', favicon: '',
+    contactEmail: '', phone: '', address: '',
+    social: { facebook: '', instagram: '', twitter: '', youtube: '', linkedin: '', website: '' },
+    primaryColor: '#7c3aed', secondaryColor: '#0ea5e9', font: 'Inter', theme: 'classic',
+    status: 'draft',
+    seo: { metaTitle: '', metaDescription: '', keywords: '', canonicalUrl: '', robots: 'index', ogTitle: '', ogDescription: '', ogImage: '' },
+    createdAt: now, updatedAt: now,
+  };
+}
+
+async function websiteGet(db, session, path) {
+  const agency = await db.collection('agencies').findOne({ id: session.agencyId }, { projection: { _id: 0, name: 1, slug: 1 } });
+  if (path === '/website/settings') {
+    let s = await db.collection('websiteSettings').findOne(tenantFilter(session), { projection: { _id: 0 } });
+    if (!s) s = defaultWebsiteSettings(session, agency);
+    return json({ settings: s, agency: { name: (agency && agency.name) || '', slug: (agency && agency.slug) || '' } });
+  }
+  if (path === '/website/pages') {
+    const pages = await db.collection('websitePages').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ sortOrder: 1, createdAt: 1 }).toArray();
+    return json({ pages });
+  }
+  if (path === '/website/seo/overview') {
+    const [s, pages] = await Promise.all([
+      db.collection('websiteSettings').findOne(tenantFilter(session), { projection: { _id: 0 } }),
+      db.collection('websitePages').find(tenantFilter(session), { projection: { _id: 0 } }).toArray(),
+    ]);
+    const checklist = pages.map((p) => ({
+      id: p.id, title: p.title, slug: p.slug, status: p.status,
+      checks: {
+        seoTitle: Boolean(p.seoTitle && p.seoTitle.length), metaDescription: Boolean(p.seoDescription && p.seoDescription.length),
+        slugValid: Boolean(p.slug && /^[a-z0-9-]+$/.test(p.slug)), indexing: p.noindex ? 'noindex' : 'index',
+        canonical: Boolean(p.canonicalUrl && p.canonicalUrl.length),
+      },
+    }));
+    const site = s ? { metaTitle: Boolean(s.seo && s.seo.metaTitle), metaDescription: Boolean(s.seo && s.seo.metaDescription), robots: (s.seo && s.seo.robots) || 'index', published: s.status === 'published' } : null;
+    return json({ site, pages: checklist });
+  }
+  const parts = path.split('/');
+  if (parts[2] === 'pages' && parts[3]) {
+    const page = await db.collection('websitePages').findOne(tenantFilter(session, { id: parts[3] }), { projection: { _id: 0 } });
+    if (!page) return err('Page not found', 404);
+    return json({ page });
+  }
+  return err('not found', 404);
+}
+
+function buildPageFields(body, { partial = false } = {}) {
+  const out = {};
+  if (!partial || body.title !== undefined) { const t = str(body.title, 160); if (!t) return { error: 'Page title is required' }; out.title = t; }
+  if (!partial || body.slug !== undefined) out.slug = slugify(body.slug || body.title);
+  if (!partial || body.pageType !== undefined) out.pageType = PAGE_TYPES.includes(body.pageType) ? body.pageType : 'custom';
+  if (!partial || body.content !== undefined) out.content = str(body.content, 50000);
+  if (!partial || body.status !== undefined) out.status = WEBSITE_STATUS.includes(body.status) ? body.status : 'draft';
+  if (!partial || body.seoTitle !== undefined) out.seoTitle = str(body.seoTitle, 200);
+  if (!partial || body.seoDescription !== undefined) out.seoDescription = str(body.seoDescription, 400);
+  if (!partial || body.canonicalUrl !== undefined) out.canonicalUrl = str(body.canonicalUrl, 400);
+  if (!partial || body.noindex !== undefined) out.noindex = Boolean(body.noindex);
+  if (!partial || body.ogTitle !== undefined) out.ogTitle = str(body.ogTitle, 200);
+  if (!partial || body.ogDescription !== undefined) out.ogDescription = str(body.ogDescription, 400);
+  if (!partial || body.ogImage !== undefined) out.ogImage = str(body.ogImage, 600);
+  if (!partial || body.sortOrder !== undefined) out.sortOrder = num(body.sortOrder, 0);
+  return { value: out };
+}
+
+async function websitePost(db, session, path, body) {
+  const now = new Date().toISOString();
+  if (path === '/website/pages') {
+    const { value, error } = buildPageFields(body);
+    if (error) return err(error);
+    if (!value.slug) value.slug = slugify(value.title);
+    const clash = await db.collection('websitePages').findOne(tenantFilter(session, { slug: value.slug }));
+    if (clash) return err('A page with this slug already exists');
+    const doc = withAgency(session, { id: uuidv4(), ...value, createdBy: session.userId, createdAt: now, updatedAt: now });
+    await db.collection('websitePages').insertOne(doc);
+    const { _id, ...safe } = doc; return json({ page: safe }, 201);
+  }
+  return err('not found', 404);
+}
+
+async function websitePut(db, session, path, body) {
+  const now = new Date().toISOString();
+  if (path === '/website/settings') {
+    const existing = await db.collection('websiteSettings').findOne(tenantFilter(session));
+    const base = existing || defaultWebsiteSettings(session, await db.collection('agencies').findOne({ id: session.agencyId }, { projection: { _id: 0, name: 1 } }));
+    const next = {
+      ...base,
+      siteTitle: body.siteTitle !== undefined ? str(body.siteTitle, 200) : base.siteTitle,
+      tagline: body.tagline !== undefined ? str(body.tagline, 300) : base.tagline,
+      logo: body.logo !== undefined ? str(body.logo, 600) : base.logo,
+      favicon: body.favicon !== undefined ? str(body.favicon, 600) : base.favicon,
+      contactEmail: body.contactEmail !== undefined ? str(body.contactEmail, 160) : base.contactEmail,
+      phone: body.phone !== undefined ? str(body.phone, 40) : base.phone,
+      address: body.address !== undefined ? str(body.address, 400) : base.address,
+      social: body.social !== undefined ? { facebook: str(body.social.facebook, 300), instagram: str(body.social.instagram, 300), twitter: str(body.social.twitter, 300), youtube: str(body.social.youtube, 300), linkedin: str(body.social.linkedin, 300), website: str(body.social.website, 300) } : base.social,
+      primaryColor: body.primaryColor !== undefined ? str(body.primaryColor, 20) : base.primaryColor,
+      secondaryColor: body.secondaryColor !== undefined ? str(body.secondaryColor, 20) : base.secondaryColor,
+      font: body.font !== undefined ? str(body.font, 60) : base.font,
+      theme: body.theme !== undefined ? str(body.theme, 40) : base.theme,
+      status: body.status !== undefined && WEBSITE_STATUS.includes(body.status) ? body.status : base.status,
+      seo: body.seo !== undefined ? {
+        metaTitle: str(body.seo.metaTitle, 200), metaDescription: str(body.seo.metaDescription, 400), keywords: str(body.seo.keywords, 400),
+        canonicalUrl: str(body.seo.canonicalUrl, 400), robots: body.seo.robots === 'noindex' ? 'noindex' : 'index',
+        ogTitle: str(body.seo.ogTitle, 200), ogDescription: str(body.seo.ogDescription, 400), ogImage: str(body.seo.ogImage, 600),
+      } : base.seo,
+      id: session.agencyId, agencyId: session.agencyId, updatedAt: now, createdAt: base.createdAt || now,
+    };
+    await db.collection('websiteSettings').updateOne(tenantFilter(session), { $set: next }, { upsert: true });
+    const { _id, ...safe } = next; return json({ settings: safe });
+  }
+  const parts = path.split('/');
+  if (parts[2] === 'pages' && parts[3]) {
+    const id = parts[3];
+    if (parts[4] === 'status') {
+      const status = WEBSITE_STATUS.includes(body.status) ? body.status : 'draft';
+      const r = await db.collection('websitePages').updateOne(tenantFilter(session, { id }), { $set: { status, updatedAt: now } });
+      if (!r.matchedCount) return err('Page not found', 404);
+      return json({ ok: true, status });
+    }
+    const { value, error } = buildPageFields(body, { partial: true });
+    if (error) return err(error);
+    if (value.slug) { const clash = await db.collection('websitePages').findOne(tenantFilter(session, { slug: value.slug, id: { $ne: id } })); if (clash) return err('A page with this slug already exists'); }
+    value.updatedAt = now;
+    const r = await db.collection('websitePages').updateOne(tenantFilter(session, { id }), { $set: value });
+    if (!r.matchedCount) return err('Page not found', 404);
+    const page = await db.collection('websitePages').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    return json({ page });
+  }
+  return err('not found', 404);
+}
+
+async function websiteDelete(db, session, path) {
+  const parts = path.split('/');
+  if (parts[2] === 'pages' && parts[3]) {
+    const r = await db.collection('websitePages').deleteOne(tenantFilter(session, { id: parts[3] }));
+    if (!r.deletedCount) return err('Page not found', 404);
+    return json({ ok: true });
+  }
+  return err('not found', 404);
+}
+
+// ---- Public website (no auth; agency resolved by slug; published content only) ----
+function publicSettings(s) {
+  if (!s) return null;
+  return { siteTitle: s.siteTitle, tagline: s.tagline, logo: s.logo, favicon: s.favicon, contactEmail: s.contactEmail, phone: s.phone, address: s.address, social: s.social, primaryColor: s.primaryColor, secondaryColor: s.secondaryColor, font: s.font, theme: s.theme, seo: s.seo };
+}
+function publicPage(p) {
+  return { title: p.title, slug: p.slug, pageType: p.pageType, content: p.content, seoTitle: p.seoTitle, seoDescription: p.seoDescription, canonicalUrl: p.canonicalUrl, noindex: p.noindex, ogTitle: p.ogTitle, ogDescription: p.ogDescription, ogImage: p.ogImage };
+}
+
+async function publicGet(db, path) {
+  const parts = path.split('/'); // ['', 'public', 'site', slug, ...]
+  const slug = parts[3];
+  if (!slug) return err('not found', 404);
+  const agency = await db.collection('agencies').findOne({ slug }, { projection: { _id: 0, id: 1, name: 1, slug: 1 } });
+  if (!agency) return err('Site not found', 404);
+  const settings = await db.collection('websiteSettings').findOne({ agencyId: agency.id }, { projection: { _id: 0 } });
+  const published = Boolean(settings && settings.status === 'published');
+  const sub = parts[4];
+  if (sub === 'sitemap.xml') {
+    const pages = published ? await db.collection('websitePages').find({ agencyId: agency.id, status: 'published', noindex: { $ne: true } }, { projection: { _id: 0, slug: 1, updatedAt: 1 } }).toArray() : [];
+    const base = `${process.env.NEXT_PUBLIC_BASE_URL || ''}/site/${slug}`;
+    const urls = [`<url><loc>${base}</loc></url>`, ...pages.map((p) => `<url><loc>${base}/${p.slug}</loc>${p.updatedAt ? `<lastmod>${String(p.updatedAt).slice(0, 10)}</lastmod>` : ''}</url>`)];
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>`;
+    return new NextResponse(xml, { headers: { 'content-type': 'application/xml' } });
+  }
+  if (sub === 'robots.txt') {
+    const allow = published && !(settings.seo && settings.seo.robots === 'noindex');
+    const base = `${process.env.NEXT_PUBLIC_BASE_URL || ''}/site/${slug}`;
+    const txt = allow ? `User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n` : 'User-agent: *\nDisallow: /\n';
+    return new NextResponse(txt, { headers: { 'content-type': 'text/plain' } });
+  }
+  if (!published) return json({ published: false, agency: { name: agency.name, slug: agency.slug } });
+  const pages = await db.collection('websitePages').find({ agencyId: agency.id, status: 'published' }, { projection: { _id: 0 } }).sort({ sortOrder: 1, createdAt: 1 }).toArray();
+  if (sub === 'page' && parts[5]) {
+    const p = pages.find((x) => x.slug === parts[5]);
+    if (!p) return err('Page not found', 404);
+    return json({ published: true, agency: { name: agency.name, slug: agency.slug }, settings: publicSettings(settings), page: publicPage(p) });
+  }
+  return json({
+    published: true,
+    agency: { name: agency.name, slug: agency.slug },
+    settings: publicSettings(settings),
+    pages: pages.map(publicPage),
+    structuredData: {
+      '@context': 'https://schema.org', '@type': 'TravelAgency',
+      name: settings.siteTitle || agency.name, description: settings.tagline || '',
+      email: settings.contactEmail || undefined, telephone: settings.phone || undefined, address: settings.address || undefined,
+      url: `${process.env.NEXT_PUBLIC_BASE_URL || ''}/site/${slug}`,
+    },
+  });
+}
+
+async function publicPost(db, path, body) {
+  const parts = path.split('/');
+  const slug = parts[3];
+  if (parts[4] !== 'inquiry' || !slug) return err('not found', 404);
+  const agency = await db.collection('agencies').findOne({ slug }, { projection: { _id: 0, id: 1 } });
+  if (!agency) return err('Site not found', 404);
+  const name = str(body.name, 120); const email = str(body.email, 160).toLowerCase(); const phone = str(body.phone, 40); const message = str(body.message, 2000);
+  if (!name || (!email && !phone)) return err('Please provide your name and a way to contact you');
+  if (email && !EMAIL_RE.test(email)) return err('Please enter a valid email');
+  const now = new Date().toISOString();
+  // Connects directly into the EXISTING CRM leads collection (no duplicate lead system).
+  await db.collection('leads').insertOne({ id: uuidv4(), agencyId: agency.id, name, email, phone, source: 'website', status: 'new', notes: message, createdAt: now, updatedAt: now });
+  return json({ ok: true });
+}
+
+// ======================= BUSINESS ANALYTICS (5.8) =======================
+function analyticsRange(sp) {
+  const range = sp.get('range') || 'month';
+  const now = new Date();
+  let start = null; let end = null;
+  if (range === 'custom') {
+    const from = sp.get('from'); const to = sp.get('to');
+    start = from ? new Date(from) : null; end = to ? new Date(`${to}T23:59:59`) : null;
+  } else if (range === 'all') { start = null; } else {
+    start = new Date(now);
+    if (range === 'today') start.setHours(0, 0, 0, 0);
+    else if (range === 'week') { const day = start.getDay() || 7; start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - (day - 1)); }
+    else if (range === 'year') { start.setHours(0, 0, 0, 0); start.setMonth(0, 1); }
+    else { start.setHours(0, 0, 0, 0); start.setDate(1); } // month default
+  }
+  return { range, start, end };
+}
+function inRange(dateStr, start, end) {
+  if (!start && !end) return true;
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return false;
+  if (start && d < start) return false;
+  if (end && d > end) return false;
+  return true;
+}
+const sumBy = (arr, k) => round2(arr.reduce((s, x) => s + (Number(x[k]) || 0), 0));
+
+async function analyticsGet(db, session, path, sp) {
+  const { range, start, end } = analyticsRange(sp);
+  const tf = tenantFilter(session);
+  if (path === '/analytics/overview') {
+    const [payments, expenses, bookings, leads, clientsTotal, recv, pay] = await Promise.all([
+      db.collection('payments').find(tf, { projection: { _id: 0, amount: 1, type: 1, status: 1, paymentDate: 1 } }).toArray(),
+      db.collection('expenses').find(tf, { projection: { _id: 0, amount: 1, status: 1, expenseDate: 1 } }).toArray(),
+      db.collection('bookings').find(tf, { projection: { _id: 0, grandTotal: 1, createdAt: 1, status: 1 } }).toArray(),
+      db.collection('leads').find(tf, { projection: { _id: 0, status: 1 } }).toArray(),
+      db.collection('clients').countDocuments(tf),
+      db.collection('customerReceivables').find(tenantFilter(session, { status: { $nin: ['paid', 'cancelled'] } }), { projection: { _id: 0, outstandingAmount: 1 } }).toArray(),
+      db.collection('supplierPayables').find(tenantFilter(session, { status: { $nin: ['paid', 'cancelled'] } }), { projection: { _id: 0, outstandingAmount: 1 } }).toArray(),
+    ]);
+    const doneCust = payments.filter((p) => p.type === 'customer' && ['completed', 'partially_refunded', 'refunded'].includes(p.status) && inRange(p.paymentDate, start, end));
+    const expR = expenses.filter((e) => e.status !== 'cancelled' && inRange(e.expenseDate, start, end));
+    const bk = bookings.filter((b) => inRange(b.createdAt, start, end));
+    const revenue = sumBy(doneCust, 'amount'); const totalExpenses = sumBy(expR, 'amount');
+    const activeLeads = leads.filter((l) => ['new', 'contacted', 'qualified'].includes(l.status)).length;
+    return json({ range, overview: { totalRevenue: revenue, totalExpenses, grossProfit: round2(revenue - totalExpenses), totalBookings: bk.length, activeLeads, totalClients: clientsTotal, outstandingReceivables: sumBy(recv, 'outstandingAmount'), outstandingPayables: sumBy(pay, 'outstandingAmount'), totalPayments: doneCust.length } });
+  }
+  if (path === '/analytics/sales') {
+    const [quotes, bookings] = await Promise.all([
+      db.collection('quotations').find(tf, { projection: { _id: 0, status: 1, grandTotal: 1, createdAt: 1 } }).toArray(),
+      db.collection('bookings').find(tf, { projection: { _id: 0, grandTotal: 1, createdAt: 1 } }).toArray(),
+    ]);
+    const q = quotes.filter((x) => inRange(x.createdAt, start, end));
+    const bk = bookings.filter((x) => inRange(x.createdAt, start, end));
+    const approved = q.filter((x) => ['approved', 'accepted', 'converted', 'won'].includes(x.status)).length;
+    const rejected = q.filter((x) => ['rejected', 'lost', 'declined'].includes(x.status)).length;
+    // monthly revenue trend (last 6 months of bookings value)
+    const trend = {};
+    bookings.forEach((b) => { const m = String(b.createdAt).slice(0, 7); if (m) trend[m] = round2((trend[m] || 0) + (Number(b.grandTotal) || 0)); });
+    const months = Object.keys(trend).sort().slice(-6).map((m) => ({ month: m, value: trend[m] }));
+    return json({ range, sales: { quotations: q.length, approvedQuotations: approved, rejectedQuotations: rejected, bookings: bk.length, bookingValue: sumBy(bk, 'grandTotal'), quotationValue: sumBy(q, 'grandTotal'), conversionRate: q.length ? Math.round((bk.length / q.length) * 100) : 0, revenueTrend: months } });
+  }
+  if (path === '/analytics/crm') {
+    const [leads, clientsTotal, followups, tasks] = await Promise.all([
+      db.collection('leads').find(tf, { projection: { _id: 0, status: 1, source: 1, createdAt: 1 } }).toArray(),
+      db.collection('clients').countDocuments(tf),
+      db.collection('followUps').find(tf, { projection: { _id: 0, status: 1 } }).toArray(),
+      db.collection('tasks').find(tf, { projection: { _id: 0, status: 1 } }).toArray(),
+    ]);
+    const byStatus = {}; const bySource = {};
+    leads.forEach((l) => { byStatus[l.status] = (byStatus[l.status] || 0) + 1; const src = l.source || 'unknown'; bySource[src] = (bySource[src] || 0) + 1; });
+    const converted = leads.filter((l) => l.status === 'converted').length;
+    return json({ range, crm: { totalLeads: leads.length, leadsByStatus: byStatus, leadSources: bySource, convertedLeads: converted, conversionRate: leads.length ? Math.round((converted / leads.length) * 100) : 0, totalClients: clientsTotal, pendingFollowups: followups.filter((f) => f.status === 'pending').length, openTasks: tasks.filter((t) => t.status === 'open').length } });
+  }
+  if (path === '/analytics/finance') {
+    const [payments, expenses, invoices, recv, pay] = await Promise.all([
+      db.collection('payments').find(tf, { projection: { _id: 0, amount: 1, type: 1, status: 1, paymentDate: 1 } }).toArray(),
+      db.collection('expenses').find(tf, { projection: { _id: 0, amount: 1, status: 1, expenseDate: 1 } }).toArray(),
+      db.collection('invoices').find(tf, { projection: { _id: 0, status: 1, total: 1, outstandingAmount: 1 } }).toArray(),
+      db.collection('customerReceivables').find(tf, { projection: { _id: 0, outstandingAmount: 1, status: 1 } }).toArray(),
+      db.collection('supplierPayables').find(tf, { projection: { _id: 0, outstandingAmount: 1, status: 1 } }).toArray(),
+    ]);
+    const income = sumBy(payments.filter((p) => p.type === 'customer' && ['completed', 'partially_refunded', 'refunded'].includes(p.status) && inRange(p.paymentDate, start, end)), 'amount');
+    const exp = sumBy(expenses.filter((e) => e.status !== 'cancelled' && inRange(e.expenseDate, start, end)), 'amount');
+    const invByStatus = {}; invoices.forEach((i) => { invByStatus[i.status] = (invByStatus[i.status] || 0) + 1; });
+    const payByStatus = {}; payments.forEach((p) => { payByStatus[p.status] = (payByStatus[p.status] || 0) + 1; });
+    return json({ range, finance: { income, expenses: exp, profit: round2(income - exp), receivables: sumBy(recv.filter((r) => r.status !== 'cancelled'), 'outstandingAmount'), payables: sumBy(pay.filter((p) => p.status !== 'cancelled'), 'outstandingAmount'), invoiceStatus: invByStatus, paymentStatus: payByStatus } });
+  }
+  if (path === '/analytics/operations') {
+    const [bookings, suppliers, vehicles, drivers, packages] = await Promise.all([
+      db.collection('bookings').find(tf, { projection: { _id: 0, status: 1, startDate: 1, destination: 1 } }).toArray(),
+      db.collection('suppliers').countDocuments(tf),
+      db.collection('vehicles').find(tf, { projection: { _id: 0, status: 1 } }).toArray(),
+      db.collection('drivers').find(tf, { projection: { _id: 0, status: 1 } }).toArray(),
+      db.collection('packages').countDocuments(tf),
+    ]);
+    const today = today10();
+    const byStatus = {}; bookings.forEach((b) => { byStatus[b.status] = (byStatus[b.status] || 0) + 1; });
+    const upcoming = bookings.filter((b) => b.startDate && b.startDate >= today).length;
+    const vehByStatus = {}; vehicles.forEach((v) => { vehByStatus[v.status] = (vehByStatus[v.status] || 0) + 1; });
+    const drvByStatus = {}; drivers.forEach((d) => { drvByStatus[d.status] = (drvByStatus[d.status] || 0) + 1; });
+    return json({ range, operations: { bookingsByStatus: byStatus, upcomingBookings: upcoming, totalSuppliers: suppliers, vehicles: { total: vehicles.length, byStatus: vehByStatus }, drivers: { total: drivers.length, byStatus: drvByStatus }, totalPackages: packages } });
+  }
+  return err('not found', 404);
+}
+
 export async function GET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
@@ -1292,6 +1615,28 @@ export async function GET(request, context) {
       const db = await getDb();
       await db.command({ ping: 1 });
       return json({ status: 'healthy', db: 'connected' });
+    }
+
+    // ---- Public agency website (no auth; tenant resolved by agency slug) ----
+    if (path.startsWith('/public/')) {
+      const db = await getDb();
+      return publicGet(db, path);
+    }
+
+    if (path.startsWith('/website/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'website:read')) return err('forbidden', 403);
+      const db = await getDb();
+      return websiteGet(db, session, path);
+    }
+
+    if (path.startsWith('/analytics/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'analytics:read')) return err('forbidden', 403);
+      const db = await getDb();
+      return analyticsGet(db, session, path, new URL(request.url).searchParams);
     }
 
     if (path === '/auth/me') {
@@ -1685,6 +2030,16 @@ export async function POST(request, context) {
     if (path === '/portal/auth/login') return portalLogin(db, await readBody(request));
     if (path === '/portal/auth/logout') return portalLogout();
 
+    // Public website inquiry -> existing CRM leads (no auth; agency by slug)
+    if (path.startsWith('/public/')) return publicPost(db, path, await readBody(request));
+
+    if (path === '/website/pages') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'website:manage')) return err('forbidden', 403);
+      return websitePost(db, session, path, await readBody(request));
+    }
+
     // Invite/add a team member — agency-scoped, RBAC-gated.
     if (path === '/members') {
       const session = getSession(request);
@@ -2073,6 +2428,13 @@ export async function PUT(request, context) {
       const pdb = await getDb();
       return portalPut(pdb, ps, path, await readBody(request));
     }
+    if (path.startsWith('/website/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'website:manage')) return err('forbidden', 403);
+      const db = await getDb();
+      return websitePut(db, session, path, await readBody(request));
+    }
     const session = getSession(request);
     if (!session) return err('unauthenticated', 401);
     const db = await getDb();
@@ -2458,6 +2820,11 @@ export async function DELETE(request, context) {
     const session = getSession(request);
     if (!session) return err('unauthenticated', 401);
     const db = await getDb();
+
+    if (path.startsWith('/website/')) {
+      if (!can(session.role, 'website:manage')) return err('forbidden', 403);
+      return websiteDelete(db, session, path);
+    }
 
     if (path.startsWith('/clients/')) {
       if (!can(session.role, 'clients:delete')) return err('forbidden', 403);
