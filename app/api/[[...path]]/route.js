@@ -486,6 +486,246 @@ async function syncVehicleDriver(db, session, vehicleId, newDriverId, oldDriverI
   }
 }
 
+// ======================= FINANCE & ACCOUNTING =======================
+const TXN_TYPES = ['income', 'expense'];
+const TXN_STATUSES = ['pending', 'completed', 'cancelled'];
+const PAYMENT_METHODS = ['cash', 'bank_transfer', 'upi', 'card', 'cheque', 'other'];
+const EXPENSE_CATEGORIES = ['transport', 'hotel', 'activity', 'staff', 'office', 'marketing', 'fuel', 'supplier', 'other'];
+const EXPENSE_STATUSES = ['pending', 'paid', 'cancelled'];
+const INVOICE_STATUSES = ['draft', 'issued', 'partially_paid', 'paid', 'overdue', 'cancelled'];
+const DEFAULT_CURRENCY = 'INR';
+const nonNeg = (n) => Math.max(0, round2(num(n, 0)));
+const today10 = () => new Date().toISOString().slice(0, 10);
+
+// Payment-derived settlement status (overdue is overlaid client-side from dueDate).
+function settleStatus(total, paid, cancelled) {
+  if (cancelled) return 'cancelled';
+  const outstanding = Math.max(0, round2(total - paid));
+  if (paid <= 0) return 'pending';
+  if (outstanding <= 0 && total > 0) return 'paid';
+  return 'partially_paid';
+}
+
+async function nextInvoiceNumber(db, session) {
+  const r = await db.collection('agencies').findOneAndUpdate(
+    { id: session.agencyId }, { $inc: { invoiceSeq: 1 } }, { returnDocument: 'after' },
+  );
+  const ag = r && r.value !== undefined ? r.value : r;
+  const seq = (ag && ag.invoiceSeq) || 1;
+  return `INV-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
+}
+
+// Resolve + denormalize tenant-scoped references (names stored for list display).
+async function resolveFinanceRefs(db, session, body) {
+  const out = { clientId: '', clientName: '', supplierId: '', supplierName: '', bookingId: '', bookingNumber: '', quotationId: '', quotationNumber: '', invoiceId: '' };
+  if (body.clientId) { const c = await db.collection('clients').findOne(tenantFilter(session, { id: String(body.clientId) })); if (c) { out.clientId = c.id; out.clientName = c.name || c.companyName || c.contactName || ''; } }
+  if (body.supplierId) { const s = await db.collection('suppliers').findOne(tenantFilter(session, { id: String(body.supplierId) })); if (s) { out.supplierId = s.id; out.supplierName = s.name || ''; } }
+  if (body.bookingId) { const b = await db.collection('bookings').findOne(tenantFilter(session, { id: String(body.bookingId) })); if (b) { out.bookingId = b.id; out.bookingNumber = b.bookingNumber || ''; if (!out.clientName) out.clientName = b.customerName || ''; } }
+  if (body.quotationId) { const q = await db.collection('quotations').findOne(tenantFilter(session, { id: String(body.quotationId) })); if (q) { out.quotationId = q.id; out.quotationNumber = q.quotationNumber || ''; } }
+  if (body.invoiceId) { const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: String(body.invoiceId) })); if (inv) out.invoiceId = inv.id; }
+  return out;
+}
+
+async function createTxn(db, session, data) {
+  const now = new Date().toISOString();
+  const doc = withAgency(session, {
+    id: uuidv4(), type: TXN_TYPES.includes(data.type) ? data.type : 'income',
+    category: str(data.category, 80), amount: nonNeg(data.amount), currency: str(data.currency, 8) || DEFAULT_CURRENCY,
+    description: str(data.description, 500),
+    clientId: data.clientId || '', clientName: data.clientName || '', supplierId: data.supplierId || '', supplierName: data.supplierName || '',
+    bookingId: data.bookingId || '', bookingNumber: data.bookingNumber || '', quotationId: data.quotationId || '',
+    referenceType: str(data.referenceType, 40), referenceId: str(data.referenceId, 80),
+    paymentMethod: PAYMENT_METHODS.includes(data.paymentMethod) ? data.paymentMethod : 'other',
+    transactionDate: str(data.transactionDate, 40) || today10(),
+    status: TXN_STATUSES.includes(data.status) ? data.status : 'completed',
+    notes: str(data.notes, 2000), createdBy: session.userId, createdAt: now, updatedAt: now,
+  });
+  await db.collection('financialTransactions').insertOne(doc);
+  const { _id, ...safe } = doc; return safe;
+}
+
+async function financeGet(db, session, path, sp) {
+  if (path === '/finance/dashboard') {
+    const [recv, pay, exp] = await Promise.all([
+      db.collection('customerReceivables').find(tenantFilter(session), { projection: { _id: 0, totalAmount: 1, receivedAmount: 1, outstandingAmount: 1, status: 1 } }).toArray(),
+      db.collection('supplierPayables').find(tenantFilter(session), { projection: { _id: 0, totalAmount: 1, paidAmount: 1, outstandingAmount: 1, status: 1 } }).toArray(),
+      db.collection('expenses').find(tenantFilter(session), { projection: { _id: 0, amount: 1, status: 1 } }).toArray(),
+    ]);
+    const sum = (arr, f, skipCancelled) => round2(arr.reduce((s, x) => s + ((skipCancelled && x.status === 'cancelled') ? 0 : (Number(x[f]) || 0)), 0));
+    const totalRevenue = sum(recv, 'totalAmount', true);
+    const receivedPayments = sum(recv, 'receivedAmount', false);
+    const outstandingCustomer = sum(recv, 'outstandingAmount', true);
+    const totalPayables = sum(pay, 'totalAmount', true);
+    const paidSupplier = sum(pay, 'paidAmount', false);
+    const outstandingSupplier = sum(pay, 'outstandingAmount', true);
+    const totalExpenses = sum(exp, 'amount', true);
+    const grossProfit = round2(totalRevenue - totalPayables - totalExpenses);
+    return json({ dashboard: { totalRevenue, receivedPayments, outstandingCustomer, totalPayables, paidSupplier, outstandingSupplier, totalExpenses, grossProfit, currency: DEFAULT_CURRENCY } });
+  }
+  if (path === '/finance/reports') {
+    const r = await financeGet(db, session, '/finance/dashboard', sp);
+    const d = (await r.json()).dashboard;
+    return json({ reports: [
+      { key: 'revenue', label: 'Revenue (billed)', value: d.totalRevenue },
+      { key: 'received', label: 'Payments received', value: d.receivedPayments },
+      { key: 'expenses', label: 'Expenses', value: d.totalExpenses },
+      { key: 'payables', label: 'Supplier payables', value: d.totalPayables },
+      { key: 'receivables_out', label: 'Outstanding (customers)', value: d.outstandingCustomer },
+      { key: 'payables_out', label: 'Outstanding (suppliers)', value: d.outstandingSupplier },
+      { key: 'gross_profit', label: 'Gross profit', value: d.grossProfit },
+    ], currency: DEFAULT_CURRENCY });
+  }
+  const map = { '/finance/transactions': 'financialTransactions', '/finance/receivables': 'customerReceivables', '/finance/payables': 'supplierPayables', '/finance/expenses': 'expenses', '/finance/invoices': 'invoices' };
+  const keyMap = { '/finance/transactions': 'transactions', '/finance/receivables': 'receivables', '/finance/payables': 'payables', '/finance/expenses': 'expenses', '/finance/invoices': 'invoices' };
+  if (map[path]) {
+    const rows = await db.collection(map[path]).find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+    return json({ [keyMap[path]]: rows });
+  }
+  // detail: /finance/<col>/<id>
+  const parts = path.split('/'); // ['', 'finance', col, id]
+  if (parts.length === 4) {
+    const colMap = { transactions: 'financialTransactions', receivables: 'customerReceivables', payables: 'supplierPayables', expenses: 'expenses', invoices: 'invoices' };
+    const col = colMap[parts[2]];
+    if (col) { const rec = await db.collection(col).findOne(tenantFilter(session, { id: parts[3] }), { projection: { _id: 0 } }); if (!rec) return err('Not found', 404); return json({ record: rec }); }
+  }
+  return err('not found', 404);
+}
+
+async function financePost(db, session, path, body) {
+  const now = new Date().toISOString();
+  if (path === '/finance/transactions') {
+    const refs = await resolveFinanceRefs(db, session, body);
+    const safe = await createTxn(db, session, { ...body, ...refs });
+    await logActivity(db, session, { type: 'finance_transaction', message: `${safe.type === 'income' ? 'Income' : 'Expense'} transaction recorded`, refType: 'transaction', refId: safe.id });
+    return json({ transaction: safe }, 201);
+  }
+  if (path === '/finance/receivables') {
+    const refs = await resolveFinanceRefs(db, session, body);
+    const total = nonNeg(body.totalAmount);
+    const received = Math.min(nonNeg(body.receivedAmount), total);
+    const outstanding = Math.max(0, round2(total - received));
+    const doc = withAgency(session, { id: uuidv4(), clientId: refs.clientId, clientName: refs.clientName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, quotationId: refs.quotationId, invoiceId: refs.invoiceId, totalAmount: total, receivedAmount: received, outstandingAmount: outstanding, currency: DEFAULT_CURRENCY, dueDate: str(body.dueDate, 40), status: settleStatus(total, received, false), notes: str(body.notes, 2000), createdAt: now, updatedAt: now });
+    await db.collection('customerReceivables').insertOne(doc); const { _id, ...safe } = doc;
+    return json({ receivable: safe }, 201);
+  }
+  if (path === '/finance/payables') {
+    const refs = await resolveFinanceRefs(db, session, body);
+    const total = nonNeg(body.totalAmount);
+    const paid = Math.min(nonNeg(body.paidAmount), total);
+    const outstanding = Math.max(0, round2(total - paid));
+    const doc = withAgency(session, { id: uuidv4(), supplierId: refs.supplierId, supplierName: refs.supplierName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, totalAmount: total, paidAmount: paid, outstandingAmount: outstanding, currency: DEFAULT_CURRENCY, dueDate: str(body.dueDate, 40), status: settleStatus(total, paid, false), notes: str(body.notes, 2000), createdAt: now, updatedAt: now });
+    await db.collection('supplierPayables').insertOne(doc); const { _id, ...safe } = doc;
+    return json({ payable: safe }, 201);
+  }
+  if (path === '/finance/expenses') {
+    const refs = await resolveFinanceRefs(db, session, body);
+    const category = EXPENSE_CATEGORIES.includes(String(body.category || '').toLowerCase()) ? String(body.category).toLowerCase() : 'other';
+    const status = EXPENSE_STATUSES.includes(body.status) ? body.status : 'pending';
+    const doc = withAgency(session, { id: uuidv4(), category, amount: nonNeg(body.amount), currency: str(body.currency, 8) || DEFAULT_CURRENCY, description: str(body.description, 500), supplierId: refs.supplierId, supplierName: refs.supplierName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, expenseDate: str(body.expenseDate, 40) || today10(), paymentMethod: PAYMENT_METHODS.includes(body.paymentMethod) ? body.paymentMethod : 'other', status, notes: str(body.notes, 2000), createdBy: session.userId, createdAt: now, updatedAt: now });
+    await db.collection('expenses').insertOne(doc); const { _id, ...safe } = doc;
+    return json({ expense: safe }, 201);
+  }
+  if (path === '/finance/invoices') {
+    const refs = await resolveFinanceRefs(db, session, body);
+    const subtotal = nonNeg(body.subtotal); const discount = nonNeg(body.discount); const tax = nonNeg(body.tax);
+    const total = body.total !== undefined ? nonNeg(body.total) : Math.max(0, round2(subtotal - discount + tax));
+    const status = ['draft', 'issued'].includes(body.status) ? body.status : 'draft';
+    const invoiceNumber = await nextInvoiceNumber(db, session);
+    const doc = withAgency(session, { id: uuidv4(), invoiceNumber, clientId: refs.clientId, clientName: refs.clientName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, quotationId: refs.quotationId, issueDate: str(body.issueDate, 40) || today10(), dueDate: str(body.dueDate, 40), subtotal, discount, tax, total, paidAmount: 0, outstandingAmount: total, currency: DEFAULT_CURRENCY, status, notes: str(body.notes, 2000), createdAt: now, updatedAt: now });
+    await db.collection('invoices').insertOne(doc); const { _id, ...safe } = doc;
+    await logActivity(db, session, { type: 'invoice_created', message: `Invoice ${invoiceNumber} created`, refType: 'invoice', refId: safe.id });
+    return json({ invoice: safe }, 201);
+  }
+  // Payment recording: /finance/receivables/:id/payment  &  /finance/payables/:id/payment
+  const parts = path.split('/');
+  if (parts.length === 5 && parts[4] === 'payment' && (parts[2] === 'receivables' || parts[2] === 'payables')) {
+    const isRecv = parts[2] === 'receivables';
+    const col = isRecv ? 'customerReceivables' : 'supplierPayables';
+    const id = parts[3];
+    const rec = await db.collection(col).findOne(tenantFilter(session, { id }));
+    if (!rec) return err('Record not found', 404);
+    if (rec.status === 'cancelled') return err('Cannot record a payment against a cancelled record');
+    const amount = nonNeg(body.amount);
+    if (amount <= 0) return err('Payment amount must be greater than zero');
+    if (amount > round2(rec.outstandingAmount) + 0.001) return err('Payment exceeds the outstanding amount');
+    const field = isRecv ? 'receivedAmount' : 'paidAmount';
+    const newPaid = round2((rec[field] || 0) + amount);
+    const outstanding = Math.max(0, round2(rec.totalAmount - newPaid));
+    const status = settleStatus(rec.totalAmount, newPaid, false);
+    await db.collection(col).updateOne(tenantFilter(session, { id }), { $set: { [field]: newPaid, outstandingAmount: outstanding, status, updatedAt: now } });
+    const txn = await createTxn(db, session, {
+      type: isRecv ? 'income' : 'expense', category: isRecv ? 'customer_payment' : 'supplier_payment', amount,
+      clientId: rec.clientId || '', clientName: rec.clientName || '', supplierId: rec.supplierId || '', supplierName: rec.supplierName || '',
+      bookingId: rec.bookingId || '', bookingNumber: rec.bookingNumber || '',
+      referenceType: isRecv ? 'receivable' : 'payable', referenceId: id,
+      paymentMethod: body.paymentMethod, transactionDate: body.paymentDate, status: 'completed',
+      description: str(body.reference, 200) || (isRecv ? 'Customer payment received' : 'Supplier payment made'), notes: str(body.notes, 2000),
+    });
+    // Keep linked invoice totals in step when a receivable references one.
+    if (isRecv && rec.invoiceId) {
+      const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: rec.invoiceId }));
+      if (inv && inv.status !== 'cancelled') {
+        const invPaid = round2((inv.paidAmount || 0) + amount);
+        const invOut = Math.max(0, round2(inv.total - invPaid));
+        const base = settleStatus(inv.total, invPaid, false);
+        const invStatus = base === 'pending' ? (inv.status === 'draft' ? 'draft' : 'issued') : base;
+        await db.collection('invoices').updateOne(tenantFilter(session, { id: rec.invoiceId }), { $set: { paidAmount: invPaid, outstandingAmount: invOut, status: invStatus, updatedAt: now } });
+      }
+    }
+    const updated = await db.collection(col).findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    await logActivity(db, session, { type: 'finance_payment', message: `${isRecv ? 'Customer' : 'Supplier'} payment of ${amount} recorded`, refType: parts[2], refId: id });
+    return json({ record: updated, transaction: txn });
+  }
+  return err('not found', 404);
+}
+
+async function financePut(db, session, path, body) {
+  const now = new Date().toISOString();
+  const parts = path.split('/'); // ['', 'finance', col, id, (status?)]
+  const col = parts[2]; const id = parts[3]; const action = parts[4];
+  if (col === 'expenses') {
+    const existing = await db.collection('expenses').findOne(tenantFilter(session, { id }));
+    if (!existing) return err('Expense not found', 404);
+    if (action === 'status') {
+      if (!EXPENSE_STATUSES.includes(body.status)) return err('Invalid expense status');
+      await db.collection('expenses').updateOne(tenantFilter(session, { id }), { $set: { status: body.status, updatedAt: now } });
+    } else {
+      const refs = await resolveFinanceRefs(db, session, body);
+      const category = EXPENSE_CATEGORIES.includes(String(body.category || '').toLowerCase()) ? String(body.category).toLowerCase() : existing.category;
+      await db.collection('expenses').updateOne(tenantFilter(session, { id }), { $set: { category, amount: nonNeg(body.amount), description: str(body.description, 500), supplierId: refs.supplierId, supplierName: refs.supplierName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, expenseDate: str(body.expenseDate, 40) || existing.expenseDate, paymentMethod: PAYMENT_METHODS.includes(body.paymentMethod) ? body.paymentMethod : existing.paymentMethod, notes: str(body.notes, 2000), updatedAt: now } });
+    }
+    const expense = await db.collection('expenses').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    return json({ expense });
+  }
+  if (col === 'invoices') {
+    const existing = await db.collection('invoices').findOne(tenantFilter(session, { id }));
+    if (!existing) return err('Invoice not found', 404);
+    if (action === 'status') {
+      if (!INVOICE_STATUSES.includes(body.status)) return err('Invalid invoice status');
+      await db.collection('invoices').updateOne(tenantFilter(session, { id }), { $set: { status: body.status, updatedAt: now } });
+    } else {
+      const refs = await resolveFinanceRefs(db, session, body);
+      const subtotal = nonNeg(body.subtotal); const discount = nonNeg(body.discount); const tax = nonNeg(body.tax);
+      const total = body.total !== undefined ? nonNeg(body.total) : Math.max(0, round2(subtotal - discount + tax));
+      const outstanding = Math.max(0, round2(total - (existing.paidAmount || 0)));
+      await db.collection('invoices').updateOne(tenantFilter(session, { id }), { $set: { clientId: refs.clientId || existing.clientId, clientName: refs.clientName || existing.clientName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, quotationId: refs.quotationId, issueDate: str(body.issueDate, 40) || existing.issueDate, dueDate: str(body.dueDate, 40), subtotal, discount, tax, total, outstandingAmount: outstanding, notes: str(body.notes, 2000), updatedAt: now } });
+    }
+    const invoice = await db.collection('invoices').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    return json({ invoice });
+  }
+  if ((col === 'receivables' || col === 'payables') && action === 'status') {
+    const c = col === 'receivables' ? 'customerReceivables' : 'supplierPayables';
+    const allowed = ['pending', 'partially_paid', 'paid', 'overdue', 'cancelled'];
+    if (!allowed.includes(body.status)) return err('Invalid status');
+    const existing = await db.collection(c).findOne(tenantFilter(session, { id }));
+    if (!existing) return err('Record not found', 404);
+    await db.collection(c).updateOne(tenantFilter(session, { id }), { $set: { status: body.status, updatedAt: now } });
+    const record = await db.collection(c).findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    return json({ record });
+  }
+  return err('not found', 404);
+}
+
 export async function GET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
@@ -719,6 +959,14 @@ export async function GET(request, context) {
       // Authenticated reachability + server clock reference for the offline sync engine.
       // agencyId is derived server-side only; never trusted from the client.
       return json({ ok: true, serverTime: new Date().toISOString(), agencyId: session.agencyId });
+    }
+
+    if (path.startsWith('/finance')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'finance:read')) return err('forbidden', 403);
+      const db = await getDb();
+      return financeGet(db, session, path, new URL(request.url).searchParams);
     }
 
     if (path === '/fleet/stats') {
@@ -1049,6 +1297,14 @@ export async function POST(request, context) {
       const { _id, ...safe } = doc;
       await logActivity(db, session2, { type: 'itinerary_created', message: `Itinerary created for package "${pkg.name}"`, refType: 'itinerary', refId: safe.id });
       return json({ itinerary: safe }, 201);
+    }
+
+    if (path.startsWith('/finance')) {
+      const fsess = getSession(request);
+      if (!fsess) return err('unauthenticated', 401);
+      if (!can(fsess.role, 'finance:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+      return financePost(db, fsess, path, body);
     }
 
     // ---- Suppliers ----
@@ -1392,6 +1648,12 @@ export async function PUT(request, context) {
       await db.collection('suppliers').updateOne(tenantFilter(session, { id }), { $set: { ...value, updatedAt: new Date().toISOString() } });
       const supplier = await db.collection('suppliers').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
       return json({ supplier });
+    }
+
+    if (path.startsWith('/finance')) {
+      if (!can(session.role, 'finance:update')) return err('forbidden', 403);
+      const body = await readBody(request);
+      return financePut(db, session, path, body);
     }
 
     // ---- Booking: fleet assignment (vehicle/driver) — does not affect booking totals ----
