@@ -15,6 +15,11 @@ import {
   listPlans, getPlan, isValidPlan, priceFor, checkLimit,
   BILLING_INTERVALS, SUBSCRIPTION_STATUSES,
 } from '@/lib/plans';
+import {
+  INTEGRATION_CATEGORIES, INTEGRATION_CATALOG, CATALOG_BY_PROVIDER,
+  WEBHOOK_EVENTS, WEBHOOK_DIRECTIONS, API_SCOPES,
+  last4, maskSecret, sha256, genToken, isValidProvider,
+} from '@/lib/integrations';
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -1740,6 +1745,230 @@ async function billingPost(db, session, path, body) {
   return err('not found', 404);
 }
 
+// ============================================================ Integration Manager (Phase 5.10)
+function aiProviderConfigured(provider) {
+  if (provider === 'openai') return Boolean(process.env.OPENAI_API_KEY);
+  if (provider === 'gemini') return Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+  return Boolean(process.env.ANTHROPIC_API_KEY);
+}
+
+// Build a frontend-safe view of a catalog provider merged with the agency record.
+// NEVER includes secret values — only masked hints + status.
+function integrationView(cat, doc) {
+  const base = {
+    provider: cat.provider, name: cat.name, category: cat.category,
+    description: cat.description, managed: cat.managed || null,
+    fields: (cat.fields || []).map((f) => ({ key: f.key, label: f.label, type: f.type, required: !!f.required, placeholder: f.placeholder || '' })),
+  };
+  if (cat.managed === 'env') {
+    const active = aiConfig().provider === cat.provider;
+    const connected = aiProviderConfigured(cat.provider);
+    return { ...base, status: connected ? 'connected' : 'not_connected', enabled: connected, active,
+      connectionStatus: connected ? 'Managed via server environment' : 'Add credentials to the server environment', config: {}, secretHints: {}, lastUpdated: null };
+  }
+  if (!doc) {
+    return { ...base, status: 'not_connected', enabled: false, connectionStatus: 'Not connected', config: {}, secretHints: {}, lastUpdated: null };
+  }
+  return { ...base, status: doc.status, enabled: !!doc.enabled,
+    connectionStatus: doc.status === 'connected' ? 'Connected' : doc.status === 'disabled' ? 'Disabled' : doc.status === 'configuration_required' ? 'Configuration required' : doc.status === 'error' ? 'Error' : 'Not connected',
+    config: doc.configurationMetadata || {}, secretHints: doc.secretHints || {}, lastUpdated: doc.updatedAt || null };
+}
+
+function maskWebhook(w) {
+  return { id: w.id, agencyId: w.agencyId, name: w.name, direction: w.direction, endpoint: w.endpoint,
+    event: w.event, status: w.status, enabled: !!w.enabled, secretHint: w.secretLast4 ? `whsec_••••${w.secretLast4}` : '',
+    createdAt: w.createdAt, updatedAt: w.updatedAt };
+}
+function maskApiKey(k) {
+  return { id: k.id, agencyId: k.agencyId, name: k.name, scopes: k.scopes || [], enabled: !!k.enabled,
+    status: k.status, displayKey: `${k.prefix || 'sk_safaros_'}••••${k.last4 || ''}`, createdAt: k.createdAt, lastUsedAt: k.lastUsedAt || null };
+}
+
+async function integrationsGet(db, session, path) {
+  if (path === '/integrations') {
+    const docs = await db.collection('integrations').find(tenantFilter(session), { projection: { _id: 0 } }).toArray();
+    const byProvider = Object.fromEntries(docs.map((d) => [d.provider, d]));
+    const integrations = INTEGRATION_CATALOG.map((c) => integrationView(c, byProvider[c.provider]));
+    const [webhookCount, apiKeyCount] = await Promise.all([
+      db.collection('webhooks').countDocuments(tenantFilter(session)),
+      db.collection('apiKeys').countDocuments(tenantFilter(session)),
+    ]);
+    return json({ categories: INTEGRATION_CATEGORIES, integrations, counts: { webhooks: webhookCount, apiKeys: apiKeyCount }, webhookEvents: WEBHOOK_EVENTS, apiScopes: API_SCOPES });
+  }
+  if (path.startsWith('/integrations/')) {
+    const provider = path.split('/')[2];
+    const cat = CATALOG_BY_PROVIDER[provider];
+    if (!cat) return err('Unknown integration', 404);
+    const doc = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
+    return json({ integration: integrationView(cat, doc) });
+  }
+  if (path === '/webhooks') {
+    const items = await db.collection('webhooks').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+    return json({ webhooks: items.map(maskWebhook), events: WEBHOOK_EVENTS, directions: WEBHOOK_DIRECTIONS });
+  }
+  if (path === '/dev/api-keys') {
+    const items = await db.collection('apiKeys').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+    return json({ apiKeys: items.map(maskApiKey), scopes: API_SCOPES });
+  }
+  return err('not found', 404);
+}
+
+async function integrationsPost(db, session, path, body) {
+  const now = new Date().toISOString();
+
+  // Configure / connect a provider (stores NON-secret metadata + masked secret hints only).
+  const cfgMatch = path.match(/^\/integrations\/([^/]+)\/configure$/);
+  if (cfgMatch) {
+    const provider = cfgMatch[1];
+    const cat = CATALOG_BY_PROVIDER[provider];
+    if (!cat) return err('Unknown integration', 404);
+    if (cat.managed === 'env') return err('This provider is managed via secure server environment and cannot be configured here');
+    const input = (body && body.config) || {};
+    const existing = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
+    const metadata = { ...((existing && existing.configurationMetadata) || {}) };
+    const secretHints = { ...((existing && existing.secretHints) || {}) };
+    for (const f of cat.fields) {
+      const val = input[f.key];
+      if (val === undefined || val === '') continue;
+      if (f.type === 'secret') {
+        // Never persist the secret itself — only a masked hint.
+        secretHints[f.key] = last4(val);
+      } else {
+        metadata[f.key] = str(val, 500);
+      }
+    }
+    // Determine completeness from safe signals (non-secret present, or secret hint on record).
+    const missing = cat.fields.filter((f) => f.required && (f.type === 'secret' ? !secretHints[f.key] : (metadata[f.key] === undefined || metadata[f.key] === '')));
+    const status = missing.length ? 'configuration_required' : 'connected';
+    const enabled = body && body.enabled === false ? false : true;
+    const finalStatus = enabled ? status : 'disabled';
+    const docSet = {
+      provider, category: cat.category, status: finalStatus, enabled,
+      configurationMetadata: metadata, secretHints, updatedAt: now,
+    };
+    await db.collection('integrations').updateOne(
+      tenantFilter(session, { provider }),
+      { $set: withAgency(session, docSet), $setOnInsert: { id: uuidv4(), createdBy: session.userId, createdAt: now } },
+      { upsert: true },
+    );
+    const fresh = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
+    return json({ integration: integrationView(cat, fresh) });
+  }
+
+  // Disconnect a provider.
+  const discMatch = path.match(/^\/integrations\/([^/]+)\/disconnect$/);
+  if (discMatch) {
+    const provider = discMatch[1];
+    const cat = CATALOG_BY_PROVIDER[provider];
+    if (!cat) return err('Unknown integration', 404);
+    if (cat.managed === 'env') return err('This provider is managed via server environment');
+    await db.collection('integrations').deleteOne(tenantFilter(session, { provider }));
+    return json({ integration: integrationView(cat, null) });
+  }
+
+  // Create an incoming/outgoing webhook — the signing secret is shown ONCE.
+  if (path === '/webhooks') {
+    const name = str(body.name, 120);
+    const endpoint = str(body.endpoint, 500);
+    const direction = WEBHOOK_DIRECTIONS.includes(body.direction) ? body.direction : 'outgoing';
+    const event = WEBHOOK_EVENTS.includes(body.event) ? body.event : WEBHOOK_EVENTS[0];
+    if (!name) return err('Name is required');
+    if (direction === 'outgoing' && !endpoint) return err('Endpoint URL is required for outgoing webhooks');
+    const secret = `whsec_${genToken(24)}`;
+    const doc = withAgency(session, {
+      id: uuidv4(), name, direction, endpoint, event, status: 'active', enabled: true,
+      secretHash: sha256(secret), secretLast4: last4(secret), createdBy: session.userId, createdAt: now, updatedAt: now,
+    });
+    await db.collection('webhooks').insertOne(doc);
+    // secret returned once; never retrievable again.
+    return json({ webhook: maskWebhook(doc), secret });
+  }
+
+  // Create a developer API key — the full key is shown ONCE.
+  if (path === '/dev/api-keys') {
+    const name = str(body.name, 120);
+    if (!name) return err('Name is required');
+    const scopes = Array.isArray(body.scopes) ? body.scopes.filter((s) => API_SCOPES.includes(s)) : [];
+    const token = genToken(24);
+    const key = `sk_safaros_${token}`;
+    const prefix = key.slice(0, 16);
+    const doc = withAgency(session, {
+      id: uuidv4(), name, scopes, enabled: true, status: 'active',
+      hash: sha256(key), prefix, last4: last4(key), createdBy: session.userId, createdAt: now, lastUsedAt: null,
+    });
+    await db.collection('apiKeys').insertOne(doc);
+    return json({ apiKey: maskApiKey(doc), key });
+  }
+
+  return err('not found', 404);
+}
+
+async function integrationsPut(db, session, path, body) {
+  const now = new Date().toISOString();
+
+  // Enable / disable a provider.
+  const provMatch = path.match(/^\/integrations\/([^/]+)$/);
+  if (provMatch) {
+    const provider = provMatch[1];
+    const cat = CATALOG_BY_PROVIDER[provider];
+    if (!cat) return err('Unknown integration', 404);
+    if (cat.managed === 'env') return err('This provider is managed via server environment');
+    const doc = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
+    if (!doc) return err('Integration is not configured yet', 404);
+    const enabled = !!body.enabled;
+    const missing = cat.fields.filter((f) => f.required && (f.type === 'secret' ? !(doc.secretHints || {})[f.key] : !(doc.configurationMetadata || {})[f.key]));
+    const status = !enabled ? 'disabled' : (missing.length ? 'configuration_required' : 'connected');
+    await db.collection('integrations').updateOne(tenantFilter(session, { provider }), { $set: { enabled, status, updatedAt: now } });
+    const fresh = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
+    return json({ integration: integrationView(cat, fresh) });
+  }
+
+  const whMatch = path.match(/^\/webhooks\/([^/]+)$/);
+  if (whMatch) {
+    const id = whMatch[1];
+    const set = { updatedAt: now };
+    if (body.name !== undefined) set.name = str(body.name, 120);
+    if (body.endpoint !== undefined) set.endpoint = str(body.endpoint, 500);
+    if (body.event !== undefined && WEBHOOK_EVENTS.includes(body.event)) set.event = body.event;
+    if (body.enabled !== undefined) { set.enabled = !!body.enabled; set.status = body.enabled ? 'active' : 'disabled'; }
+    if (body.status !== undefined && ['active', 'disabled', 'error'].includes(body.status)) set.status = body.status;
+    const r = await db.collection('webhooks').updateOne(tenantFilter(session, { id }), { $set: set });
+    if (r.matchedCount === 0) return err('not found', 404);
+    const fresh = await db.collection('webhooks').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    return json({ webhook: maskWebhook(fresh) });
+  }
+
+  const akMatch = path.match(/^\/dev\/api-keys\/([^/]+)$/);
+  if (akMatch) {
+    const id = akMatch[1];
+    const set = { };
+    if (body.enabled !== undefined) { set.enabled = !!body.enabled; set.status = body.enabled ? 'active' : 'disabled'; }
+    if (body.name !== undefined) set.name = str(body.name, 120);
+    const r = await db.collection('apiKeys').updateOne(tenantFilter(session, { id }), { $set: set });
+    if (r.matchedCount === 0) return err('not found', 404);
+    const fresh = await db.collection('apiKeys').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    return json({ apiKey: maskApiKey(fresh) });
+  }
+
+  return err('not found', 404);
+}
+
+async function integrationsDelete(db, session, path) {
+  const whMatch = path.match(/^\/webhooks\/([^/]+)$/);
+  if (whMatch) {
+    const r = await db.collection('webhooks').deleteOne(tenantFilter(session, { id: whMatch[1] }));
+    if (r.deletedCount === 0) return err('not found', 404);
+    return json({ ok: true });
+  }
+  const akMatch = path.match(/^\/dev\/api-keys\/([^/]+)$/);
+  if (akMatch) {
+    const r = await db.collection('apiKeys').deleteOne(tenantFilter(session, { id: akMatch[1] }));
+    if (r.deletedCount === 0) return err('not found', 404);
+    return json({ ok: true });
+  }
+  return err('not found', 404);
+}
+
 export async function GET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
@@ -1782,6 +2011,14 @@ export async function GET(request, context) {
       if (!can(session.role, perm)) return err('forbidden', 403);
       const db = await getDb();
       return billingGet(db, session, path);
+    }
+
+    if (path === '/integrations' || path.startsWith('/integrations/') || path === '/webhooks' || path === '/dev/api-keys') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'integrations:read')) return err('forbidden', 403);
+      const db = await getDb();
+      return integrationsGet(db, session, path);
     }
 
     if (path === '/auth/me') {
@@ -2192,6 +2429,13 @@ export async function POST(request, context) {
       return billingPost(db, session, path, await readBody(request));
     }
 
+    if (path.startsWith('/integrations/') || path === '/webhooks' || path === '/dev/api-keys') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'integrations:manage')) return err('forbidden', 403);
+      return integrationsPost(db, session, path, await readBody(request));
+    }
+
     // Invite/add a team member — agency-scoped, RBAC-gated.
     if (path === '/members') {
       const session = getSession(request);
@@ -2591,9 +2835,13 @@ export async function PUT(request, context) {
     if (!session) return err('unauthenticated', 401);
     const db = await getDb();
 
+    if (path.match(/^\/integrations\/[^/]+$/) || path.match(/^\/webhooks\/[^/]+$/) || path.match(/^\/dev\/api-keys\/[^/]+$/)) {
+      if (!can(session.role, 'integrations:manage')) return err('forbidden', 403);
+      return integrationsPut(db, session, path, await readBody(request));
+    }
+
     // Agency onboarding setup — updates the session's own agency only.
-    if (path === '/agency') {
-      if (!can(session.role, 'agency:manage')) return err('forbidden', 403);
+    if (path === '/agency') {      if (!can(session.role, 'agency:manage')) return err('forbidden', 403);
       const b = await readBody(request);
       const fields = ['name', 'phone', 'website', 'address', 'city', 'country', 'currency', 'timezone'];
       const update = {};
@@ -2976,6 +3224,11 @@ export async function DELETE(request, context) {
     if (path.startsWith('/website/')) {
       if (!can(session.role, 'website:manage')) return err('forbidden', 403);
       return websiteDelete(db, session, path);
+    }
+
+    if (path.match(/^\/webhooks\/[^/]+$/) || path.match(/^\/dev\/api-keys\/[^/]+$/)) {
+      if (!can(session.role, 'integrations:manage')) return err('forbidden', 403);
+      return integrationsDelete(db, session, path);
     }
 
     if (path.startsWith('/clients/')) {

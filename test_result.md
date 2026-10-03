@@ -11,6 +11,37 @@ Implement Phase 5.6 (Agency Website Builder Foundation), Phase 5.7 (SEO & Search
 - **NO verification agents allowed**
 - Manual testing only: bash, curl, python scripts, screenshot tool
 
+## Phase 5.10 — Integrations Foundation (Oct 3, 2026)
+
+**Status:** ✅ COMPLETED (reusable foundation; no live providers activated). No testing/browser/QA/autonomous/verification agents used — verified via curl + screenshot tool only.
+
+**New file:** `/app/lib/integrations.js` — single source of truth: 9 categories, provider catalog (15 providers), credential-security helpers (`last4`, `maskSecret`, `sha256`, `genToken`), webhook event catalog, API scopes.
+
+**Categories:** AI, Payments, Communications, Email, SMS, Google Services, Calendar, Webhooks, API/Developer.
+**Providers (status-only foundation):** AI — anthropic/openai/gemini (managed via server env, read-only); Payments — razorpay/stripe; Communications — whatsapp_business (official API only); Email — sendgrid/resend/amazon_ses; SMS — twilio; Google — google_oauth/maps/search_console/analytics; Calendar — google_calendar.
+
+**Collections:** `integrations` (unique agencyId+provider; agencyId/category/status indexes), `webhooks` (agencyId+createdAt, agencyId+status), `apiKeys` (agencyId+createdAt, hash). UUID ids.
+
+**Credential security (critical):** External provider secrets are NEVER stored in plaintext — only non-secret metadata + a masked last-4 hint are persisted (usable secret belongs in secure server env/vault later). SafarOS-owned secrets (webhook signing secret, developer API key) are stored as SHA-256 hash + last4 and revealed exactly ONCE at creation. API responses return masked values only (e.g. `sk_safaros_...••••722e`, `whsec_••••8a01`). AI keys stay in ai.js/env (ai.js untouched). Verified in DB: plaintext secret absent, only hash/last4 present.
+
+**API routes (auth + RBAC + tenant-scoped, server-derived agencyId):**
+- GET `/api/integrations`, `/api/integrations/:provider`, `/api/webhooks`, `/api/dev/api-keys`
+- POST `/api/integrations/:provider/configure`, `/api/integrations/:provider/disconnect`, `/api/webhooks`, `/api/dev/api-keys`
+- PUT `/api/integrations/:provider` (enable/disable), `/api/webhooks/:id`, `/api/dev/api-keys/:id`
+- DELETE `/api/webhooks/:id`, `/api/dev/api-keys/:id`
+
+**RBAC (rbac.js):** `integrations:read` (owner/manager), `integrations:manage` (owner only). No Super Admin.
+
+**Frontend (app-experience.jsx):** New "Integrations" nav group + `Integrations` module with tabs: Integrations (categorized provider cards, Connect/Configure dialog, enable/disable/disconnect; AI shown as "Server-managed"), Webhooks (create/list/toggle/delete, signing secret revealed once), Developer API (create/list/toggle/delete, key revealed once, scopes). Existing design system, responsive, no fake data.
+
+**Verified:** catalog load, configure with secret masking (no plaintext in DB), partial config → configuration_required, enable/disable, disconnect, webhook create (secret once)/mask/toggle/delete, API key create (key once)/mask/toggle/delete, tenant isolation (Agency B sees none of A's), RBAC (manager 200 read / 403 manage). Test artifacts cleaned up afterwards (no fake connections persisted).
+
+**Deferred:** live Razorpay/Stripe checkout, payment webhooks/recurring billing, WhatsApp/SMS/Email provider activation, Google OAuth/Maps/Search Console/Analytics live calls, full Calendar sync engine, complex webhook event bus, full public developer platform, secure vault wiring, Super Admin, global UI redesign.
+
+**Safar Curated (`/app/safar_intake`):** NOT modified. Existing systems (AI Copilot, Payments, SaaS Subscription, SEO, etc.) unchanged.
+
+---
+
 ## Phase 5.9 — SaaS Subscription & Billing Foundation (Oct 3, 2026)
 
 **Status:** ✅ COMPLETED (foundation only). No testing/browser/QA/autonomous/verification agents used. Verified via curl + screenshot tool only.

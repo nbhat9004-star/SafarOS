@@ -277,6 +277,14 @@ const NAV = [
       { id: 'sub_history', label: 'Change Log', icon: Clock },
     ],
   },
+  {
+    group: 'Integrations',
+    items: [
+      { id: 'int_overview', label: 'Integrations', icon: Globe },
+      { id: 'int_webhooks', label: 'Webhooks', icon: ExternalLink },
+      { id: 'int_api', label: 'Developer API', icon: ShieldCheck },
+    ],
+  },
   { id: 'copilot', label: 'Copilot', icon: Sparkles },
   { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck },
   { id: 'team', label: 'Team', icon: Users },
@@ -300,6 +308,7 @@ const SECTION_TITLES = {
   web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
+  int_overview: 'Integrations', int_webhooks: 'Webhooks', int_api: 'Developer API',
   team: 'Team', settings: 'Settings',
 };
 
@@ -436,6 +445,7 @@ function Dashboard({ session, onLogout }) {
           {String(active).startsWith('web_') && <Website key="web" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('web_' + t)} />}
           {String(active).startsWith('an_') && <Analytics key="an" session={session} tab={String(active).slice(3)} onNav={(t) => setActive('an_' + t)} />}
           {String(active).startsWith('sub_') && <Billing key="sub" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('sub_' + t)} />}
+          {String(active).startsWith('int_') && <Integrations key="int" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('int_' + t)} />}
           {active === 'portal_admin' && <PortalAdmin session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
@@ -5198,6 +5208,184 @@ function Billing({ session, tab, onNav }) {
     {current === 'usage' && <SubUsage />}
     {current === 'billing' && <SubInvoices />}
     {current === 'history' && <SubHistory />}
+  </div>);
+}
+
+// ======================= INTEGRATION MANAGER UI (Phase 5.10) =======================
+const INT_STATUS_META = {
+  not_connected:          { label: 'Not Connected',          cls: 'bg-muted text-muted-foreground border-border' },
+  connected:              { label: 'Connected',              cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  disabled:               { label: 'Disabled',               cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  error:                  { label: 'Error',                  cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  configuration_required: { label: 'Configuration Required', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+};
+const INT_CAT_ICON = { ai: Bot, payments: CreditCard, communications: MessageSquare, email: Mail, sms: Phone, google: Globe, calendar: CalendarDays, webhooks: ExternalLink, api: ShieldCheck };
+function IntStatusBadge({ status }) { const m = INT_STATUS_META[status] || INT_STATUS_META.not_connected; return <Badge variant="outline" className={m.cls}>{m.label}</Badge>; }
+
+function CopyOnce({ value, label }) {
+  const copy = async () => { try { await navigator.clipboard.writeText(value); toast.success('Copied'); } catch { toast.error('Copy failed'); } };
+  return (<div className="rounded-md border bg-muted/40 p-3">
+    <div className="mb-1 text-xs font-medium text-muted-foreground">{label} — shown once, store it securely</div>
+    <div className="flex items-center gap-2"><code className="flex-1 break-all rounded bg-background px-2 py-1 text-xs">{value}</code><Button size="sm" variant="outline" onClick={copy}><Copy className="h-3.5 w-3.5" /></Button></div>
+  </div>);
+}
+
+function ConfigureDialog({ provider, canManage, onClose, onChanged }) {
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState({});
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { (async () => { try { const d = await api(`/integrations/${provider}`); setData(d.integration); setForm({}); } catch (e) { toast.error(friendlyError(e)); } })(); }, [provider]);
+  const save = async () => {
+    setBusy(true);
+    try { const d = await api(`/integrations/${provider}/configure`, { method: 'POST', body: JSON.stringify({ config: form }) }); setData(d.integration); toast.success('Integration saved'); onChanged(); }
+    catch (e) { toast.error(friendlyError(e)); } finally { setBusy(false); }
+  };
+  const toggle = async (enabled) => {
+    setBusy(true);
+    try { const d = await api(`/integrations/${provider}`, { method: 'PUT', body: JSON.stringify({ enabled }) }); setData(d.integration); toast.success(enabled ? 'Enabled' : 'Disabled'); onChanged(); }
+    catch (e) { toast.error(friendlyError(e)); } finally { setBusy(false); }
+  };
+  const disconnect = async () => {
+    setBusy(true);
+    try { const d = await api(`/integrations/${provider}/disconnect`, { method: 'POST', body: JSON.stringify({}) }); setData(d.integration); toast.success('Disconnected'); onChanged(); }
+    catch (e) { toast.error(friendlyError(e)); } finally { setBusy(false); }
+  };
+  return (<Dialog open onOpenChange={(o) => !o && onClose()}><DialogContent className="max-w-lg">
+    <DialogHeader><DialogTitle>{data ? data.name : 'Integration'}</DialogTitle></DialogHeader>
+    {!data ? <div className="h-32 animate-pulse rounded bg-muted/40" /> : (<div className="space-y-4">
+      <div className="flex items-center justify-between"><p className="text-sm text-muted-foreground">{data.description}</p><IntStatusBadge status={data.status} /></div>
+      {data.managed === 'env' ? (<div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">Managed via secure server environment. Credentials are set on the server and never editable from the browser.</div>) : (<>
+        {data.fields.map((f) => {
+          const hint = data.secretHints[f.key];
+          const existing = data.config[f.key];
+          return (<div key={f.key} className="space-y-1.5">
+            <Label>{f.label}{f.required ? ' *' : ''}</Label>
+            <Input type={f.type === 'secret' ? 'password' : 'text'} placeholder={f.type === 'secret' ? (hint ? `•••• ${hint} (leave blank to keep)` : (f.placeholder || 'Enter secret')) : (existing || f.placeholder || '')} value={form[f.key] || ''} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} disabled={!canManage} />
+          </div>);
+        })}
+        {canManage && (<div className="flex flex-wrap gap-2 pt-1">
+          <Button onClick={save} disabled={busy}>Save configuration</Button>
+          {(data.status === 'connected') && <Button variant="outline" onClick={() => toggle(false)} disabled={busy}>Disable</Button>}
+          {(data.status === 'disabled') && <Button variant="outline" onClick={() => toggle(true)} disabled={busy}>Enable</Button>}
+          {data.status !== 'not_connected' && <Button variant="outline" className="border-rose-300 text-rose-600 hover:bg-rose-50" onClick={disconnect} disabled={busy}>Disconnect</Button>}
+        </div>)}
+        {!canManage && <p className="text-xs text-muted-foreground">You have view-only access. Only the agency owner can configure integrations.</p>}
+      </>)}
+    </div>)}
+  </DialogContent></Dialog>);
+}
+
+function IntOverview({ canManage }) {
+  const [data, setData] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const load = async () => { try { const d = await api('/integrations'); setData(d); } catch (e) { toast.error(friendlyError(e)); } };
+  useEffect(() => { load(); }, []);
+  if (!data) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
+  const cats = data.categories.filter((c) => c.id !== 'webhooks' && c.id !== 'api');
+  return (<div className="space-y-6">
+    <p className="text-sm text-muted-foreground">Connect SafarOS to external services. Disconnected providers show their real state — no fake connections. Secrets are never shown to the browser.</p>
+    {cats.map((cat) => {
+      const items = data.integrations.filter((i) => i.category === cat.id);
+      if (!items.length) return null;
+      const Icon = INT_CAT_ICON[cat.id] || Globe;
+      return (<div key={cat.id} className="space-y-2">
+        <div className="flex items-center gap-2"><Icon className="h-4 w-4 text-violet-600" /><h3 className="font-semibold text-slate-900">{cat.label}</h3><span className="text-xs text-muted-foreground">{cat.description}</span></div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{items.map((i) => (<Card key={i.provider}><CardContent className="flex h-full flex-col p-4">
+          <div className="flex items-start justify-between gap-2"><div className="font-medium text-slate-900">{i.name}</div><IntStatusBadge status={i.status} /></div>
+          <p className="mt-1 flex-1 text-xs text-muted-foreground">{i.description}</p>
+          <div className="mt-3 flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">{i.connectionStatus}</span>
+            {i.managed === 'env' ? <span className="text-xs font-medium text-muted-foreground">Server-managed</span> : <Button size="sm" variant="outline" onClick={() => setSelected(i.provider)}>{i.status === 'not_connected' ? 'Connect' : 'Configure'}</Button>}
+          </div>
+        </CardContent></Card>))}</div>
+      </div>);
+    })}
+    {selected && <ConfigureDialog provider={selected} canManage={canManage} onClose={() => setSelected(null)} onChanged={load} />}
+  </div>);
+}
+
+function IntWebhooks({ canManage }) {
+  const [items, setItems] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: '', direction: 'outgoing', endpoint: '', event: '' });
+  const [busy, setBusy] = useState(false);
+  const [revealed, setRevealed] = useState('');
+  const load = async () => { try { const d = await api('/webhooks'); setItems(d.webhooks || []); setEvents(d.events || []); if (!form.event && d.events) setForm((f) => ({ ...f, event: d.events[0] })); } catch (e) { toast.error(friendlyError(e)); } };
+  useEffect(() => { load(); }, []);
+  const create = async () => {
+    setBusy(true);
+    try { const d = await api('/webhooks', { method: 'POST', body: JSON.stringify(form) }); setRevealed(d.secret); setOpen(false); setForm({ name: '', direction: 'outgoing', endpoint: '', event: events[0] || '' }); load(); }
+    catch (e) { toast.error(friendlyError(e)); } finally { setBusy(false); }
+  };
+  const toggle = async (w) => { try { await api(`/webhooks/${w.id}`, { method: 'PUT', body: JSON.stringify({ enabled: !w.enabled }) }); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const remove = async (w) => { try { await api(`/webhooks/${w.id}`, { method: 'DELETE' }); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  if (items === null) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
+  return (<div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm text-muted-foreground">Incoming and outgoing event webhooks. Signing secrets are shown once and stored hashed — never retrievable.</p>
+      {canManage && <Button onClick={() => setOpen(true)}><Plus className="mr-1 h-4 w-4" /> New webhook</Button>}
+    </div>
+    {!items.length ? <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No webhooks yet.</CardContent></Card> : (<Card><CardContent className="p-0"><Table>
+      <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Direction</TableHead><TableHead>Event</TableHead><TableHead>Endpoint</TableHead><TableHead>Secret</TableHead><TableHead>Status</TableHead>{canManage && <TableHead></TableHead>}</TableRow></TableHeader>
+      <TableBody>{items.map((w) => (<TableRow key={w.id}><TableCell className="font-medium">{w.name}</TableCell><TableCell className="capitalize">{w.direction}</TableCell><TableCell><code className="text-xs">{w.event}</code></TableCell><TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">{w.endpoint || '—'}</TableCell><TableCell><code className="text-xs">{w.secretHint}</code></TableCell><TableCell><Badge variant="outline" className={w.enabled ? INT_STATUS_META.connected.cls : INT_STATUS_META.disabled.cls}>{w.enabled ? 'Active' : 'Disabled'}</Badge></TableCell>{canManage && <TableCell><div className="flex gap-1"><Button size="sm" variant="ghost" onClick={() => toggle(w)}>{w.enabled ? 'Disable' : 'Enable'}</Button><Button size="sm" variant="ghost" className="text-rose-600" onClick={() => remove(w)}><Trash2 className="h-4 w-4" /></Button></div></TableCell>}</TableRow>))}</TableBody>
+    </Table></CardContent></Card>)}
+    <Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>New webhook</DialogTitle></DialogHeader><div className="space-y-3">
+      <div className="space-y-1.5"><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Booking notifier" /></div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5"><Label>Direction</Label><Select value={form.direction} onValueChange={(v) => setForm({ ...form, direction: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="outgoing">Outgoing</SelectItem><SelectItem value="incoming">Incoming</SelectItem></SelectContent></Select></div>
+        <div className="space-y-1.5"><Label>Event</Label><Select value={form.event} onValueChange={(v) => setForm({ ...form, event: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{events.map((e) => <SelectItem key={e} value={e}>{e}</SelectItem>)}</SelectContent></Select></div>
+      </div>
+      {form.direction === 'outgoing' && <div className="space-y-1.5"><Label>Endpoint URL *</Label><Input value={form.endpoint} onChange={(e) => setForm({ ...form, endpoint: e.target.value })} placeholder="https://example.com/webhook" /></div>}
+    </div><DialogFooter><Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button><Button onClick={create} disabled={busy}>{busy ? 'Creating…' : 'Create webhook'}</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={!!revealed} onOpenChange={(o) => !o && setRevealed('')}><DialogContent><DialogHeader><DialogTitle>Webhook signing secret</DialogTitle></DialogHeader><CopyOnce value={revealed} label="Signing secret" /><DialogFooter><Button onClick={() => setRevealed('')}>Done</Button></DialogFooter></DialogContent></Dialog>
+  </div>);
+}
+
+function IntApiKeys({ canManage }) {
+  const [items, setItems] = useState(null);
+  const [scopes, setScopes] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: '', scopes: [] });
+  const [busy, setBusy] = useState(false);
+  const [revealed, setRevealed] = useState('');
+  const load = async () => { try { const d = await api('/dev/api-keys'); setItems(d.apiKeys || []); setScopes(d.scopes || []); } catch (e) { toast.error(friendlyError(e)); } };
+  useEffect(() => { load(); }, []);
+  const toggleScope = (s) => setForm((f) => ({ ...f, scopes: f.scopes.includes(s) ? f.scopes.filter((x) => x !== s) : [...f.scopes, s] }));
+  const create = async () => {
+    setBusy(true);
+    try { const d = await api('/dev/api-keys', { method: 'POST', body: JSON.stringify(form) }); setRevealed(d.key); setOpen(false); setForm({ name: '', scopes: [] }); load(); }
+    catch (e) { toast.error(friendlyError(e)); } finally { setBusy(false); }
+  };
+  const toggle = async (k) => { try { await api(`/dev/api-keys/${k.id}`, { method: 'PUT', body: JSON.stringify({ enabled: !k.enabled }) }); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const remove = async (k) => { try { await api(`/dev/api-keys/${k.id}`, { method: 'DELETE' }); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  if (items === null) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
+  return (<div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm text-muted-foreground">Agency API keys for developer access. Keys are shown once and stored hashed — only a masked preview is kept.</p>
+      {canManage && <Button onClick={() => setOpen(true)}><Plus className="mr-1 h-4 w-4" /> New API key</Button>}
+    </div>
+    {!items.length ? <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No API keys yet.</CardContent></Card> : (<Card><CardContent className="p-0"><Table>
+      <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Key</TableHead><TableHead>Scopes</TableHead><TableHead>Status</TableHead>{canManage && <TableHead></TableHead>}</TableRow></TableHeader>
+      <TableBody>{items.map((k) => (<TableRow key={k.id}><TableCell className="font-medium">{k.name}</TableCell><TableCell><code className="text-xs">{k.displayKey}</code></TableCell><TableCell className="text-xs text-muted-foreground">{(k.scopes || []).join(', ') || '—'}</TableCell><TableCell><Badge variant="outline" className={k.enabled ? INT_STATUS_META.connected.cls : INT_STATUS_META.disabled.cls}>{k.enabled ? 'Active' : 'Disabled'}</Badge></TableCell>{canManage && <TableCell><div className="flex gap-1"><Button size="sm" variant="ghost" onClick={() => toggle(k)}>{k.enabled ? 'Disable' : 'Enable'}</Button><Button size="sm" variant="ghost" className="text-rose-600" onClick={() => remove(k)}><Trash2 className="h-4 w-4" /></Button></div></TableCell>}</TableRow>))}</TableBody>
+    </Table></CardContent></Card>)}
+    <Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>New API key</DialogTitle></DialogHeader><div className="space-y-3">
+      <div className="space-y-1.5"><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Server integration" /></div>
+      <div className="space-y-1.5"><Label>Scopes</Label><div className="flex flex-wrap gap-2">{scopes.map((s) => { const on = form.scopes.includes(s); return (<button key={s} type="button" onClick={() => toggleScope(s)} className={`rounded-full border px-3 py-1 text-xs ${on ? 'border-violet-400 bg-violet-50 text-violet-700' : 'text-muted-foreground'}`}>{s}</button>); })}</div></div>
+    </div><DialogFooter><Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button><Button onClick={create} disabled={busy}>{busy ? 'Creating…' : 'Create key'}</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={!!revealed} onOpenChange={(o) => !o && setRevealed('')}><DialogContent><DialogHeader><DialogTitle>Your new API key</DialogTitle></DialogHeader><CopyOnce value={revealed} label="API key" /><DialogFooter><Button onClick={() => setRevealed('')}>Done</Button></DialogFooter></DialogContent></Dialog>
+  </div>);
+}
+
+function Integrations({ session, tab, onNav }) {
+  const canManage = can(session.user.role, 'integrations:manage');
+  const TABS = [{ id: 'overview', label: 'Integrations' }, { id: 'webhooks', label: 'Webhooks' }, { id: 'api', label: 'Developer API' }];
+  const current = TABS.some((t) => t.id === tab) ? tab : 'overview';
+  return (<div className="space-y-4">
+    <div className="flex gap-1 overflow-x-auto rounded-lg border bg-muted/40 p-1">{TABS.map((t) => { const on = current === t.id; return (<button key={t.id} onClick={() => onNav(t.id)} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm ${on ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'}`}>{t.label}</button>); })}</div>
+    {current === 'overview' && <IntOverview canManage={canManage} />}
+    {current === 'webhooks' && <IntWebhooks canManage={canManage} />}
+    {current === 'api' && <IntApiKeys canManage={canManage} />}
   </div>);
 }
 
