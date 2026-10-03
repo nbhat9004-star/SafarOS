@@ -5,10 +5,11 @@ import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
 import {
-  COOKIE_NAME, PORTAL_COOKIE, hashPassword, verifyPassword, signSession, getSession,
-  signPortalSession, getPortalSession,
+  COOKIE_NAME, PORTAL_COOKIE, PLATFORM_COOKIE, hashPassword, verifyPassword, signSession, getSession,
+  signPortalSession, getPortalSession, signPlatformSession, getPlatformSession,
 } from '@/lib/auth';
 import { can, isValidRole } from '@/lib/rbac';
+import { canPlatform, isValidPlatformRole, PLATFORM_ROLES } from '@/lib/platform-rbac';
 import { tenantFilter, withAgency } from '@/lib/tenancy';
 import { aiConfig, aiComplete } from '@/lib/ai';
 import {
@@ -39,6 +40,21 @@ function setSessionCookie(res, token) {
     path: '/', maxAge: 60 * 60 * 24 * 7,
   });
   return res;
+}
+
+function setPlatformCookie(res, token) {
+  res.cookies.set({
+    name: PLATFORM_COOKIE, value: token, httpOnly: true, sameSite: 'lax',
+    path: '/', maxAge: 60 * 60 * 24 * 7,
+  });
+  return res;
+}
+
+function clientIp(request) {
+  try {
+    const xff = request.headers.get('x-forwarded-for') || '';
+    return xff.split(',')[0].trim() || request.headers.get('x-real-ip') || '';
+  } catch { return ''; }
 }
 
 async function readBody(request) {
@@ -1969,10 +1985,412 @@ async function integrationsDelete(db, session, path) {
   return err('not found', 404);
 }
 
+// ============================================================ Platform Super Admin (Final Stage 1)
+// Platform admins are a SEPARATE identity (platformAdmins) with a SEPARATE session
+// cookie and SEPARATE RBAC (lib/platform-rbac.js). Agency auth is untouched.
+async function platformAudit(db, session, request, { action, targetType = '', targetId = '', agencyId = '', metadata = {} }) {
+  try {
+    await db.collection('platformAuditLogs').insertOne({
+      id: uuidv4(), actorId: session.adminId, actorType: 'platform_admin', actorEmail: session.email || '',
+      action, targetType, targetId, agencyId: agencyId || '', metadata: metadata || {},
+      ip: clientIp(request), timestamp: new Date().toISOString(),
+    });
+  } catch (e) { console.warn('[safaros] platform audit skipped:', e.message); }
+}
+
+function platformAdminView(a) {
+  if (!a) return null;
+  return { id: a.id, email: a.email, name: a.name, role: a.role, status: a.status, mustChangePassword: !!a.mustChangePassword, createdAt: a.createdAt, lastLoginAt: a.lastLoginAt || null };
+}
+
+async function platformLogin(db, body, request) {
+  const email = String(body.email || '').toLowerCase();
+  const password = String(body.password || '');
+  if (!email || !password) return err('email and password required');
+  const admin = await db.collection('platformAdmins').findOne({ email });
+  if (!admin || !(await verifyPassword(password, admin.passwordHash))) return err('invalid credentials', 401);
+  if (admin.status !== 'active') return err('account is not active', 403);
+  await db.collection('platformAdmins').updateOne({ id: admin.id }, { $set: { lastLoginAt: new Date().toISOString() } });
+  await platformAudit(db, { adminId: admin.id, email: admin.email }, request, { action: 'platform.login' });
+  const token = signPlatformSession({ adminId: admin.id, role: admin.role, email: admin.email });
+  const res = json({ admin: platformAdminView(admin) });
+  return setPlatformCookie(res, token);
+}
+
+async function platformMe(db, session) {
+  const admin = await db.collection('platformAdmins').findOne({ id: session.adminId }, { projection: { _id: 0, passwordHash: 0 } });
+  if (!admin || admin.status !== 'active') return err('unauthenticated', 401);
+  return json({ admin: platformAdminView(admin) });
+}
+
+async function platformChangePassword(db, session, body, request) {
+  const admin = await db.collection('platformAdmins').findOne({ id: session.adminId });
+  if (!admin) return err('unauthenticated', 401);
+  const cur = String(body.currentPassword || ''); const next = String(body.newPassword || '');
+  if (!(await verifyPassword(cur, admin.passwordHash))) return err('current password is incorrect', 401);
+  if (next.length < 10) return err('new password must be at least 10 characters');
+  await db.collection('platformAdmins').updateOne({ id: admin.id }, { $set: { passwordHash: await hashPassword(next), mustChangePassword: false, updatedAt: new Date().toISOString() } });
+  await platformAudit(db, session, request, { action: 'platform.password_changed' });
+  return json({ ok: true });
+}
+
+const agStatus = (s) => (s || 'active');
+
+function platformReadPerm(path) {
+  if (path === '/platform/dashboard') return 'platform:dashboard';
+  if (path.startsWith('/platform/agencies')) return 'agencies:read';
+  if (path.startsWith('/platform/users')) return 'users:read';
+  if (path.startsWith('/platform/subscriptions') || path === '/platform/billing') return 'subscriptions:read';
+  if (path.startsWith('/platform/plans')) return 'plans:read';
+  if (path.startsWith('/platform/ai-platforms')) return 'ai:read';
+  if (path.startsWith('/platform/integrations')) return 'integrations:read';
+  if (path.startsWith('/platform/analytics')) return 'analytics:read';
+  if (path.startsWith('/platform/audit')) return 'audit:read';
+  if (path.startsWith('/platform/settings')) return 'settings:read';
+  return 'platform:dashboard';
+}
+
+async function platformGet(db, session, path, sp) {
+  if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
+
+  if (path === '/platform/dashboard') {
+    const agencies = await db.collection('agencies').find({}, { projection: { _id: 0, id: 1, status: 1, plan: 1 } }).toArray();
+    const [usersTotal, activeUsers, subs, invoicesPaid, connectedIntegrations] = await Promise.all([
+      db.collection('users').countDocuments({}),
+      db.collection('users').countDocuments({ status: { $ne: 'suspended' } }),
+      db.collection('agencySubscriptions').find({}, { projection: { _id: 0, status: 1 } }).toArray(),
+      db.collection('saasInvoices').find({ status: 'paid' }, { projection: { _id: 0, amount: 1 } }).toArray(),
+      db.collection('integrations').countDocuments({ status: 'connected' }),
+    ]);
+    const revenue = invoicesPaid.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    return json({
+      agencies: {
+        total: agencies.length,
+        active: agencies.filter((a) => agStatus(a.status) === 'active').length,
+        suspended: agencies.filter((a) => agStatus(a.status) === 'suspended').length,
+        trial: agencies.filter((a) => (a.plan || 'trial') === 'trial' && agStatus(a.status) === 'active').length,
+        deleted: agencies.filter((a) => agStatus(a.status) === 'deleted').length,
+      },
+      users: { total: usersTotal, active: activeUsers },
+      subscriptions: { total: subs.length, active: subs.filter((s) => s.status === 'active').length, trial: subs.filter((s) => s.status === 'trial').length },
+      revenue: { paidTotal: revenue, currency: 'INR' },
+      integrations: { connected: connectedIntegrations },
+      ai: { activeProvider: aiConfig().provider, activeModel: aiConfig().model, providers: ['anthropic', 'openai', 'gemini'].map((p) => ({ provider: p, configured: aiProviderConfigured(p) })) },
+    });
+  }
+
+  const agDetail = path.match(/^\/platform\/agencies\/([^/]+)$/);
+  if (agDetail) {
+    const id = agDetail[1];
+    const agency = await db.collection('agencies').findOne({ id }, { projection: { _id: 0 } });
+    if (!agency) return err('Agency not found', 404);
+    const f = { agencyId: id };
+    const [userCount, clientCount, leadCount, bookingCount, quotationCount, websitePages, integrations, subscription] = await Promise.all([
+      db.collection('users').countDocuments(f), db.collection('clients').countDocuments(f),
+      db.collection('leads').countDocuments(f), db.collection('bookings').countDocuments(f),
+      db.collection('quotations').countDocuments(f), db.collection('websitePages').countDocuments(f),
+      db.collection('integrations').find(f, { projection: { _id: 0, provider: 1, category: 1, status: 1 } }).toArray(),
+      db.collection('agencySubscriptions').findOne(f, { projection: { _id: 0 } }),
+    ]);
+    return json({ agency: { ...agency, status: agStatus(agency.status) }, metrics: { userCount, clientCount, leadCount, bookingCount, quotationCount, websitePages }, websiteStatus: websitePages > 0 ? 'active' : 'none', integrations, subscription });
+  }
+
+  if (path === '/platform/agencies') {
+    const search = (sp.get('search') || '').trim().toLowerCase();
+    const status = sp.get('status') || ''; const plan = sp.get('plan') || '';
+    const all = await db.collection('agencies').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+    const userCounts = await db.collection('users').aggregate([{ $group: { _id: '$agencyId', n: { $sum: 1 } } }]).toArray();
+    const ucMap = Object.fromEntries(userCounts.map((u) => [u._id, u.n]));
+    const subs = await db.collection('agencySubscriptions').find({}, { projection: { _id: 0, agencyId: 1, planId: 1, status: 1 } }).toArray();
+    const subMap = Object.fromEntries(subs.map((s) => [s.agencyId, s]));
+    let list = all.map((a) => ({ ...a, status: agStatus(a.status), userCount: ucMap[a.id] || 0, subscription: subMap[a.id] ? { planId: subMap[a.id].planId, status: subMap[a.id].status } : null }));
+    if (search) list = list.filter((a) => (a.name || '').toLowerCase().includes(search) || (a.slug || '').toLowerCase().includes(search));
+    if (status) list = list.filter((a) => a.status === status);
+    if (plan) list = list.filter((a) => (a.plan || 'trial') === plan);
+    return json({ agencies: list.slice(0, 500), total: list.length });
+  }
+
+  if (path === '/platform/users') {
+    const search = (sp.get('search') || '').toLowerCase();
+    const agencyId = sp.get('agencyId') || ''; const role = sp.get('role') || ''; const status = sp.get('status') || '';
+    const q = {}; if (agencyId) q.agencyId = agencyId; if (role) q.role = role;
+    const users = await db.collection('users').find(q, { projection: { _id: 0, passwordHash: 0 } }).sort({ createdAt: -1 }).limit(1000).toArray();
+    const agencies = await db.collection('agencies').find({}, { projection: { _id: 0, id: 1, name: 1 } }).toArray();
+    const anMap = Object.fromEntries(agencies.map((a) => [a.id, a.name]));
+    let list = users.map((u) => ({ ...u, status: agStatus(u.status), agencyName: anMap[u.agencyId] || '' }));
+    if (search) list = list.filter((u) => (u.name || '').toLowerCase().includes(search) || (u.email || '').toLowerCase().includes(search));
+    if (status) list = list.filter((u) => u.status === status);
+    return json({ users: list.slice(0, 1000), total: list.length });
+  }
+
+  const subHist = path.match(/^\/platform\/subscriptions\/([^/]+)\/history$/);
+  if (subHist) {
+    const history = await db.collection('subscriptionHistory').find({ agencyId: subHist[1] }, { projection: { _id: 0 } }).sort({ changedAt: -1 }).limit(200).toArray();
+    return json({ history });
+  }
+  if (path === '/platform/subscriptions') {
+    const subs = await db.collection('agencySubscriptions').find({}, { projection: { _id: 0 } }).sort({ updatedAt: -1 }).toArray();
+    const agencies = await db.collection('agencies').find({}, { projection: { _id: 0, id: 1, name: 1 } }).toArray();
+    const anMap = Object.fromEntries(agencies.map((a) => [a.id, a.name]));
+    return json({ subscriptions: subs.map((s) => ({ ...s, agencyName: anMap[s.agencyId] || '', plan: getPlan(s.planId) || null })) });
+  }
+  if (path === '/platform/billing') {
+    const invoices = await db.collection('saasInvoices').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(500).toArray();
+    const agencies = await db.collection('agencies').find({}, { projection: { _id: 0, id: 1, name: 1 } }).toArray();
+    const anMap = Object.fromEntries(agencies.map((a) => [a.id, a.name]));
+    return json({ invoices: invoices.map((i) => ({ ...i, agencyName: anMap[i.agencyId] || '' })) });
+  }
+
+  if (path === '/platform/plans') {
+    const custom = await db.collection('platformPlans').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+    return json({ catalog: listPlans(), custom });
+  }
+
+  if (path === '/platform/ai-platforms') {
+    const docs = await db.collection('platformAiProviders').find({}, { projection: { _id: 0, keyHash: 0 } }).toArray();
+    const byP = Object.fromEntries(docs.map((d) => [d.provider, d]));
+    const names = { anthropic: 'Anthropic Claude', openai: 'OpenAI', gemini: 'Google Gemini' };
+    const providers = ['anthropic', 'openai', 'gemini'].map((p) => {
+      const d = byP[p] || {};
+      const envConfigured = aiProviderConfigured(p);
+      const configured = envConfigured || !!d.keyLast4;
+      const active = aiConfig().provider === p;
+      return {
+        provider: p, name: names[p], model: d.model || (active ? aiConfig().model : ''),
+        enabled: d.enabled !== undefined ? d.enabled : active,
+        status: configured ? (d.enabled === false ? 'disabled' : 'connected') : 'not_connected',
+        keyMask: d.keyLast4 ? `••••••••••••${d.keyLast4}` : (envConfigured ? 'Set via server environment' : ''),
+        source: d.keyLast4 ? 'stored' : (envConfigured ? 'env' : 'none'), active, updatedAt: d.updatedAt || null,
+      };
+    });
+    return json({ providers, activeProvider: aiConfig().provider });
+  }
+
+  if (path === '/platform/integrations') {
+    const agg = await db.collection('integrations').aggregate([{ $group: { _id: { provider: '$provider', status: '$status' }, n: { $sum: 1 } } }]).toArray();
+    const map = {};
+    for (const r of agg) { const p = r._id.provider; map[p] = map[p] || { connected: 0, total: 0 }; map[p].total += r.n; if (r._id.status === 'connected') map[p].connected += r.n; }
+    const providers = INTEGRATION_CATALOG.map((c) => ({ provider: c.provider, name: c.name, category: c.category, connectedAgencies: (map[c.provider] || {}).connected || 0, configuredAgencies: (map[c.provider] || {}).total || 0 }));
+    return json({ categories: INTEGRATION_CATEGORIES, providers });
+  }
+
+  if (path === '/platform/analytics') {
+    const [agencies, users, subs, bookingVolume, paid] = await Promise.all([
+      db.collection('agencies').find({}, { projection: { _id: 0, createdAt: 1, plan: 1, status: 1 } }).toArray(),
+      db.collection('users').find({}, { projection: { _id: 0, createdAt: 1 } }).toArray(),
+      db.collection('agencySubscriptions').find({}, { projection: { _id: 0, planId: 1, status: 1 } }).toArray(),
+      db.collection('bookings').countDocuments({}),
+      db.collection('saasInvoices').find({ status: 'paid' }, { projection: { _id: 0, amount: 1 } }).toArray(),
+    ]);
+    const byMonth = (arr) => { const m = {}; for (const x of arr) { const d = x.createdAt ? String(x.createdAt).slice(0, 7) : ''; if (d) m[d] = (m[d] || 0) + 1; } return Object.entries(m).sort().map(([month, count]) => ({ month, count })); };
+    const planDist = {}; for (const s of subs) { planDist[s.planId] = (planDist[s.planId] || 0) + 1; }
+    return json({
+      agencyGrowth: byMonth(agencies), userGrowth: byMonth(users),
+      subscriptionDistribution: Object.entries(planDist).map(([plan, count]) => ({ plan, count })),
+      bookingVolume, revenue: paid.reduce((s, i) => s + (Number(i.amount) || 0), 0),
+      activeAgencies: agencies.filter((a) => agStatus(a.status) === 'active').length,
+    });
+  }
+
+  if (path === '/platform/audit-logs') {
+    const search = (sp.get('search') || '').toLowerCase(); const action = sp.get('action') || '';
+    const q = {}; if (action) q.action = action;
+    let logs = await db.collection('platformAuditLogs').find(q, { projection: { _id: 0 } }).sort({ timestamp: -1 }).limit(500).toArray();
+    if (search) logs = logs.filter((l) => JSON.stringify(l).toLowerCase().includes(search));
+    return json({ logs });
+  }
+
+  if (path === '/platform/settings') {
+    let s = await db.collection('platformSettings').findOne({ id: 'platform' }, { projection: { _id: 0 } });
+    if (!s) s = { id: 'platform', platformName: 'SafarOS', description: '', supportEmail: '', supportPhone: '', defaultCurrency: 'INR', defaultTimezone: 'Asia/Kolkata', defaultCountry: 'IN', status: 'active', maintenanceMode: false };
+    return json({ settings: s });
+  }
+
+  return err('not found', 404);
+}
+
+async function platformPost(db, session, path, body, request) {
+  const now = new Date().toISOString();
+
+  if (path === '/platform/plans') {
+    if (!canPlatform(session.role, 'plans:manage')) return err('forbidden', 403);
+    const slug = String(body.slug || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40);
+    if (!slug) return err('slug is required');
+    if (getPlan(slug)) return err('A catalog plan with this slug already exists');
+    const exists = await db.collection('platformPlans').findOne({ slug });
+    if (exists) return err('A custom plan with this slug already exists', 409);
+    const doc = {
+      id: uuidv4(), name: str(body.name, 80) || slug, slug, description: str(body.description, 300),
+      price: Number(body.price) || 0, priceYearly: Number(body.priceYearly) || 0, currency: str(body.currency, 8) || 'INR',
+      trialDays: Number(body.trialDays) || 0, status: body.status === 'inactive' ? 'inactive' : 'active',
+      features: body.features && typeof body.features === 'object' ? body.features : {},
+      limits: body.limits && typeof body.limits === 'object' ? body.limits : {},
+      custom: true, createdBy: session.adminId, createdAt: now, updatedAt: now,
+    };
+    await db.collection('platformPlans').insertOne(doc);
+    await platformAudit(db, session, request, { action: 'plan.created', targetType: 'plan', targetId: doc.id, metadata: { slug } });
+    const { _id, ...safe } = doc; return json({ plan: safe }, 201);
+  }
+
+  const aiCfg = path.match(/^\/platform\/ai-platforms\/([^/]+)\/configure$/);
+  if (aiCfg) {
+    if (!canPlatform(session.role, 'ai:manage')) return err('forbidden', 403);
+    const provider = aiCfg[1];
+    if (!['anthropic', 'openai', 'gemini'].includes(provider)) return err('Unknown AI provider', 404);
+    const set = { provider, updatedAt: now };
+    if (body.model !== undefined) set.model = str(body.model, 100);
+    if (body.enabled !== undefined) set.enabled = !!body.enabled;
+    // NEVER store plaintext keys — keep only a masked hint + hash for change detection.
+    if (body.apiKey) { set.keyLast4 = last4(body.apiKey); set.keyHash = sha256(body.apiKey); }
+    await db.collection('platformAiProviders').updateOne({ provider }, { $set: set, $setOnInsert: { id: uuidv4(), createdAt: now } }, { upsert: true });
+    await platformAudit(db, session, request, { action: 'ai.configured', targetType: 'ai_provider', targetId: provider, metadata: { model: set.model, enabled: set.enabled, keyUpdated: !!body.apiKey } });
+    const d = await db.collection('platformAiProviders').findOne({ provider }, { projection: { _id: 0, keyHash: 0 } });
+    return json({ provider: { ...d, keyMask: d.keyLast4 ? `••••••••••••${d.keyLast4}` : '' } });
+  }
+
+  const access = path.match(/^\/platform\/agencies\/([^/]+)\/access$/);
+  if (access) {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const agency = await db.collection('agencies').findOne({ id: access[1] }, { projection: { _id: 0 } });
+    if (!agency) return err('Agency not found', 404);
+    await platformAudit(db, session, request, { action: 'agency.access_started', targetType: 'agency', targetId: agency.id, agencyId: agency.id, metadata: { mode: 'super_admin_access' } });
+    return json({ ok: true, mode: 'super_admin_access', agency: { id: agency.id, name: agency.name, slug: agency.slug }, note: 'Super Admin access is attributable and recorded in audit logs. No hidden impersonation is performed.' });
+  }
+
+  return err('not found', 404);
+}
+
+async function platformPut(db, session, path, body, request) {
+  const now = new Date().toISOString();
+
+  const agStatusM = path.match(/^\/platform\/agencies\/([^/]+)\/status$/);
+  if (agStatusM) {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const id = agStatusM[1]; const status = String(body.status || '');
+    if (!['active', 'suspended'].includes(status)) return err('status must be active or suspended');
+    const r = await db.collection('agencies').updateOne({ id }, { $set: { status, updatedAt: now } });
+    if (r.matchedCount === 0) return err('Agency not found', 404);
+    await platformAudit(db, session, request, { action: status === 'suspended' ? 'agency.suspended' : 'agency.reactivated', targetType: 'agency', targetId: id, agencyId: id, metadata: { reason: str(body.reason, 300) } });
+    const agency = await db.collection('agencies').findOne({ id }, { projection: { _id: 0 } });
+    return json({ agency: { ...agency, status: agStatus(agency.status) } });
+  }
+
+  const agEdit = path.match(/^\/platform\/agencies\/([^/]+)$/);
+  if (agEdit) {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const id = agEdit[1]; const set = { updatedAt: now };
+    for (const k of ['name', 'slug', 'phone', 'website', 'address', 'city', 'country', 'currency', 'timezone', 'plan']) { if (body[k] !== undefined) set[k] = str(body[k], 200); }
+    const r = await db.collection('agencies').updateOne({ id }, { $set: set });
+    if (r.matchedCount === 0) return err('Agency not found', 404);
+    await platformAudit(db, session, request, { action: 'agency.updated', targetType: 'agency', targetId: id, agencyId: id, metadata: { fields: Object.keys(set).filter((k) => k !== 'updatedAt') } });
+    const agency = await db.collection('agencies').findOne({ id }, { projection: { _id: 0 } });
+    return json({ agency: { ...agency, status: agStatus(agency.status) } });
+  }
+
+  const uStatusM = path.match(/^\/platform\/users\/([^/]+)\/status$/);
+  if (uStatusM) {
+    if (!canPlatform(session.role, 'users:manage')) return err('forbidden', 403);
+    const id = uStatusM[1]; const status = String(body.status || '');
+    if (!['active', 'suspended'].includes(status)) return err('status must be active or suspended');
+    const r = await db.collection('users').updateOne({ id }, { $set: { status, updatedAt: now } });
+    if (r.matchedCount === 0) return err('User not found', 404);
+    await platformAudit(db, session, request, { action: status === 'suspended' ? 'user.suspended' : 'user.reactivated', targetType: 'user', targetId: id });
+    const user = await db.collection('users').findOne({ id }, { projection: { _id: 0, passwordHash: 0 } });
+    return json({ user: { ...user, status: agStatus(user.status) } });
+  }
+
+  const uEdit = path.match(/^\/platform\/users\/([^/]+)$/);
+  if (uEdit) {
+    if (!canPlatform(session.role, 'users:manage')) return err('forbidden', 403);
+    const id = uEdit[1]; const set = { updatedAt: now };
+    if (body.name !== undefined) set.name = str(body.name, 120);
+    if (body.role !== undefined && isValidRole(body.role)) set.role = body.role;
+    const r = await db.collection('users').updateOne({ id }, { $set: set });
+    if (r.matchedCount === 0) return err('User not found', 404);
+    await platformAudit(db, session, request, { action: 'user.updated', targetType: 'user', targetId: id, metadata: { fields: Object.keys(set).filter((k) => k !== 'updatedAt') } });
+    const user = await db.collection('users').findOne({ id }, { projection: { _id: 0, passwordHash: 0 } });
+    return json({ user: { ...user, status: agStatus(user.status) } });
+  }
+
+  const subStatusM = path.match(/^\/platform\/subscriptions\/([^/]+)\/status$/);
+  if (subStatusM) {
+    if (!canPlatform(session.role, 'subscriptions:manage')) return err('forbidden', 403);
+    const agencyId = subStatusM[1]; const status = String(body.status || '');
+    if (!SUBSCRIPTION_STATUSES.includes(status)) return err('invalid subscription status');
+    const sub = await db.collection('agencySubscriptions').findOne({ agencyId });
+    if (!sub) return err('Subscription not found', 404);
+    await db.collection('agencySubscriptions').updateOne({ agencyId }, { $set: { status, updatedAt: now } });
+    await db.collection('subscriptionHistory').insertOne({ id: uuidv4(), agencyId, previousPlan: sub.planId, newPlan: sub.planId, previousStatus: sub.status, newStatus: status, changedAt: now, changedBy: `platform:${session.adminId}`, reason: str(body.reason, 300) || 'Changed by Super Admin' });
+    await platformAudit(db, session, request, { action: 'subscription.status_changed', targetType: 'subscription', targetId: sub.id, agencyId, metadata: { from: sub.status, to: status } });
+    const fresh = await db.collection('agencySubscriptions').findOne({ agencyId }, { projection: { _id: 0 } });
+    return json({ subscription: fresh });
+  }
+
+  const planEdit = path.match(/^\/platform\/plans\/([^/]+)$/);
+  if (planEdit) {
+    if (!canPlatform(session.role, 'plans:manage')) return err('forbidden', 403);
+    const id = planEdit[1]; const set = { updatedAt: now };
+    for (const k of ['name', 'description', 'currency', 'status']) { if (body[k] !== undefined) set[k] = str(body[k], 300); }
+    for (const k of ['price', 'priceYearly', 'trialDays']) { if (body[k] !== undefined) set[k] = Number(body[k]) || 0; }
+    if (body.features && typeof body.features === 'object') set.features = body.features;
+    if (body.limits && typeof body.limits === 'object') set.limits = body.limits;
+    const r = await db.collection('platformPlans').updateOne({ id }, { $set: set });
+    if (r.matchedCount === 0) return err('Custom plan not found (catalog plans are read-only)', 404);
+    await platformAudit(db, session, request, { action: 'plan.updated', targetType: 'plan', targetId: id, metadata: { fields: Object.keys(set).filter((k) => k !== 'updatedAt') } });
+    const plan = await db.collection('platformPlans').findOne({ id }, { projection: { _id: 0 } });
+    return json({ plan });
+  }
+
+  if (path === '/platform/settings') {
+    if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403);
+    const set = { id: 'platform', updatedAt: now };
+    for (const k of ['platformName', 'description', 'supportEmail', 'supportPhone', 'defaultCurrency', 'defaultTimezone', 'defaultCountry', 'status']) { if (body[k] !== undefined) set[k] = str(body[k], 200); }
+    if (body.maintenanceMode !== undefined) set.maintenanceMode = !!body.maintenanceMode;
+    await db.collection('platformSettings').updateOne({ id: 'platform' }, { $set: set }, { upsert: true });
+    await platformAudit(db, session, request, { action: 'settings.updated', targetType: 'settings', targetId: 'platform' });
+    const settings = await db.collection('platformSettings').findOne({ id: 'platform' }, { projection: { _id: 0 } });
+    return json({ settings });
+  }
+
+  return err('not found', 404);
+}
+
+async function platformDelete(db, session, path, request) {
+  const agDel = path.match(/^\/platform\/agencies\/([^/]+)$/);
+  if (agDel) {
+    if (!canPlatform(session.role, 'agencies:delete')) return err('forbidden', 403);
+    const id = agDel[1];
+    const agency = await db.collection('agencies').findOne({ id });
+    if (!agency) return err('Agency not found', 404);
+    // Archival delete — preserves financial & audit integrity. Data is retained,
+    // agency + its users are locked out via status.
+    await db.collection('agencies').updateOne({ id }, { $set: { status: 'deleted', deletedAt: new Date().toISOString() } });
+    await platformAudit(db, session, request, { action: 'agency.deleted', targetType: 'agency', targetId: id, agencyId: id, metadata: { archival: true, name: agency.name } });
+    return json({ ok: true, archived: true });
+  }
+  const planDel = path.match(/^\/platform\/plans\/([^/]+)$/);
+  if (planDel) {
+    if (!canPlatform(session.role, 'plans:manage')) return err('forbidden', 403);
+    const r = await db.collection('platformPlans').deleteOne({ id: planDel[1] });
+    if (r.deletedCount === 0) return err('Custom plan not found', 404);
+    await platformAudit(db, session, request, { action: 'plan.deleted', targetType: 'plan', targetId: planDel[1] });
+    return json({ ok: true });
+  }
+  return err('not found', 404);
+}
+
 export async function GET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
   try {
+    // --- Platform Super Admin (separate session; intercept first) ---
+    if (path.startsWith('/platform/')) {
+      const ps = getPlatformSession(request);
+      if (!ps) return err('unauthenticated', 401);
+      const pdb = await getDb();
+      if (path === '/platform/auth/me') return platformMe(pdb, ps);
+      return platformGet(pdb, ps, path, new URL(request.url).searchParams);
+    }
     if (path === '/' || path === '') {
       return json({ app: 'SafarOS', status: 'ok', message: 'SafarOS API — B2B multi-tenant foundation' });
     }
@@ -2366,6 +2784,20 @@ export async function POST(request, context) {
   try {
     const db = await getDb();
 
+    // --- Platform Super Admin (separate session; intercept first) ---
+    if (path.startsWith('/platform/')) {
+      if (path === '/platform/auth/login') return platformLogin(db, await readBody(request), request);
+      if (path === '/platform/auth/logout') {
+        const res = json({ ok: true });
+        res.cookies.set({ name: PLATFORM_COOKIE, value: '', httpOnly: true, path: '/', maxAge: 0 });
+        return res;
+      }
+      const ps = getPlatformSession(request);
+      if (!ps) return err('unauthenticated', 401);
+      if (path === '/platform/auth/change-password') return platformChangePassword(db, ps, await readBody(request), request);
+      return platformPost(db, ps, path, await readBody(request), request);
+    }
+
     // Agency onboarding: creates an agency + its owner user (REBUILD).
     if (path === '/auth/register-agency') {
       const { agencyName, name, email, password } = await readBody(request);
@@ -2397,6 +2829,10 @@ export async function POST(request, context) {
       if (!email || !password) return err('email and password required');
       const user = await db.collection('users').findOne({ email: String(email).toLowerCase() });
       if (!user || !(await verifyPassword(password, user.passwordHash))) return err('invalid credentials', 401);
+      // Platform-level suspension (set by Super Admin) locks a user/agency out. Absent/active status passes.
+      if (user.status === 'suspended') return err('Your account has been suspended. Please contact support.', 403);
+      const agencyDoc = await db.collection('agencies').findOne({ id: user.agencyId }, { projection: { _id: 0, status: 1 } });
+      if (agencyDoc && (agencyDoc.status === 'suspended' || agencyDoc.status === 'deleted')) return err('This agency workspace is not active. Please contact SafarOS support.', 403);
       const token = signSession({ userId: user.id, agencyId: user.agencyId, role: user.role });
       const res = json({ ok: true });
       return setSessionCookie(res, token);
@@ -2824,6 +3260,13 @@ export async function PUT(request, context) {
       const pdb = await getDb();
       return portalPut(pdb, ps, path, await readBody(request));
     }
+    // --- Platform Super Admin (separate session) ---
+    if (path.startsWith('/platform/')) {
+      const ps = getPlatformSession(request);
+      if (!ps) return err('unauthenticated', 401);
+      const pdb = await getDb();
+      return platformPut(pdb, ps, path, await readBody(request), request);
+    }
     if (path.startsWith('/website/')) {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
@@ -3217,6 +3660,13 @@ export async function DELETE(request, context) {
   const params = await context.params;
   const path = pathOf(params);
   try {
+    // --- Platform Super Admin (separate session; intercept first) ---
+    if (path.startsWith('/platform/')) {
+      const ps = getPlatformSession(request);
+      if (!ps) return err('unauthenticated', 401);
+      const pdb = await getDb();
+      return platformDelete(pdb, ps, path, request);
+    }
     const session = getSession(request);
     if (!session) return err('unauthenticated', 401);
     const db = await getDb();

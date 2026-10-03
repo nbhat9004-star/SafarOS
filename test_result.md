@@ -11,6 +11,42 @@ Implement Phase 5.6 (Agency Website Builder Foundation), Phase 5.7 (SEO & Search
 - **NO verification agents allowed**
 - Manual testing only: bash, curl, python scripts, screenshot tool
 
+## Final Stage 1 — Super Admin & Platform Control Foundation (Oct 3, 2026)
+
+**Status:** ✅ COMPLETED. No testing/browser/QA/autonomous/verification agents used — verified via curl + screenshot tool only. Safar Curated (`/app/safar_intake`) NOT modified.
+
+**Separation:** Platform Super Admin is a SEPARATE identity (`platformAdmins`), SEPARATE session cookie (`safaros_platform`, kind='platform'), and SEPARATE RBAC (`lib/platform-rbac.js`). It is NOT an agency role. Agency Owner/Manager/Agent/Finance auth is untouched.
+
+**Auth (lib/auth.js):** added `signPlatformSession`/`verifyPlatformSession`/`getPlatformSession` + `PLATFORM_COOKIE`; hardened `verifySession` to reject platform/portal tokens. bcrypt hashing, HTTP-only cookie, hash never returned.
+
+**Platform RBAC (lib/platform-rbac.js):** roles super_admin (+ future platform_admin/support_admin/finance_admin stubs). super_admin = full. Granular perms (agencies/users/subscriptions/plans/ai/integrations/analytics/audit/settings).
+
+**Collections added:** `platformAdmins` (unique email), `platformAuditLogs` (ts/action/agency indexes), `platformAiProviders` (unique provider), `platformPlans` (unique slug), + `agencies.status` index.
+
+**Routes (all under /api/platform/*, separate session + server-side RBAC + no client agencyId trust):**
+- Auth: POST login/logout/change-password, GET auth/me
+- GET dashboard, agencies, agencies/:id, users, subscriptions, subscriptions/:id/history, billing, plans, ai-platforms, integrations, analytics, audit-logs, settings
+- POST plans (create), ai-platforms/:provider/configure, agencies/:id/access (audited support mode, no hidden impersonation)
+- PUT agencies/:id, agencies/:id/status, users/:id, users/:id/status, subscriptions/:agencyId/status, plans/:id, settings
+- DELETE agencies/:id (archival soft-delete → status=deleted, preserves data/audit), plans/:id
+
+**Agency mgmt:** view/search/filter/detail/edit/suspend/reactivate/archival-delete. Suspension enforced at agency login (suspended user OR suspended/deleted agency → 403).
+**User mgmt:** search/filter by agency+role+status, suspend/activate, edit name/role (never passwords/hashes).
+**Subscriptions/Plans:** reuses Phase 5.9 — view subs + history + SaaS billing, change sub status (writes history), catalog plans read-only + custom plan CRUD (platformPlans).
+**AI platforms:** per-provider model/enabled + API key stored MASKED (last4) + hashed, never plaintext, never returned; status derived from env + stored config; reuses ai.js (untouched).
+**Integrations:** platform-wide adoption counts aggregated from Phase 5.10 `integrations` (no duplicate collections).
+**Analytics:** platform aggregations (agency/user growth, sub distribution, booking volume, revenue) — dedicated, not an unfiltered agency endpoint.
+**Audit logs:** append-oriented; records login, agency suspend/reactivate/delete/update, user changes, subscription changes, plan create/update/delete, ai config, settings, access-started; actor/action/target/agency/ip/timestamp; no secrets stored.
+**Settings:** single platformSettings doc (name/desc/support/currency/timezone/country/status/maintenanceMode).
+
+**Frontend:** separate workspace at `/admin` (`components/safaros/platform-admin.jsx`) — dark platform sidebar, platform login, 10 sections, tables/search/filters/detail dialogs/confirm dialogs/status badges/responsive. Change-password in Settings → Security; temp-password banner.
+
+**Security verified (curl):** staff cookie → /platform/* = 401; platform cookie → staff /auth/me & /clients = 401; no cookie = 401; wrong password = 401; suspend→login 403→reactivate→login 200; AI key masked + no plaintext in DB (hash only); audit entries created; tenant isolation preserved.
+
+**Deferred:** future platform roles (platform_admin/support_admin/finance_admin) activation, live payment gateways, runtime encrypted secret vault (currently masked-hint + env), per-agency hard cascade delete (uses archival), advanced analytics charts.
+
+---
+
 ## Phase 5.10 — Integrations Foundation (Oct 3, 2026)
 
 **Status:** ✅ COMPLETED (reusable foundation; no live providers activated). No testing/browser/QA/autonomous/verification agents used — verified via curl + screenshot tool only.
