@@ -2003,7 +2003,32 @@ function platformAdminView(a) {
   return { id: a.id, email: a.email, name: a.name, role: a.role, status: a.status, mustChangePassword: !!a.mustChangePassword, createdAt: a.createdAt, lastLoginAt: a.lastLoginAt || null };
 }
 
+async function ensureSuperAdmin(db) {
+  // Production-safe, idempotent bootstrap. Runs on-demand (serverless friendly)
+  // against the SAME production DB as the rest of SafarOS (MONGO_URL/DB_NAME).
+  // Creates the initial Super Admin ONLY from secure server-side env vars and
+  // NEVER overwrites an existing admin's password.
+  const email = String(process.env.SUPER_ADMIN_EMAIL || '').toLowerCase().trim();
+  const password = process.env.SUPER_ADMIN_INITIAL_PASSWORD || '';
+  if (!email || !password) return;
+  const existing = await db.collection('platformAdmins').findOne({ email });
+  if (existing) return; // idempotent — do not duplicate or reset password
+  try {
+    const now = new Date().toISOString();
+    await db.collection('platformAdmins').insertOne({
+      id: uuidv4(), email, name: 'SafarOS Super Admin',
+      passwordHash: await hashPassword(password), // bcrypt — plaintext never stored
+      role: 'super_admin', status: 'active', mustChangePassword: true,
+      createdAt: now, bootstrap: true,
+    });
+  } catch (e) {
+    // unique-index race across concurrent serverless invocations — safe to ignore
+    console.warn('[safaros] super admin bootstrap skipped');
+  }
+}
+
 async function platformLogin(db, body, request) {
+  await ensureSuperAdmin(db); // ensure the initial Super Admin exists in production
   const email = String(body.email || '').toLowerCase();
   const password = String(body.password || '');
   if (!email || !password) return err('email and password required');
