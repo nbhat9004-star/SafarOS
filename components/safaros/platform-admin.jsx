@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug,
+  Trash2, Eye, Shield, Plug, Menu, X,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -330,26 +330,49 @@ function LoginScreen({ onLoggedIn }) {
 
 const TITLES = Object.fromEntries(NAV.map((n) => [n.id, n.label]));
 
+function PlatformNavLinks({ section, onSelect }) {
+  return NAV.map((n) => {
+    const Icon = n.icon; const on = section === n.id;
+    return (
+      <button key={n.id} onClick={() => onSelect(n.id)}
+        className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm ${on ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
+        <Icon className="h-4 w-4" />{n.label}
+      </button>
+    );
+  });
+}
+
 export default function PlatformAdmin() {
   const [admin, setAdmin] = useState(undefined); // undefined = loading, null = logged out
   const [section, setSection] = useState('dashboard');
+  const [menuOpen, setMenuOpen] = useState(false);
   const reloadMe = useCallback(async () => { try { const d = await api('/auth/me'); setAdmin(d.admin); } catch { setAdmin(null); } }, []);
   useEffect(() => { reloadMe(); }, [reloadMe]);
   const logout = async () => { try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ } setAdmin(null); };
+  const go = (id) => { setSection(id); setMenuOpen(false); };
 
   if (admin === undefined) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white"><div className="animate-pulse">Loading SafarOS Platform…</div></div>;
   if (admin === null) return (<><LoginScreen onLoggedIn={setAdmin} /><Toaster richColors position="top-right" /></>);
 
   return (<div className="flex min-h-screen bg-slate-50">
-    <aside className="flex w-60 shrink-0 flex-col bg-slate-950 text-slate-200">
+    {/* Desktop / tablet sidebar */}
+    <aside className="hidden md:flex w-60 shrink-0 flex-col bg-slate-950 text-slate-200">
       <div className="flex items-center gap-2 px-5 py-5"><Shield className="h-6 w-6 text-violet-400" /><div><div className="text-sm font-bold text-white">SafarOS</div><div className="text-[10px] uppercase tracking-wider text-violet-300">Platform Admin</div></div></div>
-      <nav className="flex-1 space-y-1 px-3">{NAV.map((n) => { const Icon = n.icon; const on = section === n.id; return (<button key={n.id} onClick={() => setSection(n.id)} className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm ${on ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}><Icon className="h-4 w-4" />{n.label}</button>); })}</nav>
+      <nav className="flex-1 space-y-1 px-3"><PlatformNavLinks section={section} onSelect={setSection} /></nav>
       <div className="border-t border-slate-800 p-3"><div className="mb-2 px-2 text-xs"><div className="font-medium text-white">{admin.name}</div><div className="truncate text-slate-400">{admin.email}</div></div><button onClick={logout} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"><LogOut className="h-4 w-4" /> Sign out</button></div>
     </aside>
-    <main className="flex-1 overflow-auto">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-4"><h1 className="text-lg font-semibold text-slate-900">{TITLES[section]}</h1><Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> super_admin</Badge></header>
-      {admin.mustChangePassword && section !== 'settings' && (<div className="mx-6 mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">For security, please change your temporary password in <button className="font-medium underline" onClick={() => setSection('settings')}>Platform Settings → Security</button>.</div>)}
-      <div className="p-6">
+
+    <main className="flex-1 overflow-auto min-w-0">
+      {/* Mobile header (hamburger + branding) */}
+      <header className="flex items-center gap-3 border-b bg-slate-950 px-4 py-3 text-white md:hidden">
+        <button onClick={() => setMenuOpen(true)} aria-label="Open menu" className="flex h-9 w-9 items-center justify-center rounded-md text-slate-200 hover:bg-slate-800"><Menu className="h-5 w-5" /></button>
+        <div className="flex items-center gap-2"><Shield className="h-5 w-5 text-violet-400" /><div className="leading-tight"><div className="text-sm font-bold">SafarOS</div><div className="text-[10px] uppercase tracking-wider text-violet-300">Platform Admin</div></div></div>
+        <span className="ml-auto truncate text-xs text-slate-400">{TITLES[section]}</span>
+      </header>
+      {/* Desktop header */}
+      <header className="hidden md:flex items-center justify-between border-b bg-white px-6 py-4"><h1 className="text-lg font-semibold text-slate-900">{TITLES[section]}</h1><Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> super_admin</Badge></header>
+      {admin.mustChangePassword && section !== 'settings' && (<div className="mx-4 mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:mx-6">For security, please change your temporary password in <button className="font-medium underline" onClick={() => setSection('settings')}>Platform Settings → Security</button>.</div>)}
+      <div className="p-4 sm:p-6">
         {section === 'dashboard' && <DashboardView />}
         {section === 'agencies' && <AgenciesView />}
         {section === 'users' && <UsersView />}
@@ -362,6 +385,20 @@ export default function PlatformAdmin() {
         {section === 'settings' && <SettingsView admin={admin} onPasswordChanged={reloadMe} />}
       </div>
     </main>
+
+    {/* Mobile navigation drawer */}
+    <div className={`fixed inset-0 z-50 overflow-hidden md:hidden ${menuOpen ? '' : 'pointer-events-none'}`}>
+      <div onClick={() => setMenuOpen(false)} className={`absolute inset-0 bg-black/60 transition-opacity duration-300 ${menuOpen ? 'opacity-100' : 'opacity-0'}`} />
+      <div className={`absolute left-0 top-0 flex h-full w-72 max-w-[84%] flex-col bg-slate-950 text-slate-200 shadow-2xl transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="flex items-center justify-between px-5 py-4">
+          <div className="flex items-center gap-2"><Shield className="h-6 w-6 text-violet-400" /><div><div className="text-sm font-bold text-white">SafarOS</div><div className="text-[10px] uppercase tracking-wider text-violet-300">Platform Admin</div></div></div>
+          <button onClick={() => setMenuOpen(false)} aria-label="Close menu" className="flex h-9 w-9 items-center justify-center rounded-md text-slate-300 hover:bg-slate-800"><X className="h-5 w-5" /></button>
+        </div>
+        <nav className="flex-1 space-y-1 overflow-auto px-3"><PlatformNavLinks section={section} onSelect={go} /></nav>
+        <div className="border-t border-slate-800 p-3"><div className="mb-2 px-2 text-xs"><div className="font-medium text-white">{admin.name}</div><div className="truncate text-slate-400">{admin.email}</div></div><button onClick={logout} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"><LogOut className="h-4 w-4" /> Sign out</button></div>
+      </div>
+    </div>
+
     <Toaster richColors position="top-right" />
   </div>);
 }
