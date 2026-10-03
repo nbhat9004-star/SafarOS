@@ -312,15 +312,31 @@ const SECTION_TITLES = {
   team: 'Team', settings: 'Settings',
 };
 
+function sectionGroupOf(id) {
+  for (const n of NAV) {
+    if (n.group && n.items?.some((it) => it.id === id)) return n.group;
+    if (n.id === id) return 'Workspace';
+  }
+  // prefix groups (fin_, comm_, web_, an_, sub_, int_)
+  const pref = String(id).split('_')[0];
+  const map = { fin: 'Finance', comm: 'Communications', web: 'Website', an: 'Analytics', sub: 'Subscription & Billing', int: 'Integrations' };
+  return map[pref] || 'Workspace';
+}
+
 function NavButton({ item, active, onSelect, mobile }) {
   const Icon = item.icon;
+  const isActive = active === item.id;
   const base = mobile
-    ? 'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm transition'
-    : 'w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition';
-  const state = active === item.id ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent';
+    ? 'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors'
+    : 'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-colors';
+  const state = isActive
+    ? 'so-nav-active'
+    : 'text-muted-foreground hover:bg-accent hover:text-foreground';
   return (
     <button onClick={() => onSelect(item.id)} className={`${base} ${state}`}>
-      {Icon && <Icon className="h-4 w-4 shrink-0" />} {item.label}
+      {isActive && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-violet-600" />}
+      {Icon && <Icon className={`h-[18px] w-[18px] shrink-0 ${isActive ? 'text-violet-600 dark:text-violet-300' : 'text-muted-foreground group-hover:text-foreground'}`} />}
+      <span className="truncate">{item.label}</span>
     </button>
   );
 }
@@ -331,9 +347,9 @@ function NavList({ active, onSelect, mobile }) {
       {NAV.map((n) => {
         if (n.group) {
           return (
-            <div key={n.group} className="pt-3">
-              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{n.group}</div>
-              <div className="space-y-1">
+            <div key={n.group} className="pt-4 first:pt-1">
+              <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground/60">{n.group}</div>
+              <div className="space-y-0.5">
                 {n.items.map((it) => (
                   <NavButton key={it.id} item={it} active={active} onSelect={onSelect} mobile={mobile} />
                 ))}
@@ -381,50 +397,86 @@ function Dashboard({ session, onLogout }) {
   const { user, agency } = session;
   const go = (id) => { setActive(id); setMenuOpen(false); };
   const navigateTo = (id, payload = null) => { setNavPayload(payload); setActive(id); setMenuOpen(false); };
+  const initials = (agency?.name || 'S').trim().charAt(0).toUpperCase();
+  const userInitial = (user?.name || 'U').trim().charAt(0).toUpperCase();
 
   return (
-    <div className="min-h-screen flex bg-muted/30 so-font">
-      <aside className="w-64 shrink-0 border-r border-border bg-sidebar hidden md:flex flex-col">
-        <div className="p-5 flex items-center gap-2 font-bold text-lg">
-          <Layers className="h-5 w-5 text-violet-600" /> SafarOS
+    <div className="min-h-screen flex bg-muted/40 so-font">
+      {/* ---------------- Desktop sidebar ---------------- */}
+      <aside className="w-64 xl:w-[272px] shrink-0 border-r border-border bg-sidebar/80 backdrop-blur hidden md:flex flex-col">
+        {/* Brand + agency identity */}
+        <div className="px-4 pt-4 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="so-brandmark flex h-9 w-9 items-center justify-center rounded-xl">
+              <Layers className="h-5 w-5 text-white" />
+            </div>
+            <div className="leading-tight">
+              <div className="text-[15px] font-extrabold tracking-tight">SafarOS</div>
+              <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Agency Workspace</div>
+            </div>
+          </div>
+          <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-border bg-background/70 px-3 py-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white">{initials}</div>
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-semibold">{agency?.name || 'Your agency'}</div>
+              <div className="text-[11px] capitalize text-muted-foreground">{agency?.plan || 'trial'} plan</div>
+            </div>
+          </div>
         </div>
         <Separator />
-        <div className="flex-1 overflow-auto p-3">
+        <div className="so-nav flex-1 overflow-auto px-3 py-3">
           <NavList active={active} onSelect={setActive} />
         </div>
-        <div className="mt-auto p-4">
-          <div className="rounded-lg border border-border p-3 bg-background">
-            <div className="text-sm font-medium truncate">{agency?.name}</div>
-            <div className="text-xs text-muted-foreground capitalize">{agency?.plan} plan</div>
+        {/* User footer */}
+        <div className="border-t border-border p-3">
+          <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-xs font-bold text-white">{userInitial}</div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-medium">{user?.name}</div>
+              <div className="truncate text-[11px] text-muted-foreground">{user?.email}</div>
+            </div>
+            <button onClick={onLogout} title="Sign out" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </aside>
 
+      {/* ---------------- Main workspace ---------------- */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 border-b border-border bg-background flex items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-2">
+        <header className="sticky top-0 z-30 h-16 border-b border-border bg-background/85 backdrop-blur flex items-center justify-between gap-3 px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-2.5">
             <button onClick={() => setMenuOpen(true)} aria-label="Open menu"
-              className="md:hidden -ml-1 flex h-9 w-9 items-center justify-center rounded-md text-foreground hover:bg-accent">
+              className="md:hidden -ml-1 flex h-9 w-9 items-center justify-center rounded-lg text-foreground hover:bg-accent">
               <Menu className="h-5 w-5" />
             </button>
-            <span className="flex items-center gap-2 font-bold md:hidden"><Layers className="h-5 w-5 text-violet-600" /> SafarOS</span>
-            <span className="font-semibold hidden md:inline">{SECTION_TITLES[active] || 'SafarOS'}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right hidden sm:block">
-              <div className="text-sm font-medium">{user?.name}</div>
-              <div className="text-xs text-muted-foreground">{user?.email}</div>
+            <span className="flex items-center gap-2 font-extrabold md:hidden">
+              <span className="so-brandmark flex h-7 w-7 items-center justify-center rounded-lg"><Layers className="h-4 w-4 text-white" /></span>
+              SafarOS
+            </span>
+            <div className="hidden min-w-0 md:block">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{sectionGroupOf(active)}</div>
+              <h1 className="truncate text-[17px] font-bold leading-tight">{SECTION_TITLES[active] || 'SafarOS'}</h1>
             </div>
-            <RoleBadge role={user?.role} />
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3">
             <SyncStatusIndicator />
-            <Button variant="outline" size="sm" onClick={onLogout}>
+            <div className="hidden items-center gap-2.5 rounded-full border border-border bg-background px-2 py-1 pr-3 sm:flex">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-[11px] font-bold text-white">{userInitial}</div>
+              <div className="text-right leading-tight">
+                <div className="text-[12px] font-semibold">{user?.name}</div>
+                <div className="text-[10px] text-muted-foreground capitalize">{user?.role}</div>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={onLogout}>
               <LogOut className="h-4 w-4 mr-1" /> Sign out
             </Button>
           </div>
         </header>
 
-        <div className="p-6 flex-1 overflow-auto">
-          {active === 'overview' && <Overview session={session} />}
+        <div className="p-4 sm:p-6 lg:p-8 flex-1 overflow-auto">
+          <div className="mx-auto w-full max-w-[1400px]">
+          {active === 'overview' && <Overview session={session} onGo={setActive} onNavigate={navigateTo} />}
           {active === 'crm' && <CrmDashboard session={session} onGo={setActive} />}
           {active === 'leads' && <Leads session={session} />}
           {active === 'clients' && <Clients session={session} />}
@@ -449,6 +501,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'portal_admin' && <PortalAdmin session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
+          </div>
         </div>
       </main>
 
@@ -458,24 +511,27 @@ function Dashboard({ session, onLogout }) {
       <div className={`fixed inset-0 z-50 overflow-hidden md:hidden ${menuOpen ? '' : 'pointer-events-none'}`}>
         <div onClick={() => setMenuOpen(false)}
           className={`absolute inset-0 bg-black/50 transition-opacity duration-300 ${menuOpen ? 'opacity-100' : 'opacity-0'}`} />
-        <div className={`absolute left-0 top-0 flex h-full w-72 max-w-[82%] flex-col border-r border-border bg-sidebar shadow-2xl transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className={`absolute left-0 top-0 flex h-full w-72 max-w-[84%] flex-col border-r border-border bg-sidebar shadow-2xl transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="flex items-center justify-between p-4">
-            <span className="flex items-center gap-2 text-lg font-bold"><Layers className="h-5 w-5 text-violet-600" /> SafarOS</span>
+            <span className="flex items-center gap-2 text-[15px] font-extrabold">
+              <span className="so-brandmark flex h-8 w-8 items-center justify-center rounded-lg"><Layers className="h-4 w-4 text-white" /></span>
+              SafarOS
+            </span>
             <button onClick={() => setMenuOpen(false)} aria-label="Close menu"
-              className="flex h-9 w-9 items-center justify-center rounded-md text-foreground hover:bg-accent"><X className="h-5 w-5" /></button>
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground hover:bg-accent"><X className="h-5 w-5" /></button>
           </div>
           <Separator />
           <div className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-sm font-bold text-white">
-              {(user?.name || 'U').charAt(0).toUpperCase()}
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-sm font-bold text-white">
+              {initials}
             </div>
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{user?.name}</div>
-              <div className="truncate text-xs text-muted-foreground">{agency?.name}</div>
+              <div className="truncate text-sm font-semibold">{agency?.name}</div>
+              <div className="truncate text-xs capitalize text-muted-foreground">{agency?.plan || 'trial'} plan</div>
             </div>
           </div>
           <Separator />
-          <nav className="flex-1 overflow-auto p-3">
+          <nav className="so-nav flex-1 overflow-auto px-3 py-3">
             <NavList active={active} onSelect={go} mobile />
           </nav>
           <div className="border-t border-border p-3">
@@ -489,39 +545,192 @@ function Dashboard({ session, onLogout }) {
   );
 }
 
-function Overview({ session }) {
+const fmtMoney = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+const fmtNum = (n) => (Number(n) || 0).toLocaleString('en-IN');
+
+function KpiCard({ icon: Icon, label, value, tone = 'violet', hint, onClick }) {
+  const tones = {
+    violet: 'from-violet-500 to-indigo-600',
+    emerald: 'from-emerald-500 to-teal-600',
+    amber: 'from-amber-500 to-orange-600',
+    sky: 'from-sky-500 to-blue-600',
+    rose: 'from-rose-500 to-pink-600',
+  };
+  const inner = (
+    <Card className={`so-kpi h-full ${onClick ? 'cursor-pointer' : ''}`}>
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-muted-foreground">{label}</div>
+            <div className="mt-1.5 truncate text-[26px] font-bold leading-none tracking-tight">{value}</div>
+            {hint && <div className="mt-2 text-[11px] text-muted-foreground">{hint}</div>}
+          </div>
+          <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${tones[tone]} text-white shadow-sm`}>
+            <Icon className="h-5 w-5" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+  return onClick ? <button type="button" onClick={onClick} className="block w-full text-left">{inner}</button> : inner;
+}
+
+function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
   const { agency, user } = session;
-  const [counts, setCounts] = useState({ clients: 0, members: 0 });
+  const role = user?.role;
+  const hasAnalytics = can(role, 'analytics:read');
+  const canCreateQuote = can(role, 'quotations:create');
+  const canCreateLead = can(role, 'leads:create');
+  const canCreateBooking = can(role, 'bookings:create');
+
+  const [ov, setOv] = useState(null);
+  const [crm, setCrm] = useState(null);
+  const [activities, setActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
+    let alive = true;
     (async () => {
-      try {
-        const [c, m] = await Promise.all([api('/clients'), api('/members')]);
-        setCounts({ clients: c.clients.length, members: m.members.length });
-      } catch { /* ignore */ }
+      setLoading(true);
+      const calls = [
+        hasAnalytics ? api('/analytics/overview') : Promise.reject(new Error('skip')),
+        api('/crm/stats'),
+        api('/activities'),
+      ];
+      const [ovR, crmR, actR] = await Promise.allSettled(calls);
+      if (!alive) return;
+      if (ovR.status === 'fulfilled') setOv(ovR.value.overview || null);
+      if (crmR.status === 'fulfilled') setCrm(crmR.value.stats || null);
+      if (actR.status === 'fulfilled') setActivities((actR.value.activities || []).slice(0, 6));
+      setLoading(false);
     })();
-  }, []);
+    return () => { alive = false; };
+  }, [hasAnalytics]);
+
+  const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const firstName = user?.name?.split(' ')[0] || 'there';
+
+  const crmCards = [
+    { key: 'activeLeads', label: 'Active Leads', icon: UserPlus, tone: 'sky', go: 'leads' },
+    { key: 'totalClients', label: 'Total Clients', icon: Contact, tone: 'violet', go: 'clients' },
+    { key: 'followUpsDue', label: 'Follow-ups Due', icon: CalendarClock, tone: 'amber', go: 'followups' },
+    { key: 'openTasks', label: 'Open Tasks', icon: ListTodo, tone: 'rose', go: 'tasks' },
+  ];
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Welcome, {user?.name?.split(' ')[0]}</h2>
-        <p className="text-muted-foreground">Here is your agency workspace at a glance.</p>
+      {/* Hero / greeting */}
+      <div className="flex flex-col gap-4 rounded-2xl border border-border bg-gradient-to-br from-violet-50 via-background to-indigo-50/40 p-5 dark:from-violet-950/30 dark:to-indigo-950/10 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div className="min-w-0">
+          <div className="text-xs font-medium uppercase tracking-wider text-violet-600 dark:text-violet-300">{today}</div>
+          <h2 className="mt-1 truncate text-2xl font-bold tracking-tight">Welcome back, {firstName}</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">Here&apos;s what&apos;s happening at <span className="font-medium text-foreground">{agency?.name}</span> today.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {canCreateQuote && <Button size="sm" onClick={() => onGo('quote-create')} className="bg-violet-600 hover:bg-violet-700"><FilePlus className="mr-1.5 h-4 w-4" /> New Quotation</Button>}
+          {canCreateLead && <Button size="sm" variant="outline" onClick={() => onGo('leads')}><UserPlus className="mr-1.5 h-4 w-4" /> Add Lead</Button>}
+          {canCreateBooking && <Button size="sm" variant="outline" onClick={() => onGo('bookings')}><ClipboardList className="mr-1.5 h-4 w-4" /> New Booking</Button>}
+        </div>
       </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard icon={Contact} label="Clients" value={counts.clients} />
-        <StatCard icon={Users} label="Team members" value={counts.members} />
-        <StatCard icon={Building2} label="Workspace" value={agency?.name} small />
-      </div>
-      <Card className="border-violet-200 bg-violet-50/50 dark:bg-violet-950/20">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ShieldCheck className="h-5 w-5 text-violet-600" /> Multi-tenant isolation active
-          </CardTitle>
-          <CardDescription>
-            Every record you create is tagged with your agency id on the server. Data from other
-            agencies is never visible here.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+
+      {loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="h-28 animate-pulse rounded-xl border bg-muted/30" />)}
+        </div>
+      ) : (
+        <>
+          {/* Financial KPIs (role-gated — only owner/manager/finance) */}
+          {hasAnalytics && ov && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <KpiCard icon={TrendingUp} tone="emerald" label="Revenue (this month)" value={fmtMoney(ov.totalRevenue)} hint={`${fmtNum(ov.totalPayments)} payments received`} onClick={() => onGo('an_finance')} />
+              <KpiCard icon={Wallet} tone="violet" label="Gross Profit (this month)" value={fmtMoney(ov.grossProfit)} hint={`Expenses ${fmtMoney(ov.totalExpenses)}`} onClick={() => onGo('an_finance')} />
+              <KpiCard icon={Receipt} tone="amber" label="Outstanding Receivables" value={fmtMoney(ov.outstandingReceivables)} hint={`Payables ${fmtMoney(ov.outstandingPayables)}`} onClick={() => onGo('fin_receivables')} />
+              <KpiCard icon={ClipboardList} tone="sky" label="Bookings (this month)" value={fmtNum(ov.totalBookings)} hint={`${fmtNum(ov.activeLeads)} active leads`} onClick={() => onGo('bookings')} />
+            </div>
+          )}
+
+          {/* CRM snapshot — available to all roles */}
+          {crm && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {crmCards.map((c) => (
+                <KpiCard key={c.key} icon={c.icon} tone={c.tone} label={c.label} value={fmtNum(crm[c.key])} onClick={() => onGo(c.go)} />
+              ))}
+            </div>
+          )}
+
+          {/* Recent activity + quick links */}
+          <div className="grid gap-5 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                <CardTitle className="text-base">Recent activity</CardTitle>
+                <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => onGo('activities')}>View all <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button>
+              </CardHeader>
+              <CardContent className="p-0">
+                {activities.length === 0 ? (
+                  <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Activity className="h-6 w-6 text-muted-foreground" /></div>
+                    <div className="space-y-1">
+                      <h3 className="font-semibold">No activity yet</h3>
+                      <p className="mx-auto max-w-sm text-sm text-muted-foreground">Activity appears automatically as your team creates leads, clients, follow-ups and quotations.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-border">
+                    {activities.map((a) => {
+                      const meta = ACTIVITY_META[a.type] || { icon: Activity, color: 'text-muted-foreground bg-muted' };
+                      const Icon = meta.icon;
+                      return (
+                        <li key={a.id} className="flex items-start gap-3 px-5 py-3.5">
+                          <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${meta.color}`}><Icon className="h-4 w-4" /></div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm">{a.message}</div>
+                            <div className="text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleString()}</div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="space-y-5">
+              <Card>
+                <CardHeader className="pb-3"><CardTitle className="text-base">Quick links</CardTitle></CardHeader>
+                <CardContent className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: 'Quotations', icon: FileText, go: 'quotations' },
+                    { label: 'Clients', icon: Contact, go: 'clients' },
+                    { label: 'Bookings', icon: ClipboardList, go: 'bookings' },
+                    { label: 'Packages', icon: Package, go: 'packages' },
+                    { label: 'Payments', icon: Banknote, go: 'fin_payments' },
+                    { label: 'Copilot', icon: Sparkles, go: 'copilot' },
+                  ].map((q) => {
+                    const Icon = q.icon;
+                    return (
+                      <button key={q.go} onClick={() => onGo(q.go)}
+                        className="flex flex-col items-center gap-2 rounded-xl border border-border bg-background px-3 py-4 text-center transition hover:border-violet-300 hover:bg-violet-50/50 dark:hover:bg-violet-950/20">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-300"><Icon className="h-[18px] w-[18px]" /></span>
+                        <span className="text-xs font-medium">{q.label}</span>
+                      </button>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+
+              <Card className="border-violet-200 bg-violet-50/50 dark:border-violet-900 dark:bg-violet-950/20">
+                <CardContent className="flex items-start gap-3 p-5">
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+                  <div>
+                    <div className="text-sm font-semibold">Tenant isolation active</div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Every record is scoped to {agency?.name} on the server. Data from other agencies is never visible here.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
