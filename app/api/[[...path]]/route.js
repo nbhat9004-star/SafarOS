@@ -11,6 +11,10 @@ import {
 import { can, isValidRole } from '@/lib/rbac';
 import { tenantFilter, withAgency } from '@/lib/tenancy';
 import { aiConfig, aiComplete } from '@/lib/ai';
+import {
+  listPlans, getPlan, isValidPlan, priceFor, checkLimit,
+  BILLING_INTERVALS, SUBSCRIPTION_STATUSES,
+} from '@/lib/plans';
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -1604,6 +1608,138 @@ async function analyticsGet(db, session, path, sp) {
   return err('not found', 404);
 }
 
+// ============================================================ SaaS Subscription & Billing (Phase 5.9)
+// Lazily initialise a Trial subscription for the authenticated agency from its
+// REAL signup data — never fabricates an agency/usage. One subscription per
+// agency (enforced by a unique index).
+async function ensureSubscription(db, session) {
+  const existing = await db.collection('agencySubscriptions').findOne(tenantFilter(session), { projection: { _id: 0 } });
+  if (existing) return existing;
+  const agency = await db.collection('agencies').findOne({ id: session.agencyId }, { projection: { _id: 0 } });
+  const plan = getPlan((agency && agency.plan) || 'trial') || getPlan('trial');
+  const startIso = (agency && agency.createdAt) || new Date().toISOString();
+  const start = new Date(startIso);
+  const trialEnd = new Date(start.getTime() + (plan.trialDays || 0) * 86400000);
+  const now = new Date().toISOString();
+  const doc = withAgency(session, {
+    id: uuidv4(),
+    planId: plan.slug,
+    status: plan.slug === 'trial' ? 'trial' : 'active',
+    billingInterval: 'monthly',
+    startDate: start.toISOString(),
+    trialEndDate: plan.slug === 'trial' ? trialEnd.toISOString() : null,
+    currentPeriodStart: start.toISOString(),
+    currentPeriodEnd: (plan.slug === 'trial' ? trialEnd : new Date(start.getTime() + 30 * 86400000)).toISOString(),
+    cancelledAt: null,
+    cancellationReason: '',
+    createdAt: now,
+    updatedAt: now,
+  });
+  try {
+    await db.collection('agencySubscriptions').insertOne(doc);
+  } catch (e) {
+    const again = await db.collection('agencySubscriptions').findOne(tenantFilter(session), { projection: { _id: 0 } });
+    if (again) return again;
+    throw e;
+  }
+  const { _id, ...safe } = doc;
+  return safe;
+}
+
+function subscriptionView(sub) {
+  const plan = getPlan(sub.planId) || getPlan('trial');
+  let trialDaysLeft = null;
+  if (sub.status === 'trial' && sub.trialEndDate) {
+    trialDaysLeft = Math.max(0, Math.ceil((new Date(sub.trialEndDate).getTime() - Date.now()) / 86400000));
+  }
+  return { subscription: sub, plan, price: priceFor(plan, sub.billingInterval), trialDaysLeft };
+}
+
+async function recordSubscriptionHistory(db, session, { previousPlan, newPlan, previousStatus, newStatus, reason }) {
+  try {
+    await db.collection('subscriptionHistory').insertOne(withAgency(session, {
+      id: uuidv4(), previousPlan, newPlan, previousStatus, newStatus,
+      changedAt: new Date().toISOString(), changedBy: session.userId, reason: reason || '',
+    }));
+  } catch (e) { console.warn('[safaros] subscription history skipped:', e.message); }
+}
+
+async function billingGet(db, session, path) {
+  if (path === '/billing/plans') return json({ plans: listPlans() });
+  if (path === '/billing/subscription') {
+    const sub = await ensureSubscription(db, session);
+    return json(subscriptionView(sub));
+  }
+  if (path === '/billing/subscription/history') {
+    const history = await db.collection('subscriptionHistory')
+      .find(tenantFilter(session), { projection: { _id: 0 } })
+      .sort({ changedAt: -1 }).limit(100).toArray();
+    return json({ history });
+  }
+  if (path === '/billing/invoices') {
+    const invoices = await db.collection('saasInvoices')
+      .find(tenantFilter(session), { projection: { _id: 0 } })
+      .sort({ createdAt: -1 }).limit(100).toArray();
+    return json({ invoices });
+  }
+  if (path === '/billing/usage') {
+    const sub = await ensureSubscription(db, session);
+    const plan = getPlan(sub.planId) || getPlan('trial');
+    const f = tenantFilter(session);
+    const [teamMembers, clients, leads, bookings, quotations, packages, websitePages] = await Promise.all([
+      db.collection('users').countDocuments(f),
+      db.collection('clients').countDocuments(f),
+      db.collection('leads').countDocuments(f),
+      db.collection('bookings').countDocuments(f),
+      db.collection('quotations').countDocuments(f),
+      db.collection('packages').countDocuments(f),
+      db.collection('websitePages').countDocuments(f),
+    ]);
+    const usageMap = { teamMembers, clients, leads, bookings, quotations, packages, websitePages };
+    // storageMb / aiCredits are intentionally NOT metered in this phase (foundation only).
+    const usage = ['teamMembers', 'clients', 'leads', 'bookings', 'quotations', 'packages', 'websitePages']
+      .map((k) => checkLimit(plan, k, usageMap[k]));
+    return json({ planId: plan.slug, usage, features: plan.features });
+  }
+  return err('not found', 404);
+}
+
+async function billingPost(db, session, path, body) {
+  const now = new Date().toISOString();
+  const sub = await ensureSubscription(db, session);
+  if (path === '/billing/subscription/change') {
+    const target = getPlan(body.planId);
+    if (!target) return err('Unknown plan');
+    const interval = BILLING_INTERVALS.includes(body.billingInterval) ? body.billingInterval : (sub.billingInterval || 'monthly');
+    const prevPlan = sub.planId; const prevStatus = sub.status;
+    // FOUNDATION ONLY — no payment processing. Move the agency onto the new plan
+    // immediately and audit the change.
+    const newStatus = target.slug === 'trial' ? 'trial' : 'active';
+    const periodEnd = new Date(Date.now() + (interval === 'yearly' ? 365 : 30) * 86400000).toISOString();
+    const update = {
+      planId: target.slug, status: newStatus, billingInterval: interval,
+      currentPeriodStart: now, currentPeriodEnd: periodEnd,
+      cancelledAt: null, cancellationReason: '', updatedAt: now,
+    };
+    if (target.slug !== 'trial') update.trialEndDate = null;
+    await db.collection('agencySubscriptions').updateOne(tenantFilter(session), { $set: update });
+    await db.collection('agencies').updateOne({ id: session.agencyId }, { $set: { plan: target.slug, updatedAt: now } });
+    await recordSubscriptionHistory(db, session, { previousPlan: prevPlan, newPlan: target.slug, previousStatus: prevStatus, newStatus, reason: str(body.reason, 500) || 'Plan change' });
+    const fresh = await db.collection('agencySubscriptions').findOne(tenantFilter(session), { projection: { _id: 0 } });
+    return json(subscriptionView(fresh));
+  }
+  if (path === '/billing/subscription/cancel') {
+    if (sub.status === 'cancelled') return err('Subscription is already cancelled');
+    const prevStatus = sub.status;
+    const update = { status: 'cancelled', cancelledAt: now, cancellationReason: str(body.reason, 500), updatedAt: now };
+    await db.collection('agencySubscriptions').updateOne(tenantFilter(session), { $set: update });
+    await recordSubscriptionHistory(db, session, { previousPlan: sub.planId, newPlan: sub.planId, previousStatus: prevStatus, newStatus: 'cancelled', reason: str(body.reason, 500) || 'Cancelled by owner' });
+    const fresh = await db.collection('agencySubscriptions').findOne(tenantFilter(session), { projection: { _id: 0 } });
+    return json(subscriptionView(fresh));
+  }
+  return err('not found', 404);
+}
+
 export async function GET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
@@ -1637,6 +1773,15 @@ export async function GET(request, context) {
       if (!can(session.role, 'analytics:read')) return err('forbidden', 403);
       const db = await getDb();
       return analyticsGet(db, session, path, new URL(request.url).searchParams);
+    }
+
+    if (path.startsWith('/billing/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      const perm = path === '/billing/invoices' ? 'billing:read' : 'subscription:read';
+      if (!can(session.role, perm)) return err('forbidden', 403);
+      const db = await getDb();
+      return billingGet(db, session, path);
     }
 
     if (path === '/auth/me') {
@@ -2038,6 +2183,13 @@ export async function POST(request, context) {
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'website:manage')) return err('forbidden', 403);
       return websitePost(db, session, path, await readBody(request));
+    }
+
+    if (path.startsWith('/billing/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'subscription:manage')) return err('forbidden', 403);
+      return billingPost(db, session, path, await readBody(request));
     }
 
     // Invite/add a team member — agency-scoped, RBAC-gated.

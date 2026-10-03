@@ -11,6 +11,45 @@ Implement Phase 5.6 (Agency Website Builder Foundation), Phase 5.7 (SEO & Search
 - **NO verification agents allowed**
 - Manual testing only: bash, curl, python scripts, screenshot tool
 
+## Phase 5.9 — SaaS Subscription & Billing Foundation (Oct 3, 2026)
+
+**Status:** ✅ COMPLETED (foundation only). No testing/browser/QA/autonomous/verification agents used. Verified via curl + screenshot tool only.
+
+**Scope:** Agency/tenant-level SaaS subscriptions for SafarOS itself (NOT customer payments/bookings). No live payment gateways. No Super Admin. No AI billing.
+
+**New files:**
+- `/app/lib/plans.js` — reusable plan catalog (Trial/Starter/Professional/Enterprise) + feature/limit entitlement helpers (`listPlans`, `getPlan`, `featureEnabled`, `getLimit`, `checkLimit`, `priceFor`). Single source of truth — no hard-coded plan logic elsewhere.
+
+**Collections (UUID ids, agency-scoped):**
+- `agencySubscriptions` — one per agency (unique index on agencyId). Fields: id, agencyId, planId, status, billingInterval, startDate, trialEndDate, currentPeriodStart/End, cancelledAt, cancellationReason, createdAt, updatedAt. Statuses: trial/active/past_due/cancelled/suspended/expired. Lazily initialized from REAL agency signup data (no fake data).
+- `saasInvoices` — SaaS billing records, separate namespace from customer `invoices`/Finance. Statuses: draft/issued/paid/failed/cancelled/refunded.
+- `subscriptionHistory` — lightweight audit log (previousPlan, newPlan, previousStatus, newStatus, changedAt, changedBy, reason).
+
+**Indexes (db.js):** agencySubscriptions (unique agencyId, agencyId+status, planId, currentPeriodEnd), saasInvoices (agencyId+createdAt, agencyId+status, unique agencyId+invoiceNumber, subscriptionId), subscriptionHistory (agencyId+changedAt).
+
+**API routes (all tenant-scoped via session, never client agencyId):**
+- GET `/api/billing/plans` — plan catalog (subscription:read)
+- GET `/api/billing/subscription` — current subscription + plan + trialDaysLeft (subscription:read)
+- GET `/api/billing/subscription/history` — audit log (subscription:read)
+- GET `/api/billing/invoices` — SaaS invoices (billing:read)
+- GET `/api/billing/usage` — live usage vs plan limits foundation (subscription:read)
+- POST `/api/billing/subscription/change` — upgrade/downgrade, writes history, NO payment (subscription:manage)
+- POST `/api/billing/subscription/cancel` — cancel with reason, writes history (subscription:manage)
+
+**RBAC (rbac.js):** `subscription:read` (owner/manager/finance), `subscription:manage` (owner only), `billing:read` (owner/manager/finance). No Super Admin.
+
+**Frontend (app-experience.jsx):** New "Subscription & Billing" nav group + `Billing` module with tabs: Subscription (overview), Plans (upgrade/downgrade + cancel dialogs), Usage & Limits, Billing History, Change Log. Existing design system, responsive.
+
+**Verification (curl + screenshot, no agents):** lazy trial init ✓, plan change trial→professional(yearly) ✓, cancel ✓, history audit ✓, empty invoices (no fake data) ✓, tenant isolation (Agency B gets own fresh trial) ✓, RBAC (finance reads but 403 on change; agent 403 on read) ✓. UI screenshots of Subscription + Plans tabs confirmed.
+
+**Env note:** `/app/.env` (gitignored) was missing in this preview — restored minimal dev values (MONGO_URL→local Mongo, DB_NAME=safaros, JWT_SECRET, NEXT_PUBLIC_BASE_URL). Dev owner login recorded in `/app/memory/test_credentials.md`.
+
+**Deferred:** live payment gateways (Razorpay/Stripe/etc.), recurring billing/webhooks, Super Admin, usage enforcement (only tracked now), AI usage metering, storage metering.
+
+**Safar Curated (`/app/safar_intake`):** NOT modified.
+
+---
+
 ## Phases 5.6, 5.7, 5.8 Implementation Status
 
 ### Manual Testing Completed (October 2, 2026)

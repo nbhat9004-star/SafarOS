@@ -10,7 +10,7 @@ import sys
 from datetime import datetime
 
 # Configuration
-BASE_URL = "https://ledger-base.preview.emergentagent.com"
+BASE_URL = "https://safaros-billing.preview.emergentagent.com"
 API_BASE = f"{BASE_URL}/api"
 
 # Super Admin credentials

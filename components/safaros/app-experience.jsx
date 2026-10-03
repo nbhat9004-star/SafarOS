@@ -267,6 +267,16 @@ const NAV = [
       { id: 'an_operations', label: 'Operations', icon: Truck },
     ],
   },
+  {
+    group: 'Subscription & Billing',
+    items: [
+      { id: 'sub_overview', label: 'Subscription', icon: CreditCard },
+      { id: 'sub_plans', label: 'Plans', icon: Layers },
+      { id: 'sub_usage', label: 'Usage & Limits', icon: Gauge },
+      { id: 'sub_billing', label: 'Billing History', icon: Receipt },
+      { id: 'sub_history', label: 'Change Log', icon: Clock },
+    ],
+  },
   { id: 'copilot', label: 'Copilot', icon: Sparkles },
   { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck },
   { id: 'team', label: 'Team', icon: Users },
@@ -289,6 +299,7 @@ const SECTION_TITLES = {
   copilot: 'AI Copilot', portal_admin: 'Customer Portal Access',
   web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
+  sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
   team: 'Team', settings: 'Settings',
 };
 
@@ -424,6 +435,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'copilot' && <CopilotWorkspace session={session} />}
           {String(active).startsWith('web_') && <Website key="web" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('web_' + t)} />}
           {String(active).startsWith('an_') && <Analytics key="an" session={session} tab={String(active).slice(3)} onNav={(t) => setActive('an_' + t)} />}
+          {String(active).startsWith('sub_') && <Billing key="sub" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('sub_' + t)} />}
           {active === 'portal_admin' && <PortalAdmin session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
@@ -5040,6 +5052,152 @@ function Analytics({ session, tab, onNav }) {
       {current === 'finance' && d && d.finance && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><AnStat label="Income" value={money(d.finance.income)} /><AnStat label="Expenses" value={money(d.finance.expenses)} /><AnStat label="Profit" value={money(d.finance.profit)} /><AnStat label="Receivables" value={money(d.finance.receivables)} /><AnStat label="Payables" value={money(d.finance.payables)} /></div><div className="grid gap-4 md:grid-cols-2"><Card><CardContent className="p-5"><div className="mb-3 font-medium">Invoice status</div><AnBars data={d.finance.invoiceStatus} /></CardContent></Card><Card><CardContent className="p-5"><div className="mb-3 font-medium">Payment status</div><AnBars data={d.finance.paymentStatus} /></CardContent></Card></div></div>}
       {current === 'operations' && d && d.operations && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><AnStat label="Upcoming bookings" value={d.operations.upcomingBookings} /><AnStat label="Suppliers" value={d.operations.totalSuppliers} /><AnStat label="Vehicles" value={d.operations.vehicles.total} /><AnStat label="Drivers" value={d.operations.drivers.total} /><AnStat label="Packages" value={d.operations.totalPackages} /></div><div className="grid gap-4 md:grid-cols-2"><Card><CardContent className="p-5"><div className="mb-3 font-medium">Bookings by status</div><AnBars data={d.operations.bookingsByStatus} /></CardContent></Card><Card><CardContent className="p-5"><div className="mb-3 font-medium">Vehicles by status</div><AnBars data={d.operations.vehicles.byStatus} /></CardContent></Card></div></div>}
     </>)}
+  </div>);
+}
+
+// ======================= SAAS SUBSCRIPTION & BILLING UI (5.9) =======================
+const SUB_STATUS_META = {
+  trial:     { label: 'Trial',     cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+  active:    { label: 'Active',    cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  past_due:  { label: 'Past Due',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  cancelled: { label: 'Cancelled', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  suspended: { label: 'Suspended', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  expired:   { label: 'Expired',   cls: 'bg-muted text-muted-foreground border-border' },
+};
+const SAAS_INVOICE_META = {
+  draft:     { label: 'Draft',     cls: 'bg-muted text-muted-foreground border-border' },
+  issued:    { label: 'Issued',    cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+  paid:      { label: 'Paid',      cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  failed:    { label: 'Failed',    cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  cancelled: { label: 'Cancelled', cls: 'bg-muted text-muted-foreground border-border' },
+  refunded:  { label: 'Refunded',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+};
+const PLAN_ORDER = ['trial', 'starter', 'professional', 'enterprise'];
+const humanizeKey = (k) => String(k).replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+function SubStatusBadge({ status }) { const m = SUB_STATUS_META[status] || SUB_STATUS_META.active; return <Badge variant="outline" className={`capitalize ${m.cls}`}>{m.label}</Badge>; }
+
+function SubOverview({ sub, onGo }) {
+  if (!sub) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
+  const { subscription: s, plan, price, trialDaysLeft } = sub;
+  return (<div className="space-y-4">
+    <Card><CardContent className="p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2"><h3 className="text-2xl font-bold text-slate-900">{plan.name}</h3><SubStatusBadge status={s.status} /></div>
+          <p className="mt-1 text-sm text-muted-foreground">{plan.description}</p>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-bold text-slate-900">{price ? `${plan.currency} ${Number(price).toLocaleString()}` : 'Free'}</div>
+          <div className="text-xs text-muted-foreground">{price ? `per ${s.billingInterval === 'yearly' ? 'year' : 'month'}` : 'Trial plan'}</div>
+        </div>
+      </div>
+      {s.status === 'trial' && trialDaysLeft !== null && (<div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800">Trial — {trialDaysLeft} day{trialDaysLeft === 1 ? '' : 's'} remaining.</div>)}
+      {s.status === 'cancelled' && (<div className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">Subscription cancelled{s.cancellationReason ? ` — ${s.cancellationReason}` : ''}. Access remains until the end of the current period.</div>)}
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div><div className="text-xs text-muted-foreground">Status</div><div className="font-medium">{(SUB_STATUS_META[s.status] || {}).label || s.status}</div></div>
+        <div><div className="text-xs text-muted-foreground">Started</div><div className="font-medium">{formatJoined(s.startDate)}</div></div>
+        <div><div className="text-xs text-muted-foreground">Current period</div><div className="font-medium">{formatJoined(s.currentPeriodStart)} – {formatJoined(s.currentPeriodEnd)}</div></div>
+        <div><div className="text-xs text-muted-foreground">Renews / Ends</div><div className="font-medium">{formatJoined(s.currentPeriodEnd)}</div></div>
+      </div>
+      <div className="mt-5 flex flex-wrap gap-2"><Button onClick={() => onGo('plans')}>Change plan</Button><Button variant="outline" onClick={() => onGo('usage')}>View usage</Button></div>
+    </CardContent></Card>
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card><CardHeader><CardTitle className="text-base">Plan features</CardTitle></CardHeader><CardContent className="space-y-1">{Object.entries(plan.features || {}).map(([k, v]) => (<div key={k} className="flex items-center justify-between text-sm"><span className="text-muted-foreground">{humanizeKey(k)}</span>{v ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <X className="h-4 w-4 text-muted-foreground" />}</div>))}</CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">Plan limits</CardTitle></CardHeader><CardContent className="space-y-1">{Object.entries(plan.limits || {}).map(([k, v]) => (<div key={k} className="flex items-center justify-between text-sm"><span className="text-muted-foreground">{humanizeKey(k)}</span><span className="font-medium">{v === -1 ? 'Unlimited' : v}</span></div>))}</CardContent></Card>
+    </div>
+  </div>);
+}
+
+function SubPlans({ sub, canManage, onChanged }) {
+  const [plans, setPlans] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [interval, setInterval] = useState((sub && sub.subscription && sub.subscription.billingInterval) || 'monthly');
+  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const currentPlanId = sub && sub.subscription ? sub.subscription.planId : '';
+  const currentStatus = sub && sub.subscription ? sub.subscription.status : '';
+  const load = async () => { setLoading(true); try { const d = await api('/billing/plans'); setPlans(d.plans || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const doChange = async () => {
+    if (!pending) return; setBusy(true);
+    try { await api('/billing/subscription/change', { method: 'POST', body: JSON.stringify({ planId: pending.slug, billingInterval: interval }) }); toast.success(`Switched to ${pending.name}`); setPending(null); onChanged(); }
+    catch (e) { toast.error(friendlyError(e)); } finally { setBusy(false); }
+  };
+  const doCancel = async () => {
+    setBusy(true);
+    try { await api('/billing/subscription/cancel', { method: 'POST', body: JSON.stringify({ reason: cancelReason }) }); toast.success('Subscription cancelled'); setCancelOpen(false); setCancelReason(''); onChanged(); }
+    catch (e) { toast.error(friendlyError(e)); } finally { setBusy(false); }
+  };
+  const changeLabel = (slug) => { const a = PLAN_ORDER.indexOf(currentPlanId); const b = PLAN_ORDER.indexOf(slug); if (b > a) return 'Upgrade'; if (b < a) return 'Downgrade'; return 'Switch'; };
+  if (loading) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
+  return (<div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm text-muted-foreground">Plan changes take effect immediately. No payment is collected in this phase.</p>
+      <Select value={interval} onValueChange={setInterval}><SelectTrigger className="w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="monthly">Monthly</SelectItem><SelectItem value="yearly">Yearly</SelectItem></SelectContent></Select>
+    </div>
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">{plans.map((p) => {
+      const isCurrent = p.slug === currentPlanId;
+      const price = interval === 'yearly' ? p.priceYearly : p.price;
+      return (<Card key={p.id} className={isCurrent ? 'border-violet-400 ring-1 ring-violet-200' : ''}><CardContent className="flex h-full flex-col p-5">
+        <div className="flex items-center justify-between"><h4 className="text-lg font-bold text-slate-900">{p.name}</h4>{isCurrent && <Badge className="bg-violet-600 text-white">Current</Badge>}</div>
+        <p className="mt-1 text-xs text-muted-foreground">{p.description}</p>
+        <div className="mt-3 text-2xl font-bold text-slate-900">{price ? `${p.currency} ${Number(price).toLocaleString()}` : 'Free'}</div>
+        <div className="text-xs text-muted-foreground">{price ? `per ${interval === 'yearly' ? 'year' : 'month'}` : (p.slug === 'trial' ? `${p.trialDays}-day trial` : 'Free')}</div>
+        <div className="mt-4 flex-1 space-y-1">{Object.entries(p.features).filter(([, v]) => v).slice(0, 6).map(([k]) => (<div key={k} className="flex items-center gap-2 text-xs"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /><span>{humanizeKey(k)}</span></div>))}</div>
+        <div className="mt-4">{isCurrent ? <Button variant="outline" className="w-full" disabled>Current plan</Button> : canManage ? <Button className="w-full" onClick={() => setPending(p)}>{changeLabel(p.slug)} to {p.name}</Button> : <Button variant="outline" className="w-full" disabled>Owner only</Button>}</div>
+      </CardContent></Card>);
+    })}</div>
+    {canManage && currentStatus !== 'cancelled' && (<Card><CardContent className="flex flex-wrap items-center justify-between gap-3 p-5"><div><div className="font-medium">Cancel subscription</div><div className="text-xs text-muted-foreground">Your plan stays active until the end of the current period.</div></div><Button variant="outline" className="border-rose-300 text-rose-600 hover:bg-rose-50" onClick={() => setCancelOpen(true)}>Cancel subscription</Button></CardContent></Card>)}
+    <Dialog open={!!pending} onOpenChange={(o) => !o && setPending(null)}><DialogContent><DialogHeader><DialogTitle>Switch to {pending ? pending.name : ''}?</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">This changes your SafarOS plan to <b>{pending ? pending.name : ''}</b> ({interval}). No payment is collected in this phase — billing integration comes later.</p><DialogFooter><Button variant="outline" onClick={() => setPending(null)} disabled={busy}>Cancel</Button><Button onClick={doChange} disabled={busy}>{busy ? 'Updating…' : 'Confirm change'}</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={cancelOpen} onOpenChange={(o) => { if (!o) { setCancelOpen(false); setCancelReason(''); } }}><DialogContent><DialogHeader><DialogTitle>Cancel subscription</DialogTitle></DialogHeader><div className="space-y-2"><Label>Reason (optional)</Label><Textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Tell us why you're cancelling…" /></div><DialogFooter><Button variant="outline" onClick={() => { setCancelOpen(false); setCancelReason(''); }} disabled={busy}>Keep plan</Button><Button className="bg-rose-600 hover:bg-rose-700" onClick={doCancel} disabled={busy}>{busy ? 'Cancelling…' : 'Confirm cancellation'}</Button></DialogFooter></DialogContent></Dialog>
+  </div>);
+}
+
+function SubUsage() {
+  const [d, setD] = useState(null); const [loading, setLoading] = useState(true);
+  const load = async () => { setLoading(true); try { const r = await api('/billing/usage'); setD(r); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  if (loading || !d) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
+  return (<div className="space-y-3">
+    <p className="text-sm text-muted-foreground">Live usage for your agency against your current plan limits. Limits are tracked but not yet enforced in this foundation phase.</p>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{(d.usage || []).map((u) => { const pct = u.unlimited ? 8 : Math.min(100, u.limit ? (u.usage / u.limit) * 100 : 0); const over = !u.unlimited && u.usage >= u.limit; return (<Card key={u.key}><CardContent className="p-4"><div className="flex items-center justify-between"><span className="text-sm font-medium">{humanizeKey(u.key)}</span><span className="text-xs text-muted-foreground">{u.usage}{u.unlimited ? '' : ` / ${u.limit}`}</span></div><div className="mt-2 h-2 rounded bg-muted"><div className={`h-2 rounded ${over ? 'bg-rose-500' : 'bg-violet-500'}`} style={{ width: `${pct}%` }} /></div><div className="mt-1 text-xs text-muted-foreground">{u.unlimited ? 'Unlimited' : (over ? 'Limit reached' : `${u.remaining} remaining`)}</div></CardContent></Card>); })}</div>
+  </div>);
+}
+
+function SubInvoices() {
+  const [invoices, setInvoices] = useState(null);
+  const load = async () => { try { const d = await api('/billing/invoices'); setInvoices(d.invoices || []); } catch (e) { toast.error(friendlyError(e)); } };
+  useEffect(() => { load(); }, []);
+  if (invoices === null) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
+  if (!invoices.length) return <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No SaaS billing records yet. Subscription invoices will appear here once billing is activated.</CardContent></Card>;
+  return (<Card><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Invoice</TableHead><TableHead>Period</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead><TableHead>Issued</TableHead></TableRow></TableHeader><TableBody>{invoices.map((inv) => (<TableRow key={inv.id}><TableCell className="font-medium">{inv.invoiceNumber}</TableCell><TableCell>{formatJoined(inv.billingPeriodStart)} – {formatJoined(inv.billingPeriodEnd)}</TableCell><TableCell>{inv.currency} {Number(inv.amount || 0).toLocaleString()}</TableCell><TableCell><Badge variant="outline" className={`capitalize ${(SAAS_INVOICE_META[inv.status] || {}).cls || ''}`}>{(SAAS_INVOICE_META[inv.status] || {}).label || inv.status}</Badge></TableCell><TableCell>{formatJoined(inv.issuedAt)}</TableCell></TableRow>))}</TableBody></Table></CardContent></Card>);
+}
+
+function SubHistory() {
+  const [history, setHistory] = useState(null);
+  const load = async () => { try { const d = await api('/billing/subscription/history'); setHistory(d.history || []); } catch (e) { toast.error(friendlyError(e)); } };
+  useEffect(() => { load(); }, []);
+  if (history === null) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
+  if (!history.length) return <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No subscription changes recorded yet.</CardContent></Card>;
+  return (<div className="space-y-2">{history.map((h) => (<Card key={h.id}><CardContent className="p-4"><div className="flex items-center justify-between gap-3"><div className="text-sm"><span className="font-medium capitalize">{h.previousPlan}</span> → <span className="font-medium capitalize">{h.newPlan}</span>{h.previousStatus !== h.newStatus && <span className="text-muted-foreground"> ({h.previousStatus} → {h.newStatus})</span>}</div><span className="shrink-0 text-xs text-muted-foreground">{formatJoined(h.changedAt)}</span></div>{h.reason && <div className="mt-1 text-xs text-muted-foreground">{h.reason}</div>}</CardContent></Card>))}</div>);
+}
+
+function Billing({ session, tab, onNav }) {
+  const canManage = can(session.user.role, 'subscription:manage');
+  const TABS = [{ id: 'overview', label: 'Subscription' }, { id: 'plans', label: 'Plans' }, { id: 'usage', label: 'Usage & Limits' }, { id: 'billing', label: 'Billing History' }, { id: 'history', label: 'Change Log' }];
+  const current = TABS.some((t) => t.id === tab) ? tab : 'overview';
+  const [sub, setSub] = useState(null);
+  const loadSub = async () => { try { const d = await api('/billing/subscription'); setSub(d); } catch (e) { toast.error(friendlyError(e)); } };
+  useEffect(() => { loadSub(); }, []);
+  return (<div className="space-y-4">
+    <div className="flex gap-1 overflow-x-auto rounded-lg border bg-muted/40 p-1">{TABS.map((t) => { const on = current === t.id; return (<button key={t.id} onClick={() => onNav(t.id)} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm ${on ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'}`}>{t.label}</button>); })}</div>
+    {current === 'overview' && <SubOverview sub={sub} onGo={onNav} />}
+    {current === 'plans' && <SubPlans sub={sub} canManage={canManage} onChanged={loadSub} />}
+    {current === 'usage' && <SubUsage />}
+    {current === 'billing' && <SubInvoices />}
+    {current === 'history' && <SubHistory />}
   </div>);
 }
 
