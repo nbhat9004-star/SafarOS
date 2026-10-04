@@ -21,6 +21,7 @@ import {
   WEBHOOK_EVENTS, WEBHOOK_DIRECTIONS, API_SCOPES,
   last4, maskSecret, sha256, genToken, isValidProvider,
 } from '@/lib/integrations';
+import { discoveryConfig, searchBusinesses, fetchPlacePhoto, mapToSupplierType } from '@/lib/discovery';
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -2447,6 +2448,46 @@ export async function GET(request, context) {
       return analyticsGet(db, session, path, new URL(request.url).searchParams);
     }
 
+    // ---- Supplier Discovery (K1): search real businesses, read-only provider calls ----
+    if (path === '/discovery/status') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
+      const cfg = discoveryConfig();
+      return json({ configured: cfg.configured, provider: cfg.provider });
+    }
+    if (path === '/discovery/search') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
+      const sp = new URL(request.url).searchParams;
+      const q = String(sp.get('q') || '').trim();
+      if (!q) return err('Please enter what you want to discover');
+      const limit = Number(sp.get('limit') || 12);
+      try {
+        const out = await searchBusinesses(q, { limit });
+        if (out.configured && out.results.length) {
+          const db = await getDb();
+          await logActivity(db, session, { type: 'supplier_discovered', message: `Discovered ${out.results.length} supplier(s) for "${q}"`, refType: 'discovery', refId: '' });
+        }
+        return json({ query: q, ...out });
+      } catch (e) {
+        const code = e.status && e.status >= 400 && e.status < 500 ? 400 : 502;
+        return err(e.message || 'Discovery search failed', code);
+      }
+    }
+    if (path === '/discovery/photo') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
+      const name = new URL(request.url).searchParams.get('name') || '';
+      try {
+        const photo = await fetchPlacePhoto(name);
+        if (!photo) return err('not found', 404);
+        return new NextResponse(Buffer.from(photo.buffer), { status: 200, headers: { 'Content-Type': photo.contentType, 'Cache-Control': 'private, max-age=86400' } });
+      } catch { return err('not found', 404); }
+    }
+
     if (path.startsWith('/billing/')) {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
@@ -2821,6 +2862,64 @@ export async function POST(request, context) {
       if (!ps) return err('unauthenticated', 401);
       if (path === '/platform/auth/change-password') return platformChangePassword(db, ps, await readBody(request), request);
       return platformPost(db, ps, path, await readBody(request), request);
+    }
+
+    // ---- Supplier Discovery (K1): save a discovered business into the EXISTING suppliers collection ----
+    if (path === '/discovery/save') {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'suppliers:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+      // Map the discovered business onto the EXISTING supplier type set.
+      const reqType = String(body.supplierType || body.type || '').toLowerCase();
+      const type = SUPPLIER_TYPES.includes(reqType)
+        ? reqType
+        : mapToSupplierType({ types: Array.isArray(body.types) ? body.types : [], primaryType: body.category || '', query: body.query || '' });
+      const descParts = [];
+      if (body.category) descParts.push(`Category: ${str(body.category, 120)}`);
+      if (body.rating != null && body.rating !== '') descParts.push(`Rating: ${Number(body.rating)}${body.reviews != null && body.reviews !== '' ? ` (${Number(body.reviews)} reviews)` : ''}`);
+      if (body.mapUrl) descParts.push(`Map: ${str(body.mapUrl, 400)}`);
+      if (body.source) descParts.push(`Discovered via ${str(body.source, 60)}`);
+      const supplierBody = {
+        name: body.name, type,
+        email: body.email || '', phone: body.phone || '', website: body.website || '',
+        address: body.address || '', city: body.city || '', state: body.state || '', country: body.country || '',
+        description: str(descParts.join(' · '), 4000),
+        notes: str(body.notes || '', 4000),
+        status: 'active',
+      };
+      const { value, error } = validateSupplierInput(supplierBody);
+      if (error) return err(error);
+      const sourceId = str(body.sourceId, 160);
+      const normName = value.name.trim().toLowerCase();
+      // Best-effort tenant-scoped dedupe: provider id first, else normalized name + city.
+      const dupeOr = [];
+      if (sourceId) dupeOr.push({ discoverySourceId: sourceId });
+      dupeOr.push({ nameLower: normName, city: value.city });
+      const existing = await db.collection('suppliers').findOne(tenantFilter(session2, { $or: dupeOr }));
+      if (existing) { const { _id, ...safe } = existing; return json({ supplier: safe, duplicate: true }, 200); }
+      const now = new Date().toISOString();
+      const doc = withAgency(session2, {
+        id: uuidv4(), ...value, nameLower: normName,
+        discoverySource: str(body.source, 60), discoverySourceId: sourceId,
+        discoveryRating: (body.rating != null && body.rating !== '') ? Number(body.rating) : null,
+        createdBy: session2.userId, createdAt: now, updatedAt: now,
+      });
+      if (body.lat != null && body.lat !== '') doc.latitude = Number(body.lat);
+      if (body.lng != null && body.lng !== '') doc.longitude = Number(body.lng);
+      await db.collection('suppliers').insertOne(doc);
+      const { _id, ...safe } = doc;
+      await logActivity(db, session2, { type: 'supplier_saved', message: `Supplier "${safe.name}" saved from Discovery`, refType: 'supplier', refId: safe.id });
+      return json({ supplier: safe, duplicate: false }, 201);
+    }
+    if (path === '/discovery/activity') {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'suppliers:read')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const name = str(body.name, 160) || 'a business';
+      await logActivity(db, session2, { type: 'supplier_whatsapp', message: `WhatsApp contact initiated with ${name}`, refType: 'discovery', refId: str(body.sourceId, 160) });
+      return json({ ok: true });
     }
 
     // Agency onboarding: creates an agency + its owner user (REBUILD).

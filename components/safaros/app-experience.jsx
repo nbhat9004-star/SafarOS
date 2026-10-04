@@ -39,7 +39,7 @@ import {
   Receipt, TrendingUp, CreditCard, BarChart3,
   Banknote, Printer, Undo2,
   MessageSquare, Sparkles, Send, Bot, Megaphone, UserCog, ExternalLink,
-  Palette, Gauge, PieChart,
+  Palette, Gauge, PieChart, Compass, Star,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -217,6 +217,7 @@ const NAV = [
   {
     group: 'Travel Operations',
     items: [
+      { id: 'discover', label: 'Discover Suppliers', icon: Compass },
       { id: 'packages', label: 'Packages', icon: Package },
       { id: 'itineraries', label: 'Itineraries', icon: Map },
       { id: 'suppliers', label: 'Suppliers', icon: Store },
@@ -297,6 +298,7 @@ const SECTION_TITLES = {
   quotations: 'Quotations', 'quote-create': 'Create Quotation',
   packages: 'Packages', itineraries: 'Itineraries',
   suppliers: 'Suppliers',
+  discover: 'Discover Suppliers',
   bookings: 'Bookings',
   fleet: 'Fleet',
   fin_dashboard: 'Finance Dashboard', fin_transactions: 'Transactions',
@@ -387,6 +389,251 @@ function SyncStatusIndicator() {
       className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${cfg.cls} ${clickable ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>
       <Icon className={`h-3.5 w-3.5 ${cfg.spin ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">{cfg.text}</span>
     </button>
+  );
+}
+
+// ======================= SUPPLIER DISCOVERY (K1) =======================
+const DISCOVER_TYPE_LABEL = { hotel: 'Hotel', houseboat: 'Houseboat', transport: 'Transport', activity: 'Activity', guide: 'Guide', restaurant: 'Restaurant', other: 'Other' };
+const DISCOVER_EXAMPLES = ['Hotels in Srinagar', 'Houseboats in Nigeen', 'Cabs in Pahalgam', 'Shikara services in Dal Lake', 'Tour guides in Kashmir', 'Hotels in Dubai'];
+const DISCOVER_CATEGORIES = ['hotel', 'houseboat', 'transport', 'activity', 'guide', 'restaurant'];
+const waDigits = (n) => String(n || '').replace(/[^\d]/g, '');
+
+function DiscoverResultCard({ r, session, onSaved }) {
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState(r.saved ? 'saved' : 'idle'); // idle | saving | saved | duplicate
+  const canSave = can(session?.user?.role, 'suppliers:create');
+  const wa = r.whatsapp || waDigits(r.phone);
+  const typeLabel = DISCOVER_TYPE_LABEL[r.supplierType] || 'Other';
+
+  const save = async () => {
+    if (state === 'saving' || state === 'saved') return;
+    setState('saving');
+    try {
+      const res = await api('/discovery/save', { method: 'POST', body: JSON.stringify(r) });
+      if (res.duplicate) { setState('duplicate'); toast.info(`"${r.name}" is already in your suppliers.`); }
+      else { setState('saved'); toast.success(`"${r.name}" added to My Suppliers.`); }
+      onSaved && onSaved(r, res);
+    } catch (e) { setState('idle'); toast.error(e.message || 'Could not save supplier'); }
+  };
+
+  const openWhatsApp = () => {
+    if (!wa) return;
+    api('/discovery/activity', { method: 'POST', body: JSON.stringify({ action: 'whatsapp', name: r.name, sourceId: r.sourceId }) }).catch(() => {});
+    window.open(`https://wa.me/${wa}`, '_blank', 'noopener');
+  };
+
+  const renderSave = (full = false) => (
+    <Button size="sm" onClick={save} disabled={!canSave || state === 'saving' || state === 'saved'}
+      className={`${full ? 'w-full ' : ''}${state === 'saved' ? 'bg-emerald-600 hover:bg-emerald-600' : state === 'duplicate' ? 'bg-slate-500 hover:bg-slate-500' : 'bg-violet-600 hover:bg-violet-700'}`}>
+      {state === 'saved' ? <><CheckCircle2 className="mr-1.5 h-4 w-4" /> Saved</>
+        : state === 'duplicate' ? <><CheckCircle2 className="mr-1.5 h-4 w-4" /> Already saved</>
+        : state === 'saving' ? 'Saving…'
+        : <><Plus className="mr-1.5 h-4 w-4" /> Add to My Suppliers</>}
+    </Button>
+  );
+
+  return (
+    <Card className="flex flex-col overflow-hidden so-kpi">
+      <div className="relative h-32 w-full bg-gradient-to-br from-violet-500/15 to-indigo-500/10">
+        {r.photoName ? (
+          <img src={`/api/discovery/photo?name=${encodeURIComponent(r.photoName)}`} alt={r.name}
+            className="h-full w-full object-cover" loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-violet-400"><Store className="h-10 w-10" /></div>
+        )}
+        <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 text-[11px] font-semibold capitalize text-violet-700 shadow-sm">{typeLabel}</span>
+      </div>
+      <CardContent className="flex flex-1 flex-col gap-2 p-4">
+        <div className="min-w-0">
+          <div className="truncate font-semibold" title={r.name}>{r.name}</div>
+          {r.category && <div className="truncate text-xs capitalize text-muted-foreground">{r.category}</div>}
+        </div>
+        {(r.rating != null) && (
+          <div className="flex items-center gap-1 text-xs text-amber-600">
+            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" /> {r.rating}
+            {r.reviews != null && <span className="text-muted-foreground">({r.reviews})</span>}
+          </div>
+        )}
+        {r.address && <div className="flex items-start gap-1.5 text-xs text-muted-foreground"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="line-clamp-2">{r.address}</span></div>}
+
+        <div className="mt-auto space-y-2 pt-2">
+          <div className="flex flex-wrap gap-1.5">
+            <Button size="sm" variant="outline" className="h-8 px-2" onClick={() => setOpen(true)}><Eye className="h-4 w-4" /></Button>
+            {wa && <Button size="sm" variant="outline" className="h-8 px-2 text-emerald-700" onClick={openWhatsApp} title="WhatsApp"><MessageSquare className="h-4 w-4" /></Button>}
+            {r.phone && <a href={`tel:${r.phone}`} className="inline-flex"><Button size="sm" variant="outline" className="h-8 px-2" title="Call"><Phone className="h-4 w-4" /></Button></a>}
+            {r.website && <a href={r.website} target="_blank" rel="noopener noreferrer" className="inline-flex"><Button size="sm" variant="outline" className="h-8 px-2" title="Website"><Globe className="h-4 w-4" /></Button></a>}
+          </div>
+          {renderSave(true)}
+          </div>
+      </CardContent>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="truncate pr-6">{r.name}</DialogTitle></DialogHeader>
+          <div className="space-y-2.5 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold capitalize text-violet-700">{typeLabel}</span>
+              {r.category && <span className="text-xs capitalize text-muted-foreground">{r.category}</span>}
+              {r.rating != null && <span className="flex items-center gap-1 text-xs text-amber-600"><Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />{r.rating}{r.reviews != null ? ` (${r.reviews})` : ''}</span>}
+            </div>
+            <DiscoverDetailRow icon={MapPin} label="Address" value={r.address} />
+            <DiscoverDetailRow icon={Phone} label="Phone" value={r.phone} />
+            <DiscoverDetailRow icon={Mail} label="Email" value={r.email} />
+            <DiscoverDetailRow icon={Globe} label="Website" value={r.website} isLink />
+            {r.mapUrl && <a href={r.mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-violet-600 hover:underline"><ExternalLink className="h-3.5 w-3.5" /> View on map</a>}
+            <div className="text-[11px] text-muted-foreground">Source: {r.source === 'google_places' ? 'Google Places' : (r.source || 'provider')}</div>
+          </div>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            {wa && <Button variant="outline" className="text-emerald-700" onClick={openWhatsApp}><MessageSquare className="mr-1.5 h-4 w-4" /> WhatsApp</Button>}
+            {renderSave(false)}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+function DiscoverDetailRow({ icon: Icon, label, value, isLink }) {
+  return (
+    <div className="flex items-start gap-2">
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0">
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+        {value
+          ? (isLink
+            ? <a href={value} target="_blank" rel="noopener noreferrer" className="break-all text-violet-600 hover:underline">{value}</a>
+            : <div className="break-words">{value}</div>)
+          : <div className="text-muted-foreground">Not available</div>}
+      </div>
+    </div>
+  );
+}
+
+function SupplierDiscovery({ session, onGo = () => {} }) {
+  const [query, setQuery] = useState('');
+  const [submitted, setSubmitted] = useState('');
+  const [results, setResults] = useState(null); // null = not searched yet
+  const [loading, setLoading] = useState(false);
+  const [configured, setConfigured] = useState(null); // null = unknown
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api('/discovery/status').then((d) => setConfigured(!!d.configured)).catch(() => setConfigured(false));
+  }, []);
+
+  const runSearch = async (q) => {
+    const term = String(q ?? query).trim();
+    if (!term) { toast.error('Enter a business or service to discover'); return; }
+    setLoading(true); setError(''); setSubmitted(term);
+    try {
+      const d = await api(`/discovery/search?q=${encodeURIComponent(term)}&limit=12`);
+      setConfigured(!!d.configured);
+      setResults(Array.isArray(d.results) ? d.results : []);
+    } catch (e) { setError(e.message || 'Discovery search failed'); setResults([]); }
+    finally { setLoading(false); }
+  };
+
+  const onSubmit = (e) => { e.preventDefault(); runSearch(); };
+  const pickExample = (ex) => { setQuery(ex); runSearch(ex); };
+  const pickCategory = (cat) => {
+    const loc = submitted.replace(new RegExp(`^(${DISCOVER_CATEGORIES.join('|')}|hotels|cabs|taxis)\\s+in\\s+`, 'i'), '').trim();
+    const q = `${cat}s${loc ? ` in ${loc}` : ''}`;
+    setQuery(q); runSearch(q);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="flex items-center gap-2 text-xl font-bold"><Compass className="h-5 w-5 text-violet-600" /> Discover Suppliers</h2>
+        <p className="text-sm text-muted-foreground">Search real travel businesses anywhere and save them straight into your Supplier Management.</p>
+      </div>
+
+      <Card>
+        <CardContent className="p-4 sm:p-5">
+          <form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. Houseboats in Nigeen, Hotels in Dubai…" className="pl-9" />
+            </div>
+            <Button type="submit" disabled={loading} className="bg-violet-600 hover:bg-violet-700 sm:w-auto">
+              <Search className="mr-1.5 h-4 w-4" /> {loading ? 'Searching…' : 'Search'}
+            </Button>
+          </form>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {DISCOVER_CATEGORIES.map((c) => (
+              <button key={c} type="button" onClick={() => pickCategory(c)}
+                className="rounded-full border border-border px-2.5 py-1 text-xs capitalize text-muted-foreground transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700">
+                {DISCOVER_TYPE_LABEL[c]}
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Provider-not-configured notice */}
+      {configured === false && (
+        <Card className="border-amber-200 bg-amber-50/60">
+          <CardContent className="flex items-start gap-3 p-5 text-sm">
+            <Globe className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div>
+              <div className="font-semibold text-amber-900">Discovery provider not connected yet</div>
+              <p className="mt-0.5 text-amber-800">A business-data provider needs to be enabled for SafarOS before live results appear. The search experience is ready and will return real businesses as soon as the provider is configured. No sample or fake data is shown.</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {error && <Card className="border-rose-200 bg-rose-50/60"><CardContent className="p-4 text-sm text-rose-700">{error}</CardContent></Card>}
+
+      {/* Initial prompt */}
+      {results === null && !loading && (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-4 px-6 py-12 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100 text-violet-600"><Compass className="h-7 w-7" /></div>
+            <div className="space-y-1">
+              <h3 className="font-semibold">Find your next supplier</h3>
+              <p className="mx-auto max-w-md text-sm text-muted-foreground">Search for hotels, houseboats, transport, guides, restaurants and activities — anywhere in Kashmir, India or worldwide.</p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-2">
+              {DISCOVER_EXAMPLES.map((ex) => (
+                <button key={ex} onClick={() => pickExample(ex)} className="rounded-full border border-border px-3 py-1.5 text-xs transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700">{ex}</button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Loading */}
+      {loading && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="h-72 animate-pulse rounded-xl border bg-muted/30" />)}
+        </div>
+      )}
+
+      {/* Empty results */}
+      {!loading && Array.isArray(results) && results.length === 0 && configured !== false && !error && (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Search className="h-6 w-6 text-muted-foreground" /></div>
+            <div className="space-y-1">
+              <h3 className="font-semibold">No businesses found</h3>
+              <p className="mx-auto max-w-sm text-sm text-muted-foreground">We couldn&apos;t find results for &ldquo;{submitted}&rdquo;. Try a different location or service.</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Results */}
+      {!loading && Array.isArray(results) && results.length > 0 && (
+        <>
+          <div className="text-sm text-muted-foreground">{results.length} result{results.length === 1 ? '' : 's'} for &ldquo;{submitted}&rdquo;</div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {results.map((r, i) => <DiscoverResultCard key={r.sourceId || i} r={r} session={session} />)}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -489,6 +736,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'packages' && <Packages key="pkg" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'itineraries' && <Itineraries key="itin" session={session} />}
           {active === 'suppliers' && <Suppliers key="sup" session={session} />}
+          {active === 'discover' && <SupplierDiscovery key="discover" session={session} onGo={setActive} />}
           {active === 'bookings' && <Bookings key="bk" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'fleet' && <Fleet key="fleet" session={session} />}
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
