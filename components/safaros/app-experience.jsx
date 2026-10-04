@@ -39,7 +39,7 @@ import {
   Receipt, TrendingUp, CreditCard, BarChart3,
   Banknote, Printer, Undo2,
   MessageSquare, Sparkles, Send, Bot, Megaphone, UserCog, ExternalLink,
-  Palette, Gauge, PieChart, Compass, Star,
+  Palette, Gauge, PieChart, Compass, Star, LayoutGrid, ChevronRight,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -365,6 +365,219 @@ function NavList({ active, onSelect, mobile }) {
   );
 }
 
+// ===================== K1.5 — Dual navigation model =====================
+// DESKTOP = minimal major categories + a workspace app-launcher in the main area.
+// MOBILE  = the familiar sidebar, reorganized into a collapsible accordion.
+// Both route to the SAME existing feature ids — no routes/features are removed.
+
+// Mobile accordion sections (collapsed by default; one open at a time).
+const MOBILE_NAV = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, leaf: true },
+  { id: 'crm', label: 'CRM', icon: Contact, items: [
+    { id: 'crm', label: 'Dashboard' }, { id: 'leads', label: 'Leads' }, { id: 'clients', label: 'Clients' },
+    { id: 'contacts', label: 'Contacts' }, { id: 'followups', label: 'Follow-ups' }, { id: 'tasks', label: 'Tasks' }, { id: 'activities', label: 'Activities' },
+  ] },
+  { id: 'sales', label: 'Sales', icon: FileText, items: [
+    { id: 'quotations', label: 'Quotations' }, { id: 'quote-create', label: 'Create Quotation' }, { id: 'packages', label: 'Packages' },
+  ] },
+  { id: 'operations', label: 'Operations', icon: Truck, items: [
+    { id: 'itineraries', label: 'Itineraries' }, { id: 'bookings', label: 'Bookings' }, { id: 'suppliers', label: 'Suppliers' }, { id: 'fleet', label: 'Fleet' },
+  ] },
+  { id: 'finance', label: 'Finance', icon: Wallet, items: [
+    { id: 'fin_dashboard', label: 'Finance Dashboard' }, { id: 'fin_transactions', label: 'Transactions' }, { id: 'fin_receivables', label: 'Customer Receivables' },
+    { id: 'fin_payables', label: 'Supplier Payables' }, { id: 'fin_expenses', label: 'Expenses' }, { id: 'fin_invoices', label: 'Invoices' }, { id: 'fin_payments', label: 'Payments' }, { id: 'fin_reports', label: 'Reports' },
+  ] },
+  { id: 'communications', label: 'Communications', icon: MessageSquare, items: [
+    { id: 'comm_inbox', label: 'Inbox' }, { id: 'comm_conversations', label: 'Conversations' }, { id: 'comm_templates', label: 'Templates' }, { id: 'comm_activity', label: 'Activity' }, { id: 'portal_admin', label: 'Customer Portal' },
+  ] },
+  { id: 'discover', label: 'Discover', icon: Compass, items: [
+    { id: 'discover', label: 'Supplier Discovery' }, { id: 'suppliers', label: 'Saved Suppliers' },
+  ] },
+  { id: 'aitools', label: 'AI & Tools', icon: Sparkles, items: [
+    { id: 'copilot', label: 'AI Copilot' }, { id: 'an_overview', label: 'Analytics' },
+  ] },
+  { id: 'more', label: 'More', icon: LayoutGrid, items: [
+    { id: 'web_dashboard', label: 'Website' }, { id: 'int_overview', label: 'Integrations' }, { id: 'sub_overview', label: 'Subscription' }, { id: 'team', label: 'Team' }, { id: 'settings', label: 'Settings' },
+  ] },
+];
+
+// Desktop minimal majors + their workspace tiles (the app launcher).
+const DESKTOP_WORKSPACES = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, home: true },
+  { id: 'crm', label: 'CRM', icon: Contact, subtitle: 'Leads, clients & your sales pipeline', tiles: [
+    { id: 'crm', label: 'CRM Dashboard', desc: 'Live pipeline snapshot', icon: LayoutDashboard, tone: 'violet' },
+    { id: 'leads', label: 'Leads', desc: 'Manage and track prospects', icon: UserPlus, tone: 'sky' },
+    { id: 'clients', label: 'Clients', desc: 'Customer relationships', icon: Contact, tone: 'violet' },
+    { id: 'contacts', label: 'Contacts', desc: 'Contact management', icon: BookUser, tone: 'emerald' },
+    { id: 'followups', label: 'Follow-ups', desc: 'Scheduled follow-ups', icon: CalendarClock, tone: 'amber' },
+    { id: 'tasks', label: 'Tasks', desc: 'Team tasks', icon: ListTodo, tone: 'rose' },
+    { id: 'activities', label: 'Activities', desc: 'CRM activity timeline', icon: Activity, tone: 'sky' },
+  ] },
+  { id: 'sales', label: 'Sales', icon: FileText, subtitle: 'Quotations & travel packages', tiles: [
+    { id: 'quotations', label: 'Quotations', desc: 'Create and manage quotes', icon: FileText, tone: 'violet' },
+    { id: 'quote-create', label: 'Create Quotation', desc: 'Start a new quotation', icon: FilePlus, tone: 'emerald' },
+    { id: 'packages', label: 'Packages', desc: 'Travel packages', icon: Package, tone: 'amber' },
+  ] },
+  { id: 'operations', label: 'Operations', icon: Truck, subtitle: 'Itineraries, bookings, suppliers & fleet', tiles: [
+    { id: 'itineraries', label: 'Itineraries', desc: 'Day-by-day travel plans', icon: Map, tone: 'violet' },
+    { id: 'bookings', label: 'Bookings', desc: 'Manage bookings', icon: ClipboardList, tone: 'sky' },
+    { id: 'suppliers', label: 'Suppliers', desc: 'Supplier management', icon: Store, tone: 'emerald' },
+    { id: 'fleet', label: 'Fleet', desc: 'Vehicles and drivers', icon: Truck, tone: 'amber' },
+  ] },
+  { id: 'finance', label: 'Finance', icon: Wallet, subtitle: 'Money in, money out', tiles: [
+    { id: 'fin_dashboard', label: 'Finance Overview', desc: 'Financial snapshot', icon: Wallet, tone: 'violet' },
+    { id: 'fin_transactions', label: 'Transactions', desc: 'All money movement', icon: Receipt, tone: 'sky' },
+    { id: 'fin_receivables', label: 'Receivables', desc: 'Money owed to you', icon: TrendingUp, tone: 'emerald' },
+    { id: 'fin_payables', label: 'Payables', desc: 'Money you owe suppliers', icon: Store, tone: 'amber' },
+    { id: 'fin_expenses', label: 'Expenses', desc: 'Business expenses', icon: CreditCard, tone: 'rose' },
+    { id: 'fin_invoices', label: 'Invoices', desc: 'Customer invoices', icon: FileText, tone: 'violet' },
+    { id: 'fin_payments', label: 'Payments', desc: 'Payment records', icon: Banknote, tone: 'emerald' },
+    { id: 'fin_reports', label: 'Reports', desc: 'Financial reports', icon: BarChart3, tone: 'sky' },
+  ] },
+  { id: 'discover', label: 'Discover', icon: Compass, direct: 'discover' },
+  { id: 'more', label: 'More', icon: LayoutGrid, subtitle: 'Communications, tools & settings', tiles: [
+    { id: 'comm_inbox', label: 'Communications', desc: 'Inbox, templates & logs', icon: MessageSquare, tone: 'sky' },
+    { id: 'copilot', label: 'AI Copilot', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
+    { id: 'an_overview', label: 'Analytics', desc: 'Business insights & reports', icon: Gauge, tone: 'emerald' },
+    { id: 'web_dashboard', label: 'Website', desc: 'Your agency website', icon: Globe, tone: 'amber' },
+    { id: 'portal_admin', label: 'Customer Portal', desc: 'Client portal access', icon: ShieldCheck, tone: 'violet' },
+    { id: 'int_overview', label: 'Integrations', desc: 'Connect external tools', icon: ExternalLink, tone: 'sky' },
+    { id: 'sub_overview', label: 'Subscription', desc: 'Plan & billing', icon: CreditCard, tone: 'rose' },
+    { id: 'team', label: 'Team', desc: 'Members & roles', icon: Users, tone: 'emerald' },
+    { id: 'settings', label: 'Settings', desc: 'Agency settings', icon: Building2, tone: 'violet' },
+  ] },
+];
+
+const FEATURE_TO_MAJOR = (() => {
+  const m = {};
+  for (const ws of DESKTOP_WORKSPACES) {
+    (ws.tiles || []).forEach((t) => { if (!(t.id in m)) m[t.id] = ws.id; });
+    if (ws.direct) m[ws.direct] = ws.id;
+    if (ws.home) m[ws.id] = ws.id;
+  }
+  return m;
+})();
+
+function majorOf(active) {
+  if (String(active).startsWith('ws:')) return String(active).slice(3);
+  if (FEATURE_TO_MAJOR[active]) return FEATURE_TO_MAJOR[active];
+  if (String(active).startsWith('fin_')) return 'finance';
+  if (/^(comm_|web_|an_|sub_|int_)/.test(String(active)) || ['copilot', 'portal_admin', 'team', 'settings'].includes(active)) return 'more';
+  return 'overview';
+}
+function majorLabel(id) { const w = DESKTOP_WORKSPACES.find((x) => x.id === id); return w ? w.label : ''; }
+function titleOf(active) {
+  if (String(active).startsWith('ws:')) return majorLabel(String(active).slice(3)) || 'SafarOS';
+  return SECTION_TITLES[active] || 'SafarOS';
+}
+
+const TILE_TONES = {
+  violet: 'from-violet-500 to-indigo-600', emerald: 'from-emerald-500 to-teal-600',
+  amber: 'from-amber-500 to-orange-600', sky: 'from-sky-500 to-blue-600', rose: 'from-rose-500 to-pink-600',
+};
+
+// Desktop: minimal major-category rail.
+function DesktopNav({ active, onSelect }) {
+  const cur = majorOf(active);
+  return (
+    <div className="space-y-1">
+      {DESKTOP_WORKSPACES.map((w) => {
+        const Icon = w.icon; const on = cur === w.id;
+        const target = w.home ? 'overview' : w.direct ? w.direct : `ws:${w.id}`;
+        return (
+          <button key={w.id} onClick={() => onSelect(target)}
+            className={`group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${on ? 'so-nav-active' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+            {on && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-violet-600" />}
+            <Icon className={`h-[18px] w-[18px] shrink-0 ${on ? 'text-violet-600 dark:text-violet-300' : 'text-muted-foreground group-hover:text-foreground'}`} />
+            <span className="truncate font-medium">{w.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Desktop: workspace app-launcher grid shown when a major category is selected.
+function WorkspaceLauncher({ majorId, onOpen }) {
+  const w = DESKTOP_WORKSPACES.find((x) => x.id === majorId);
+  if (!w || !w.tiles) return null;
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">{w.label}</h2>
+        {w.subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{w.subtitle}</p>}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {w.tiles.map((t) => {
+          const Icon = t.icon;
+          return (
+            <button key={t.id} onClick={() => onOpen(t.id)} className="text-left">
+              <Card className="so-kpi h-full">
+                <CardContent className="flex h-full flex-col gap-3 p-5">
+                  <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${TILE_TONES[t.tone] || TILE_TONES.violet} text-white shadow-sm`}>
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="font-semibold">{t.label}</div>
+                    {t.desc && <div className="mt-0.5 text-xs text-muted-foreground">{t.desc}</div>}
+                  </div>
+                  <div className="mt-auto flex items-center gap-1 text-xs font-medium text-violet-600">Open <ChevronRight className="h-3.5 w-3.5" /></div>
+                </CardContent>
+              </Card>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Mobile: accordion navigation — collapsed by default, one section open at a time.
+function MobileAccordion({ active, onSelect }) {
+  const [open, setOpen] = useState(() => majorOf(active));
+  const toggle = (id) => setOpen((cur) => (cur === id ? '' : id));
+  return (
+    <div className="space-y-1">
+      {MOBILE_NAV.map((sec) => {
+        const Icon = sec.icon;
+        if (sec.leaf) {
+          const on = active === sec.id;
+          return (
+            <button key={sec.id} onClick={() => onSelect(sec.id)}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm ${on ? 'so-nav-active' : 'text-foreground hover:bg-accent'}`}>
+              <Icon className={`h-[18px] w-[18px] shrink-0 ${on ? 'text-violet-600' : 'text-muted-foreground'}`} /><span className="font-medium">{sec.label}</span>
+            </button>
+          );
+        }
+        const expanded = open === sec.id;
+        return (
+          <div key={sec.id}>
+            <button onClick={() => toggle(sec.id)} aria-expanded={expanded}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-foreground hover:bg-accent">
+              <Icon className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
+              <span className="flex-1 text-left font-medium">{sec.label}</span>
+              <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`} />
+            </button>
+            {expanded && (
+              <div className="mb-1 ml-4 space-y-0.5 border-l border-border pl-2">
+                {sec.items.map((it) => {
+                  const on = active === it.id;
+                  return (
+                    <button key={it.id} onClick={() => onSelect(it.id)}
+                      className={`flex w-full items-center rounded-lg px-3 py-2 text-[13px] ${on ? 'so-nav-active' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
+                      {it.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SyncStatusIndicator() {
   const { online, status, pendingCount, syncNow } = useSync();
   // Unobtrusive: fully synced + online with nothing pending => subtle dot only.
@@ -672,7 +885,7 @@ function Dashboard({ session, onLogout }) {
         </div>
         <Separator />
         <div className="so-nav flex-1 overflow-auto px-3 py-3">
-          <NavList active={active} onSelect={setActive} />
+          <DesktopNav active={active} onSelect={setActive} />
         </div>
         {/* User footer */}
         <div className="border-t border-border p-3">
@@ -702,8 +915,8 @@ function Dashboard({ session, onLogout }) {
               SafarOS
             </span>
             <div className="hidden min-w-0 md:block">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{sectionGroupOf(active)}</div>
-              <h1 className="truncate text-[17px] font-bold leading-tight">{SECTION_TITLES[active] || 'SafarOS'}</h1>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{majorLabel(majorOf(active)) || 'Workspace'}</div>
+              <h1 className="truncate text-[17px] font-bold leading-tight">{titleOf(active)}</h1>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
@@ -723,6 +936,16 @@ function Dashboard({ session, onLogout }) {
 
         <div className="p-4 sm:p-6 lg:p-8 flex-1 overflow-auto">
           <div className="mx-auto w-full max-w-[1400px]">
+          {String(active).startsWith('ws:') ? (
+            <WorkspaceLauncher majorId={String(active).slice(3)} onOpen={setActive} />
+          ) : (
+          <>
+          {active !== 'overview' && DESKTOP_WORKSPACES.find((w) => w.id === majorOf(active))?.tiles && (
+            <button onClick={() => setActive(`ws:${majorOf(active)}`)}
+              className="mb-4 hidden items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:inline-flex">
+              <ArrowLeft className="h-4 w-4" /> {majorLabel(majorOf(active))}
+            </button>
+          )}
           {active === 'overview' && <Overview session={session} onGo={setActive} onNavigate={navigateTo} />}
           {active === 'crm' && <CrmDashboard session={session} onGo={setActive} />}
           {active === 'leads' && <Leads session={session} />}
@@ -749,6 +972,8 @@ function Dashboard({ session, onLogout }) {
           {active === 'portal_admin' && <PortalAdmin session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
+          </>
+          )}
           </div>
         </div>
       </main>
@@ -780,7 +1005,7 @@ function Dashboard({ session, onLogout }) {
           </div>
           <Separator />
           <nav className="so-nav flex-1 overflow-auto px-3 py-3">
-            <NavList active={active} onSelect={go} mobile />
+            <MobileAccordion active={active} onSelect={go} />
           </nav>
           <div className="border-t border-border p-3">
             <Button variant="outline" className="w-full" onClick={onLogout}>
@@ -878,6 +1103,38 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
           {canCreateQuote && <Button size="sm" onClick={() => onGo('quote-create')} className="bg-violet-600 hover:bg-violet-700"><FilePlus className="mr-1.5 h-4 w-4" /> New Quotation</Button>}
           {canCreateLead && <Button size="sm" variant="outline" onClick={() => onGo('leads')}><UserPlus className="mr-1.5 h-4 w-4" /> Add Lead</Button>}
           {canCreateBooking && <Button size="sm" variant="outline" onClick={() => onGo('bookings')}><ClipboardList className="mr-1.5 h-4 w-4" /> New Booking</Button>}
+        </div>
+      </div>
+
+      {/* Workspace launcher cards */}
+      <div>
+        <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground/60">Workspaces</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          {[
+            { label: 'CRM', desc: 'Leads & clients', icon: Contact, tone: 'violet', go: 'ws:crm' },
+            { label: 'Sales', desc: 'Quotes & packages', icon: FileText, tone: 'sky', go: 'ws:sales' },
+            { label: 'Operations', desc: 'Trips & suppliers', icon: Truck, tone: 'emerald', go: 'ws:operations' },
+            { label: 'Finance', desc: 'Money & invoices', icon: Wallet, tone: 'amber', go: 'ws:finance' },
+            { label: 'Discover', desc: 'Find suppliers', icon: Compass, tone: 'rose', go: 'discover' },
+            { label: 'AI Copilot', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
+          ].map((w) => {
+            const Icon = w.icon;
+            return (
+              <button key={w.label} onClick={() => onGo(w.go)} className="text-left">
+                <Card className="so-kpi h-full">
+                  <CardContent className="flex flex-col items-start gap-2.5 p-4">
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${w.tone === 'violet' ? 'from-violet-500 to-indigo-600' : w.tone === 'emerald' ? 'from-emerald-500 to-teal-600' : w.tone === 'amber' ? 'from-amber-500 to-orange-600' : w.tone === 'sky' ? 'from-sky-500 to-blue-600' : 'from-rose-500 to-pink-600'} text-white shadow-sm`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold">{w.label}</div>
+                      <div className="text-[11px] text-muted-foreground">{w.desc}</div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </button>
+            );
+          })}
         </div>
       </div>
 
