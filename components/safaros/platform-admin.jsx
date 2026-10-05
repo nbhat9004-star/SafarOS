@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -44,6 +44,7 @@ const NAV = [
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
   { id: 'plans', label: 'Plans', icon: Layers },
   { id: 'ai', label: 'AI Platforms', icon: Bot },
+  { id: 'api_integrations', label: 'API & Integrations', icon: KeyRound },
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'audit', label: 'Audit Logs', icon: ScrollText },
@@ -238,6 +239,141 @@ function AiView() {
   </div>);
 }
 
+// ---------- API & Integrations (secure platform credential manager) ----------
+function ProviderCredentialsView() {
+  const [data, setData] = useState(null);
+  const [sel, setSel] = useState(null);
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState('');
+  const [confirmDel, setConfirmDel] = useState(null);
+
+  const load = useCallback(async () => {
+    try { const d = await api('/provider-credentials'); setData(d); } catch (e) { toast.error(e.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const openCfg = (p) => {
+    const f = {};
+    // Never prefill secrets; prefill non-secret identifiers so they can be edited.
+    p.fields.forEach((fld) => { f[fld.key] = fld.secret ? '' : (fld.value || ''); });
+    setForm(f); setSel(p);
+  };
+
+  const save = async () => {
+    if (!sel) return;
+    setSaving(true);
+    try {
+      const fields = {};
+      sel.fields.forEach((fld) => {
+        const v = form[fld.key];
+        // Only send secret fields when the admin actually typed a new value.
+        if (fld.secret) { if (v && v.trim()) fields[fld.key] = v.trim(); }
+        else if (v !== undefined) fields[fld.key] = v;
+      });
+      await api(`/provider-credentials/${sel.provider}`, { method: 'POST', body: JSON.stringify({ fields }) });
+      toast.success(`${sel.name} saved`);
+      setSel(null); load();
+    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  };
+
+  const toggle = async (p, enabled) => {
+    try { await api(`/provider-credentials/${p.provider}`, { method: 'PUT', body: JSON.stringify({ enabled }) }); toast.success(enabled ? 'Enabled' : 'Disabled'); load(); }
+    catch (e) { toast.error(e.message); }
+  };
+
+  const test = async (p) => {
+    setTesting(p.provider);
+    try { const r = await api(`/provider-credentials/${p.provider}/test`, { method: 'POST', body: '{}' }); r.ok ? toast.success(r.message || 'Connection OK') : toast.error(r.message || 'Connection failed'); load(); }
+    catch (e) { toast.error(e.message); } finally { setTesting(''); }
+  };
+
+  const remove = async (p) => {
+    try { await api(`/provider-credentials/${p.provider}`, { method: 'DELETE' }); toast.success('Credential removed'); setConfirmDel(null); load(); }
+    catch (e) { toast.error(e.message); }
+  };
+
+  if (!data) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
+  const cats = data.categories || [];
+
+  return (<div className="space-y-5">
+    <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-4">
+      <div className="flex items-start gap-2"><KeyRound className="mt-0.5 h-4 w-4 text-violet-600" />
+        <p className="text-sm text-violet-900">Securely configure platform-level provider credentials. Secrets are sent only over this authenticated request, <span className="font-semibold">encrypted at rest (AES-256-GCM)</span>, and never returned to the browser — only masked hints are shown. Existing server environment variables remain supported as a fallback.</p>
+      </div>
+    </div>
+
+    {cats.map((cat) => (
+      <div key={cat} className="space-y-3">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{cat}</h3>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {data.providers.filter((p) => p.category === cat).map((p) => (
+            <Card key={p.provider}><CardContent className="p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0"><div className="truncate font-semibold text-slate-900">{p.name}</div>
+                  <div className="text-[11px] capitalize text-muted-foreground">{p.scope} credential</div></div>
+                <StatusBadge status={p.status} />
+              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">{p.description}</p>
+              <div className="mt-3 space-y-1.5 text-sm">
+                {p.fields.map((f) => (
+                  <div key={f.key} className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">{f.label}{f.required && <span className="text-rose-500"> *</span>}</span>
+                    {f.secret
+                      ? <code className="text-xs">{f.hasStored ? (f.masked || 'stored') : (f.hasEnv ? 'env fallback' : '—')}</code>
+                      : <span className="truncate text-xs font-medium">{f.value || (f.hasEnv ? 'env fallback' : '—')}</span>}
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-0.5"><span className="text-muted-foreground">Source</span><span className="text-xs capitalize">{p.source}</span></div>
+                {p.lastTestedAt && (
+                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Last test</span>
+                    <span className={`flex items-center gap-1 text-xs ${p.lastTestStatus === 'passed' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {p.lastTestStatus === 'passed' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}{fdt(p.lastTestedAt)}</span></div>
+                )}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={() => openCfg(p)}>Configure</Button>
+                {p.testable && <Button size="sm" variant="outline" disabled={testing === p.provider} onClick={() => test(p)}>{testing === p.provider ? 'Testing…' : 'Test'}</Button>}
+                {p.status !== 'not_connected' && (
+                  p.enabled
+                    ? <Button size="sm" variant="outline" onClick={() => toggle(p, false)}>Disable</Button>
+                    : <Button size="sm" variant="outline" onClick={() => toggle(p, true)}>Enable</Button>
+                )}
+                {p.source === 'stored' && <Button size="sm" variant="ghost" className="text-rose-600 hover:text-rose-700" onClick={() => setConfirmDel(p)}><Trash2 className="h-4 w-4" /></Button>}
+              </div>
+            </CardContent></Card>
+          ))}
+        </div>
+      </div>
+    ))}
+
+    {/* Configure dialog */}
+    <Dialog open={!!sel} onOpenChange={(o) => !o && setSel(null)}><DialogContent>
+      <DialogHeader><DialogTitle>Configure {sel ? sel.name : ''}</DialogTitle></DialogHeader>
+      <div className="space-y-3">
+        {sel && sel.fields.map((f) => (
+          <div key={f.key} className="space-y-1.5">
+            <Label>{f.label}{f.required && <span className="text-rose-500"> *</span>}</Label>
+            <Input type={f.secret ? 'password' : 'text'} value={form[f.key] || ''}
+              onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+              placeholder={f.secret ? (f.hasStored ? `${f.masked} (leave blank to keep)` : (f.hasEnv ? 'Using env fallback — enter to override' : 'Enter value')) : (f.hasEnv && !f.value ? 'Using env fallback — enter to override' : 'Enter value')}
+              autoComplete="off" />
+            {f.secret && <p className="text-xs text-muted-foreground">Encrypted at rest. Never shown again after saving.</p>}
+          </div>
+        ))}
+      </div>
+      <DialogFooter><Button variant="outline" onClick={() => setSel(null)}>Cancel</Button><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save securely'}</Button></DialogFooter>
+    </DialogContent></Dialog>
+
+    {/* Remove confirm */}
+    <Dialog open={!!confirmDel} onOpenChange={(o) => !o && setConfirmDel(null)}><DialogContent>
+      <DialogHeader><DialogTitle>Remove {confirmDel ? confirmDel.name : ''} credential?</DialogTitle></DialogHeader>
+      <p className="text-sm text-muted-foreground">This permanently deletes the stored, encrypted credential. Any configured server environment variable will still be used as a fallback.</p>
+      <DialogFooter><Button variant="outline" onClick={() => setConfirmDel(null)}>Cancel</Button><Button className="bg-rose-600 hover:bg-rose-700" onClick={() => remove(confirmDel)}>Remove</Button></DialogFooter>
+    </DialogContent></Dialog>
+  </div>);
+}
+
 // ---------- Integrations ----------
 function IntegrationsView() {
   const [data, setData] = useState(null);
@@ -379,6 +515,7 @@ export default function PlatformAdmin() {
         {section === 'subscriptions' && <SubscriptionsView />}
         {section === 'plans' && <PlansView />}
         {section === 'ai' && <AiView />}
+        {section === 'api_integrations' && <ProviderCredentialsView />}
         {section === 'integrations' && <IntegrationsView />}
         {section === 'analytics' && <AnalyticsView />}
         {section === 'audit' && <AuditView />}

@@ -22,6 +22,14 @@ import {
   last4, maskSecret, sha256, genToken, isValidProvider,
 } from '@/lib/integrations';
 import { discoveryConfig, searchBusinesses, fetchPlacePhoto, mapToSupplierType } from '@/lib/discovery';
+import {
+  PLATFORM_PROVIDER_CATALOG, getProviderDef, isValidPlatformProvider,
+  encryptSecret, maskValue, resolveProviderSecret, resolveProviderConfig,
+  buildProviderView, PLATFORM_CRED_COLLECTION,
+} from '@/lib/secrets';
+import {
+  IMPORT_META, IMPORT_FIELDS, isValidImportTarget, parseUpload, suggestMapping, IMPORT_ROW_CAP,
+} from '@/lib/import-engine';
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -2200,11 +2208,60 @@ function platformReadPerm(path) {
   if (path.startsWith('/platform/subscriptions') || path === '/platform/billing') return 'subscriptions:read';
   if (path.startsWith('/platform/plans')) return 'plans:read';
   if (path.startsWith('/platform/ai-platforms')) return 'ai:read';
+  if (path.startsWith('/platform/provider-credentials')) return 'integrations:read';
   if (path.startsWith('/platform/integrations')) return 'integrations:read';
   if (path.startsWith('/platform/analytics')) return 'analytics:read';
   if (path.startsWith('/platform/audit')) return 'audit:read';
   if (path.startsWith('/platform/settings')) return 'settings:read';
   return 'platform:dashboard';
+}
+
+// Test a provider's live connectivity using resolved (decrypted/env) values.
+// Returns { ok, message }. Secrets are NEVER included in the message.
+async function testProviderConnection(provider, values = {}) {
+  try {
+    if (provider === 'google_places' || provider === 'google_maps') {
+      const key = values.apiKey || '';
+      if (!key) return { ok: false, message: 'No API key configured.' };
+      const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': 'places.id' },
+        body: JSON.stringify({ textQuery: 'hotel', pageSize: 1 }),
+      });
+      if (r.ok) return { ok: true, message: 'Google Places responded successfully.' };
+      let m = `Provider returned HTTP ${r.status}.`;
+      try { const e = await r.json(); if (e?.error?.message) m = e.error.message; } catch { /* ignore */ }
+      return { ok: false, message: m };
+    }
+    if (provider === 'whatsapp_cloud') {
+      const token = values.accessToken || ''; const phoneId = values.phoneNumberId || '';
+      if (!token || !phoneId) return { ok: false, message: 'Access token and Phone Number ID are required.' };
+      const r = await fetch(`https://graph.facebook.com/v19.0/${encodeURIComponent(phoneId)}?fields=id,display_phone_number`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) return { ok: true, message: 'WhatsApp Cloud API responded successfully.' };
+      return { ok: false, message: `WhatsApp API returned HTTP ${r.status}.` };
+    }
+    if (provider === 'openweather') {
+      const key = values.apiKey || '';
+      if (!key) return { ok: false, message: 'No API key configured.' };
+      const r = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=London&appid=${encodeURIComponent(key)}`);
+      if (r.ok) return { ok: true, message: 'OpenWeather responded successfully.' };
+      return { ok: false, message: `OpenWeather returned HTTP ${r.status}.` };
+    }
+    if (provider === 'razorpay') {
+      const id = values.keyId || ''; const secret = values.keySecret || '';
+      if (!id || !secret) return { ok: false, message: 'Key ID and Key Secret are required.' };
+      const auth = Buffer.from(`${id}:${secret}`).toString('base64');
+      const r = await fetch('https://api.razorpay.com/v1/payments?count=1', { headers: { Authorization: `Basic ${auth}` } });
+      if (r.ok) return { ok: true, message: 'Razorpay authenticated successfully.' };
+      if (r.status === 401) return { ok: false, message: 'Razorpay rejected the credentials (401).' };
+      return { ok: false, message: `Razorpay returned HTTP ${r.status}.` };
+    }
+    return { ok: false, message: 'Connection test not supported for this provider.' };
+  } catch (e) {
+    return { ok: false, message: 'Connection test failed to reach the provider.' };
+  }
 }
 
 async function platformGet(db, session, path, sp) {
@@ -2301,6 +2358,14 @@ async function platformGet(db, session, path, sp) {
   if (path === '/platform/plans') {
     const custom = await db.collection('platformPlans').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
     return json({ catalog: listPlans(), custom });
+  }
+
+  if (path === '/platform/provider-credentials') {
+    const docs = await db.collection(PLATFORM_CRED_COLLECTION).find({}, { projection: { _id: 0 } }).toArray();
+    const byP = Object.fromEntries(docs.map((d) => [d.provider, d]));
+    const providers = PLATFORM_PROVIDER_CATALOG.map((def) => buildProviderView(def, byP[def.provider]));
+    const categories = [...new Set(PLATFORM_PROVIDER_CATALOG.map((p) => p.category))];
+    return json({ providers, categories });
   }
 
   if (path === '/platform/ai-platforms') {
@@ -2405,6 +2470,67 @@ async function platformPost(db, session, path, body, request) {
     return json({ provider: { ...d, keyMask: d.keyLast4 ? `••••••••••••${d.keyLast4}` : '' } });
   }
 
+  // ---- Secure Platform API & Integrations: save a provider credential ----
+  const credSave = path.match(/^\/platform\/provider-credentials\/([^/]+)$/);
+  if (credSave) {
+    if (!canPlatform(session.role, 'integrations:manage')) return err('forbidden', 403);
+    const provider = credSave[1];
+    const def = getProviderDef(provider);
+    if (!def) return err('Unknown provider', 404);
+    const incoming = (body && typeof body.fields === 'object' && body.fields) ? body.fields : body || {};
+    const existing = await db.collection(PLATFORM_CRED_COLLECTION).findOne({ provider });
+    const fields = { ...(existing?.fields || {}) };
+    const secrets = { ...(existing?.secrets || {}) };
+    const touched = [];
+    for (const f of def.fields) {
+      const raw = incoming[f.key];
+      if (raw === undefined) continue; // not provided → keep existing
+      const val = String(raw == null ? '' : raw).trim();
+      if (f.secret) {
+        if (val === '') continue; // blank secret → keep existing (never wipe on empty)
+        // Secret arrives ONLY over this authenticated HTTPS request; encrypt at rest.
+        secrets[f.key] = { enc: encryptSecret(val), last4: val.slice(-4), updatedAt: now };
+        touched.push(f.key);
+      } else {
+        fields[f.key] = str(val, 400);
+        touched.push(f.key);
+      }
+    }
+    const setDoc = {
+      provider, fields, secrets,
+      enabled: body.enabled !== undefined ? !!body.enabled : (existing ? existing.enabled !== false : true),
+      updatedAt: now, updatedBy: `platform:${session.adminId}`,
+    };
+    await db.collection(PLATFORM_CRED_COLLECTION).updateOne(
+      { provider },
+      { $set: setDoc, $setOnInsert: { id: uuidv4(), createdAt: now } },
+      { upsert: true },
+    );
+    // Audit: record WHICH fields changed, never the values.
+    await platformAudit(db, session, request, { action: 'provider_credential.saved', targetType: 'provider', targetId: provider, metadata: { fields: touched, secretUpdated: touched.some((k) => def.fields.find((f) => f.key === k)?.secret) } });
+    const fresh = await db.collection(PLATFORM_CRED_COLLECTION).findOne({ provider }, { projection: { _id: 0 } });
+    return json({ provider: buildProviderView(def, fresh) });
+  }
+
+  // ---- Secure Platform API & Integrations: test connection ----
+  const credTest = path.match(/^\/platform\/provider-credentials\/([^/]+)\/test$/);
+  if (credTest) {
+    if (!canPlatform(session.role, 'integrations:manage')) return err('forbidden', 403);
+    const provider = credTest[1];
+    const def = getProviderDef(provider);
+    if (!def) return err('Unknown provider', 404);
+    if (!def.testable) return err('This provider does not support a connection test', 400);
+    const { values } = await resolveProviderConfig(db, provider);
+    const result = await testProviderConnection(provider, values);
+    await db.collection(PLATFORM_CRED_COLLECTION).updateOne(
+      { provider },
+      { $set: { lastTestedAt: new Date().toISOString(), lastTestStatus: result.ok ? 'passed' : 'failed', lastTestMessage: str(result.message, 300), updatedAt: now }, $setOnInsert: { id: uuidv4(), provider, createdAt: now, fields: {}, secrets: {} } },
+      { upsert: true },
+    );
+    await platformAudit(db, session, request, { action: 'provider_credential.tested', targetType: 'provider', targetId: provider, metadata: { ok: result.ok } });
+    return json({ ok: result.ok, message: result.message });
+  }
+
   const access = path.match(/^\/platform\/agencies\/([^/]+)\/access$/);
   if (access) {
     if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
@@ -2498,6 +2624,23 @@ async function platformPut(db, session, path, body, request) {
     return json({ plan });
   }
 
+  const credToggle = path.match(/^\/platform\/provider-credentials\/([^/]+)$/);
+  if (credToggle) {
+    if (!canPlatform(session.role, 'integrations:manage')) return err('forbidden', 403);
+    const provider = credToggle[1];
+    const def = getProviderDef(provider);
+    if (!def) return err('Unknown provider', 404);
+    if (body.enabled === undefined) return err('enabled (true/false) is required');
+    const r = await db.collection(PLATFORM_CRED_COLLECTION).updateOne(
+      { provider },
+      { $set: { enabled: !!body.enabled, updatedAt: now, updatedBy: `platform:${session.adminId}` }, $setOnInsert: { id: uuidv4(), provider, createdAt: now, fields: {}, secrets: {} } },
+      { upsert: true },
+    );
+    await platformAudit(db, session, request, { action: body.enabled ? 'provider_credential.enabled' : 'provider_credential.disabled', targetType: 'provider', targetId: provider });
+    const fresh = await db.collection(PLATFORM_CRED_COLLECTION).findOne({ provider }, { projection: { _id: 0 } });
+    return json({ provider: buildProviderView(def, fresh) });
+  }
+
   if (path === '/platform/settings') {
     if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403);
     const set = { id: 'platform', updatedAt: now };
@@ -2532,6 +2675,15 @@ async function platformDelete(db, session, path, request) {
     if (r.deletedCount === 0) return err('Custom plan not found', 404);
     await platformAudit(db, session, request, { action: 'plan.deleted', targetType: 'plan', targetId: planDel[1] });
     return json({ ok: true });
+  }
+  const credDel = path.match(/^\/platform\/provider-credentials\/([^/]+)$/);
+  if (credDel) {
+    if (!canPlatform(session.role, 'integrations:manage')) return err('forbidden', 403);
+    const provider = credDel[1];
+    if (!isValidPlatformProvider(provider)) return err('Unknown provider', 404);
+    const r = await db.collection(PLATFORM_CRED_COLLECTION).deleteOne({ provider });
+    await platformAudit(db, session, request, { action: 'provider_credential.removed', targetType: 'provider', targetId: provider });
+    return json({ ok: true, removed: r.deletedCount > 0 });
   }
   return err('not found', 404);
 }
@@ -2584,7 +2736,9 @@ export async function GET(request, context) {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
-      const cfg = discoveryConfig();
+      const db = await getDb();
+      const key = await resolveProviderSecret(db, 'google_places', 'apiKey');
+      const cfg = discoveryConfig(key);
       return json({ configured: cfg.configured, provider: cfg.provider });
     }
     if (path === '/discovery/search') {
@@ -2596,9 +2750,10 @@ export async function GET(request, context) {
       if (!q) return err('Please enter what you want to discover');
       const limit = Number(sp.get('limit') || 12);
       try {
-        const out = await searchBusinesses(q, { limit });
+        const db = await getDb();
+        const key = await resolveProviderSecret(db, 'google_places', 'apiKey');
+        const out = await searchBusinesses(q, { limit, apiKey: key });
         if (out.configured && out.results.length) {
-          const db = await getDb();
           await logActivity(db, session, { type: 'supplier_discovered', message: `Discovered ${out.results.length} supplier(s) for "${q}"`, refType: 'discovery', refId: '' });
         }
         return json({ query: q, ...out });
@@ -2613,10 +2768,62 @@ export async function GET(request, context) {
       if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
       const name = new URL(request.url).searchParams.get('name') || '';
       try {
-        const photo = await fetchPlacePhoto(name);
+        const db = await getDb();
+        const key = await resolveProviderSecret(db, 'google_places', 'apiKey');
+        const photo = await fetchPlacePhoto(name, { apiKey: key });
         if (!photo) return err('not found', 404);
         return new NextResponse(Buffer.from(photo.buffer), { status: 200, headers: { 'Content-Type': photo.contentType, 'Cache-Control': 'private, max-age=86400' } });
       } catch { return err('not found', 404); }
+    }
+
+    // ---- Universal Global Search (tenant-scoped, RBAC-aware) ----
+    if (path === '/search') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      const q = String(new URL(request.url).searchParams.get('q') || '').trim();
+      if (q.length < 2) return json({ query: q, total: 0, groups: [] });
+      const db = await getDb();
+      const out = await globalSearch(db, session, q.slice(0, 120));
+      return json(out);
+    }
+
+    // ---- Data Import: supported targets + history ----
+    if (path === '/import/targets') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      const targets = Object.entries(IMPORT_META)
+        .filter(([, m]) => can(session.role, m.perm))
+        .map(([key, m]) => ({ key, label: m.label, fields: IMPORT_FIELDS[key].map((f) => ({ key: f.key, label: f.label, required: !!f.required })) }));
+      return json({ targets });
+    }
+    if (path === '/import/history') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      const db = await getDb();
+      const jobs = await db.collection('importJobs').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(50).toArray();
+      return json({ jobs });
+    }
+
+    // ---- Data Export (CSV, tenant-scoped, RBAC per entity) ----
+    if (path.startsWith('/export/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      const entity = path.split('/')[2];
+      const spec = EXPORT_SPECS[entity];
+      if (!spec) return err('Unknown export entity', 404);
+      if (!can(session.role, spec.perm)) return err('forbidden', 403);
+      const db = await getDb();
+      const rows = await db.collection(entity).find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(10000).toArray();
+      const csv = toCsv(spec.columns, rows);
+      const stamp = new Date().toISOString().slice(0, 10);
+      return new NextResponse(csv, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="safaros-${entity}-${stamp}.csv"`,
+          'Cache-Control': 'no-store',
+        },
+      });
     }
 
     if (path.startsWith('/billing/')) {
@@ -3019,6 +3226,151 @@ export async function GET(request, context) {
 }
 
 // ---------------------------------------------------------------- POST
+// ======================= DATA IMPORT & MIGRATION ENGINE =======================
+// Reuses EXISTING create-validators so imported records are schema-identical to
+// manually created ones. Tenant scoping + RBAC enforced by the API caller.
+const IMPORT_VALIDATORS = {
+  suppliers: (b) => validateSupplierInput(b),
+  clients: (b) => buildClientFields(b, {}),
+  leads: (b) => buildLeadFields(b, {}),
+  vehicles: (b) => validateVehicleInput(b),
+  drivers: (b) => validateDriverInput(b),
+};
+
+// Tenant-scoped duplicate filter from a validated value (never auto-overwrites).
+function importDedupeFilter(session, target, value) {
+  const or = [];
+  const email = (value.email || '').trim().toLowerCase();
+  const phone = (value.phone || '').trim();
+  if (target === 'suppliers') {
+    if (value.name) or.push({ nameLower: value.name.trim().toLowerCase(), city: value.city || '' });
+    if (phone) or.push({ phone });
+  } else if (target === 'clients' || target === 'leads') {
+    if (email) or.push({ email });
+    if (phone && value.name) or.push({ phone, name: value.name });
+  } else if (target === 'vehicles') {
+    if (value.vehicleNumber) or.push({ vehicleNumber: value.vehicleNumber });
+  } else if (target === 'drivers') {
+    if (phone) or.push({ phone });
+    if (value.licenseNumber) or.push({ licenseNumber: value.licenseNumber });
+  }
+  if (!or.length) return null;
+  return tenantFilter(session, { $or: or });
+}
+
+// Build a schema-compatible document for insert (mirrors the create routes' shape).
+function buildImportDoc(session, target, value, now) {
+  const base = withAgency(session, { id: uuidv4(), ...value, createdBy: session.userId, createdAt: now, updatedAt: now });
+  if (target === 'suppliers') base.nameLower = (value.name || '').trim().toLowerCase();
+  base.importedAt = now; // provenance marker (non-breaking)
+  return base;
+}
+
+// Core import pass. `confirm=false` is a dry-run (validate + dedupe, no writes).
+async function runImport(db, session, target, rows, mapping) {
+  const def = IMPORT_FIELDS[target];
+  const validate = IMPORT_VALIDATORS[target];
+  const now = new Date().toISOString();
+  const res = { total: rows.length, imported: 0, duplicates: 0, errors: 0, issues: [] };
+  for (let i = 0; i < rows.length; i++) {
+    const raw = rows[i] || {};
+    const body = {};
+    for (const f of def) { const col = mapping[f.key]; if (col && raw[col] !== undefined && raw[col] !== '') body[f.key] = raw[col]; }
+    const { value, error } = validate(body);
+    if (error) { res.errors++; if (res.issues.length < 200) res.issues.push({ row: i + 1, status: 'error', message: error }); continue; }
+    const dupeFilter = importDedupeFilter(session, target, value);
+    let existing = null;
+    if (dupeFilter) existing = await db.collection(IMPORT_META[target].collection).findOne(dupeFilter, { projection: { _id: 1 } });
+    if (existing) { res.duplicates++; if (res.issues.length < 200) res.issues.push({ row: i + 1, status: 'duplicate', message: `Matches an existing ${IMPORT_META[target].singular}` }); continue; }
+    await db.collection(IMPORT_META[target].collection).insertOne(buildImportDoc(session, target, value, now));
+    res.imported++;
+  }
+  return res;
+}
+
+// Dry-run variant: validate + dedupe without inserting (for the preview step).
+async function previewImport(db, session, target, rows, mapping) {
+  const def = IMPORT_FIELDS[target];
+  const validate = IMPORT_VALIDATORS[target];
+  const res = { total: rows.length, ready: 0, duplicates: 0, errors: 0, issues: [], sample: [] };
+  for (let i = 0; i < rows.length; i++) {
+    const raw = rows[i] || {};
+    const body = {};
+    for (const f of def) { const col = mapping[f.key]; if (col && raw[col] !== undefined && raw[col] !== '') body[f.key] = raw[col]; }
+    const { value, error } = validate(body);
+    if (i < 20) res.sample.push({ row: i + 1, data: body });
+    if (error) { res.errors++; if (res.issues.length < 200) res.issues.push({ row: i + 1, status: 'error', message: error }); continue; }
+    const dupeFilter = importDedupeFilter(session, target, value);
+    let existing = null;
+    if (dupeFilter) existing = await db.collection(IMPORT_META[target].collection).findOne(dupeFilter, { projection: { _id: 1 } });
+    if (existing) { res.duplicates++; if (res.issues.length < 200) res.issues.push({ row: i + 1, status: 'duplicate', message: `Matches an existing ${IMPORT_META[target].singular}` }); continue; }
+    res.ready++;
+  }
+  return res;
+}
+
+// ======================= UNIVERSAL GLOBAL SEARCH =======================
+function escapeRegex(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// Per-entity search spec: fields to match + how to render a result + target module.
+const SEARCH_ENTITIES = [
+  { type: 'leads', label: 'Leads', perm: 'leads:read', route: 'leads', fields: ['name', 'email', 'phone', 'source'], title: (d) => d.name, subtitle: (d) => d.email || d.phone || d.source || '' },
+  { type: 'clients', label: 'Clients', perm: 'clients:read', route: 'clients', fields: ['name', 'email', 'phone'], title: (d) => d.name, subtitle: (d) => d.email || d.phone || '' },
+  { type: 'suppliers', label: 'Suppliers', perm: 'suppliers:read', route: 'suppliers', fields: ['name', 'phone', 'email', 'type', 'city'], title: (d) => d.name, subtitle: (d) => [d.type, d.city].filter(Boolean).join(' · ') || d.phone || '' },
+  { type: 'quotations', label: 'Quotations', perm: 'quotations:read', route: 'quotations', fields: ['quotationNumber', 'destination', 'customerName'], title: (d) => d.quotationNumber || d.destination, subtitle: (d) => [d.customerName, d.destination].filter(Boolean).join(' · ') },
+  { type: 'packages', label: 'Packages', perm: 'packages:read', route: 'packages', fields: ['name', 'destination', 'customerName'], title: (d) => d.name || d.destination, subtitle: (d) => d.destination || '' },
+  { type: 'itineraries', label: 'Itineraries', perm: 'itineraries:read', route: 'itineraries', fields: ['title', 'destination', 'customerName'], title: (d) => d.title || d.destination, subtitle: (d) => d.destination || '' },
+  { type: 'bookings', label: 'Bookings', perm: 'bookings:read', route: 'bookings', fields: ['bookingNumber', 'destination', 'customerName'], title: (d) => d.bookingNumber || d.destination, subtitle: (d) => [d.customerName, d.destination].filter(Boolean).join(' · ') },
+  { type: 'vehicles', label: 'Fleet · Vehicles', perm: 'fleet:read', route: 'fleet', fields: ['vehicleNumber', 'make', 'model', 'registrationNumber'], title: (d) => d.vehicleNumber, subtitle: (d) => [d.make, d.model].filter(Boolean).join(' ') },
+  { type: 'drivers', label: 'Fleet · Drivers', perm: 'fleet:read', route: 'fleet', fields: ['name', 'phone', 'licenseNumber'], title: (d) => d.name, subtitle: (d) => d.phone || d.licenseNumber || '' },
+  { type: 'payments', label: 'Payments', perm: 'payments:read', route: 'fin_payments', fields: ['paymentNumber', 'clientName', 'supplierName'], title: (d) => d.paymentNumber, subtitle: (d) => d.clientName || d.supplierName || '' },
+];
+
+async function globalSearch(db, session, q) {
+  const rx = new RegExp(escapeRegex(q), 'i');
+  const groups = [];
+  await Promise.all(SEARCH_ENTITIES.map(async (e) => {
+    if (!can(session.role, e.perm)) return;
+    const or = e.fields.map((f) => ({ [f]: rx }));
+    let docs = [];
+    try {
+      docs = await db.collection(e.type).find(tenantFilter(session, { $or: or }), { projection: { _id: 0 } }).limit(6).toArray();
+    } catch { docs = []; }
+    if (!docs.length) return;
+    groups.push({
+      type: e.type, label: e.label, route: e.route,
+      items: docs.map((d) => ({ id: d.id, title: String(e.title(d) || '(untitled)'), subtitle: String(e.subtitle(d) || '') })),
+    });
+  }));
+  // Stable order following SEARCH_ENTITIES declaration.
+  const order = Object.fromEntries(SEARCH_ENTITIES.map((e, i) => [e.type, i]));
+  groups.sort((a, b) => order[a.type] - order[b.type]);
+  const total = groups.reduce((s, g) => s + g.items.length, 0);
+  return { query: q, total, groups };
+}
+
+// ======================= DATA EXPORT FOUNDATION =======================
+const EXPORT_SPECS = {
+  suppliers: { perm: 'suppliers:read', columns: ['name', 'type', 'contactPerson', 'phone', 'email', 'website', 'address', 'city', 'state', 'country', 'status', 'notes', 'createdAt'] },
+  clients: { perm: 'clients:read', columns: ['name', 'email', 'phone', 'status', 'notes', 'createdAt'] },
+  leads: { perm: 'leads:read', columns: ['name', 'email', 'phone', 'source', 'status', 'notes', 'createdAt'] },
+  bookings: { perm: 'bookings:read', columns: ['bookingNumber', 'customerName', 'destination', 'startDate', 'endDate', 'status', 'grandTotal', 'createdAt'] },
+  quotations: { perm: 'quotations:read', columns: ['quotationNumber', 'customerName', 'destination', 'startDate', 'endDate', 'status', 'grandTotal', 'createdAt'] },
+  payments: { perm: 'payments:read', columns: ['paymentNumber', 'type', 'clientName', 'supplierName', 'amount', 'paymentMethod', 'status', 'paymentDate', 'createdAt'] },
+};
+
+function csvCell(v) {
+  if (v == null) return '';
+  let s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+function toCsv(columns, rows) {
+  const head = columns.map(csvCell).join(',');
+  const body = rows.map((r) => columns.map((c) => csvCell(r[c])).join(',')).join('\n');
+  return head + '\n' + body;
+}
+
 export async function POST(request, context) {
   const params = await context.params;
   const path = pathOf(params);
@@ -3095,6 +3447,55 @@ export async function POST(request, context) {
       const name = str(body.name, 160) || 'a business';
       await logActivity(db, session2, { type: 'supplier_whatsapp', message: `WhatsApp contact initiated with ${name}`, refType: 'discovery', refId: str(body.sourceId, 160) });
       return json({ ok: true });
+    }
+
+    // ---- Data Import & Migration Engine ----
+    if (path === '/import/analyze' || path === '/import/preview' || path === '/import/commit') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      const body = await readBody(request);
+      const target = String(body.target || '');
+      if (!isValidImportTarget(target)) return err('Unknown import target');
+      if (!can(session.role, IMPORT_META[target].perm)) return err('forbidden', 403);
+      const type = body.type === 'xlsx' ? 'xlsx' : 'csv';
+      if (!body.content) return err('No file content provided');
+      let parsed;
+      try { parsed = parseUpload({ type, content: body.content, encoding: body.encoding || 'base64' }); }
+      catch { return err('Could not read the file. Please check it is a valid CSV/XLSX.'); }
+      if (!parsed.columns.length) return err('No columns were detected in the file');
+      if (!parsed.rows.length) return err('No data rows were found in the file');
+
+      if (path === '/import/analyze') {
+        const mapping = suggestMapping(parsed.columns, IMPORT_FIELDS[target]);
+        return json({
+          target, columns: parsed.columns, totalRows: parsed.rows.length, capped: parsed.rows.length >= IMPORT_ROW_CAP,
+          sampleRows: parsed.rows.slice(0, 10), mapping,
+          fields: IMPORT_FIELDS[target].map((f) => ({ key: f.key, label: f.label, required: !!f.required })),
+        });
+      }
+
+      const mapping = (body.mapping && typeof body.mapping === 'object') ? body.mapping : {};
+      // required-field mapping guard
+      const missing = IMPORT_FIELDS[target].filter((f) => f.required && !mapping[f.key]);
+      if (missing.length) return err(`Please map the required field: ${missing.map((m) => m.label).join(', ')}`);
+
+      if (path === '/import/preview') {
+        const result = await previewImport(db, session, target, parsed.rows, mapping);
+        return json({ target, preview: result });
+      }
+
+      // commit — actual insert (explicit confirmation)
+      const result = await runImport(db, session, target, parsed.rows, mapping);
+      const now = new Date().toISOString();
+      const jobDoc = withAgency(session, {
+        id: uuidv4(), target, collection: IMPORT_META[target].collection,
+        fileName: str(body.fileName, 200), fileType: type,
+        total: result.total, imported: result.imported, duplicates: result.duplicates, errors: result.errors,
+        createdBy: session.userId, createdByName: session.name || '', createdAt: now,
+      });
+      try { await db.collection('importJobs').insertOne(jobDoc); } catch { /* history best-effort */ }
+      await logActivity(db, session, { type: 'data_imported', message: `Imported ${result.imported} ${IMPORT_META[target].label.toLowerCase()} (${result.duplicates} duplicates, ${result.errors} errors)`, refType: 'import', refId: jobDoc.id });
+      return json({ target, result });
     }
 
     // Agency onboarding: creates an agency + its owner user (REBUILD).

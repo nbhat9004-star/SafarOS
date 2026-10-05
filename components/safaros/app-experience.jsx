@@ -4,7 +4,7 @@
 // Moved verbatim from the original app/page.js — auth/session/tenant logic UNCHANGED.
 // Exposed as a reusable component so /app, /login and /signup can render it.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +40,7 @@ import {
   Banknote, Printer, Undo2,
   MessageSquare, Sparkles, Send, Bot, Megaphone, UserCog, ExternalLink,
   Palette, Gauge, PieChart, Compass, Star, LayoutGrid, ChevronRight,
+  Upload, Download, Database, Loader2, AlertCircle, FileSpreadsheet,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -288,6 +289,13 @@ const NAV = [
   },
   { id: 'copilot', label: 'Copilot', icon: Sparkles },
   { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck },
+  {
+    group: 'Data Tools',
+    items: [
+      { id: 'data_import', label: 'Import Data', icon: Upload },
+      { id: 'data_export', label: 'Export Data', icon: Download },
+    ],
+  },
   { id: 'team', label: 'Team', icon: Users },
   { id: 'settings', label: 'Settings', icon: Building2 },
 ];
@@ -311,6 +319,7 @@ const SECTION_TITLES = {
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
   int_overview: 'Integrations', int_webhooks: 'Webhooks', int_api: 'Developer API',
+  data_import: 'Import Data', data_export: 'Export Data',
   team: 'Team', settings: 'Settings',
 };
 
@@ -850,6 +859,341 @@ function SupplierDiscovery({ session, onGo = () => {} }) {
   );
 }
 
+// ================= Universal Global Search =================
+function GlobalSearch({ onNavigate }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setData(null); setLoading(false); return; }
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try { const d = await api(`/search?q=${encodeURIComponent(term)}`); setData(d); }
+      catch { setData(null); } finally { setLoading(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  useEffect(() => {
+    const onDoc = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const choose = (route) => { setOpen(false); setQ(''); setData(null); onNavigate(route); };
+
+  return (
+    <div ref={boxRef} className="relative">
+      <div className="hidden w-56 items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 sm:flex lg:w-72">
+        <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}
+          placeholder="Search everything…" className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+        {q && <button onClick={() => { setQ(''); setData(null); }} aria-label="Clear" className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>}
+      </div>
+      <button onClick={() => setOpen((o) => !o)} aria-label="Search" className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent sm:hidden"><Search className="h-5 w-5" /></button>
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-2 w-[22rem] max-w-[92vw] overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
+          <div className="flex items-center gap-2 border-b px-3 py-2 sm:hidden">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search everything…" className="w-full bg-transparent text-sm outline-none" />
+          </div>
+          <div className="max-h-[60vh] overflow-auto p-2">
+            {loading && <div className="px-3 py-6 text-center text-sm text-muted-foreground"><Loader2 className="mx-auto mb-1 h-4 w-4 animate-spin" />Searching…</div>}
+            {!loading && q.trim().length < 2 && <div className="px-3 py-6 text-center text-xs text-muted-foreground">Type at least 2 characters. Searches leads, clients, suppliers, quotations, packages, itineraries, bookings, fleet &amp; payments.</div>}
+            {!loading && q.trim().length >= 2 && data && data.total === 0 && <div className="px-3 py-6 text-center text-sm text-muted-foreground">No matches for &ldquo;{q.trim()}&rdquo;.</div>}
+            {!loading && data && data.groups.map((g) => (
+              <div key={g.type} className="mb-1">
+                <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{g.label}</div>
+                {g.items.map((it) => (
+                  <button key={it.id} onClick={() => choose(g.route)} className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{it.title}</div>
+                      {it.subtitle && <div className="truncate text-xs text-muted-foreground">{it.subtitle}</div>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ================= Data Import & Migration =================
+const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result).split(',')[1] || '');
+  r.onerror = reject;
+  r.readAsDataURL(file);
+});
+
+function DataImport({ session, onNavigate }) {
+  const role = session?.user?.role;
+  const [targets, setTargets] = useState([]);
+  const [target, setTarget] = useState('');
+  const [file, setFile] = useState(null);
+  const [fileType, setFileType] = useState('csv');
+  const [content, setContent] = useState('');
+  const [step, setStep] = useState('upload'); // upload | map | preview | done
+  const [analysis, setAnalysis] = useState(null);
+  const [mapping, setMapping] = useState({});
+  const [preview, setPreview] = useState(null);
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [history, setHistory] = useState([]);
+  const fileRef = useRef(null);
+
+  const loadHistory = () => api('/import/history').then((d) => setHistory(d.jobs || [])).catch(() => {});
+  useEffect(() => { api('/import/targets').then((d) => setTargets(d.targets || [])).catch(() => {}); loadHistory(); }, []);
+
+  const reset = () => { setFile(null); setContent(''); setAnalysis(null); setMapping({}); setPreview(null); setResult(null); setStep('upload'); if (fileRef.current) fileRef.current.value = ''; };
+
+  const onFile = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const ext = f.name.toLowerCase().split('.').pop();
+    if (!['csv', 'xlsx', 'xls'].includes(ext)) { toast.error('Please choose a CSV or XLSX file'); return; }
+    setFile(f); setFileType(ext === 'csv' ? 'csv' : 'xlsx');
+    try { setContent(await readFileAsBase64(f)); } catch { toast.error('Could not read the file'); }
+  };
+
+  const analyze = async () => {
+    if (!target) { toast.error('Choose what to import first'); return; }
+    if (!content) { toast.error('Choose a file to upload'); return; }
+    setBusy(true);
+    try {
+      const d = await api('/import/analyze', { method: 'POST', body: JSON.stringify({ target, type: fileType, content }) });
+      setAnalysis(d); setMapping(d.mapping || {}); setStep('map');
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+
+  const runPreview = async () => {
+    setBusy(true);
+    try {
+      const d = await api('/import/preview', { method: 'POST', body: JSON.stringify({ target, type: fileType, content, mapping }) });
+      setPreview(d.preview); setStep('preview');
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+
+  const commit = async () => {
+    setBusy(true);
+    try {
+      const d = await api('/import/commit', { method: 'POST', body: JSON.stringify({ target, type: fileType, content, mapping, fileName: file ? file.name : '' }) });
+      setResult(d.result); setStep('done'); loadHistory();
+      toast.success(`Imported ${d.result.imported} record(s)`);
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+
+  if (!can(role, 'suppliers:create') && !can(role, 'clients:create') && !can(role, 'leads:create') && !can(role, 'fleet:create')) {
+    return <Card><CardContent className="p-6 text-sm text-muted-foreground">You don&apos;t have permission to import data.</CardContent></Card>;
+  }
+
+  const steps = [['upload', 'Upload'], ['map', 'Map fields'], ['preview', 'Preview'], ['done', 'Done']];
+  const stepIdx = steps.findIndex((s) => s[0] === step);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-bold">Import Data</h2>
+          <p className="text-sm text-muted-foreground">Bring existing records into SafarOS from CSV or Excel. Duplicates are detected and never overwritten.</p>
+        </div>
+        {step !== 'upload' && <Button variant="outline" size="sm" onClick={reset}>Start over</Button>}
+      </div>
+
+      {/* Stepper */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {steps.map(([id, label], i) => (
+          <div key={id} className="flex items-center gap-2">
+            <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold ${i <= stepIdx ? 'bg-violet-600 text-white' : 'bg-muted text-muted-foreground'}`}>{i + 1}</span>
+            <span className={i <= stepIdx ? 'font-medium' : 'text-muted-foreground'}>{label}</span>
+            {i < steps.length - 1 && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+          </div>
+        ))}
+      </div>
+
+      {step === 'upload' && (
+        <Card><CardContent className="space-y-4 p-5">
+          <div className="space-y-1.5">
+            <Label>What do you want to import?</Label>
+            <Select value={target} onValueChange={setTarget}>
+              <SelectTrigger className="max-w-xs"><SelectValue placeholder="Select a data type" /></SelectTrigger>
+              <SelectContent>{targets.map((t) => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>File (CSV or XLSX)</Label>
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={onFile}
+              className="block w-full max-w-md text-sm file:mr-3 file:rounded-md file:border-0 file:bg-violet-600 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-violet-700" />
+            {file && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><FileSpreadsheet className="h-3.5 w-3.5" />{file.name}</p>}
+          </div>
+          <Button onClick={analyze} disabled={busy || !target || !content}>{busy ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" />Analyzing…</> : 'Analyze file'}</Button>
+        </CardContent></Card>
+      )}
+
+      {step === 'map' && analysis && (
+        <Card><CardContent className="space-y-4 p-5">
+          <div className="text-sm text-muted-foreground">{analysis.totalRows} row(s) detected{analysis.capped ? ' (first 2000 will be processed)' : ''}. Match your file columns to SafarOS fields.</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {analysis.fields.map((f) => (
+              <div key={f.key} className="space-y-1.5">
+                <Label>{f.label}{f.required && <span className="text-rose-500"> *</span>}</Label>
+                <Select value={mapping[f.key] || '__none__'} onValueChange={(v) => setMapping({ ...mapping, [f.key]: v === '__none__' ? '' : v })}>
+                  <SelectTrigger><SelectValue placeholder="Not mapped" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— Not mapped —</SelectItem>
+                    {analysis.columns.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setStep('upload')}>Back</Button>
+            <Button onClick={runPreview} disabled={busy}>{busy ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" />Checking…</> : 'Preview import'}</Button>
+          </div>
+        </CardContent></Card>
+      )}
+
+      {step === 'preview' && preview && (
+        <Card><CardContent className="space-y-4 p-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat2 label="Total rows" value={preview.total} />
+            <Stat2 label="Ready" value={preview.ready} tone="emerald" />
+            <Stat2 label="Duplicates" value={preview.duplicates} tone="amber" />
+            <Stat2 label="Errors" value={preview.errors} tone="rose" />
+          </div>
+          {preview.issues && preview.issues.length > 0 && (
+            <div className="rounded-lg border">
+              <div className="border-b bg-muted/40 px-3 py-2 text-xs font-semibold">Rows needing attention</div>
+              <div className="max-h-56 overflow-auto divide-y text-sm">
+                {preview.issues.map((it) => (
+                  <div key={it.row} className="flex items-center gap-2 px-3 py-1.5">
+                    <AlertCircle className={`h-3.5 w-3.5 ${it.status === 'duplicate' ? 'text-amber-500' : 'text-rose-500'}`} />
+                    <span className="text-muted-foreground">Row {it.row}:</span><span>{it.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">Only new, valid rows will be imported. Duplicate rows are skipped — nothing existing is overwritten.</p>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setStep('map')}>Back</Button>
+            <Button onClick={commit} disabled={busy || preview.ready === 0}>{busy ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" />Importing…</> : `Confirm import (${preview.ready})`}</Button>
+          </div>
+        </CardContent></Card>
+      )}
+
+      {step === 'done' && result && (
+        <Card><CardContent className="space-y-4 p-5">
+          <div className="flex items-center gap-2 text-emerald-600"><CheckCircle2 className="h-5 w-5" /><span className="font-semibold">Import complete</span></div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat2 label="Imported" value={result.imported} tone="emerald" />
+            <Stat2 label="Duplicates skipped" value={result.duplicates} tone="amber" />
+            <Stat2 label="Errors" value={result.errors} tone="rose" />
+            <Stat2 label="Total rows" value={result.total} />
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={reset}>Import another file</Button>
+            {onNavigate && target && <Button variant="outline" onClick={() => onNavigate(target === 'vehicles' || target === 'drivers' ? 'fleet' : target)}>View {target}</Button>}
+          </div>
+        </CardContent></Card>
+      )}
+
+      {/* History */}
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-muted-foreground">Recent imports</h3>
+        {history.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No imports yet.</p>
+        ) : (
+          <Card><CardContent className="p-0"><div className="overflow-x-auto"><Table>
+            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>File</TableHead><TableHead>Imported</TableHead><TableHead>Duplicates</TableHead><TableHead>Errors</TableHead></TableRow></TableHeader>
+            <TableBody>{history.map((j) => (
+              <TableRow key={j.id}>
+                <TableCell className="whitespace-nowrap text-xs">{new Date(j.createdAt).toLocaleString()}</TableCell>
+                <TableCell className="capitalize">{j.target}</TableCell>
+                <TableCell className="max-w-[160px] truncate text-xs">{j.fileName || '—'}</TableCell>
+                <TableCell className="text-emerald-600">{j.imported}</TableCell>
+                <TableCell className="text-amber-600">{j.duplicates}</TableCell>
+                <TableCell className="text-rose-600">{j.errors}</TableCell>
+              </TableRow>
+            ))}</TableBody>
+          </Table></div></CardContent></Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat2({ label, value, tone }) {
+  const cls = { emerald: 'text-emerald-600', amber: 'text-amber-600', rose: 'text-rose-600' }[tone] || 'text-foreground';
+  return (<div className="rounded-lg border bg-background p-3"><div className="text-xs text-muted-foreground">{label}</div><div className={`mt-0.5 text-xl font-bold ${cls}`}>{value}</div></div>);
+}
+
+// ================= Data Export =================
+function DataExport({ session }) {
+  const role = session?.user?.role;
+  const [busy, setBusy] = useState('');
+  const EXPORTS = [
+    { entity: 'suppliers', label: 'Suppliers', perm: 'suppliers:read', icon: Store },
+    { entity: 'clients', label: 'Clients', perm: 'clients:read', icon: Contact },
+    { entity: 'leads', label: 'Leads', perm: 'leads:read', icon: UserPlus },
+    { entity: 'bookings', label: 'Bookings', perm: 'bookings:read', icon: ClipboardList },
+    { entity: 'quotations', label: 'Quotations', perm: 'quotations:read', icon: FileText },
+    { entity: 'payments', label: 'Payments', perm: 'payments:read', icon: Banknote },
+  ];
+  const available = EXPORTS.filter((e) => can(role, e.perm));
+
+  const download = async (entity) => {
+    setBusy(entity);
+    try {
+      const res = await fetch(`/api/export/${entity}`, { credentials: 'include' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Export failed'); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `safaros-${entity}-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      toast.success(`${entity} exported`);
+    } catch (e) { toast.error(e.message); } finally { setBusy(''); }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-lg font-bold">Export Data</h2>
+        <p className="text-sm text-muted-foreground">Download your agency&apos;s records as CSV. Exports include only your agency&apos;s data.</p>
+      </div>
+      {available.length === 0 ? (
+        <Card><CardContent className="p-6 text-sm text-muted-foreground">You don&apos;t have permission to export data.</CardContent></Card>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {available.map((e) => {
+            const Icon = e.icon;
+            return (
+              <Card key={e.entity}><CardContent className="flex items-center justify-between gap-3 p-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><Icon className="h-5 w-5" /></div>
+                  <div className="min-w-0"><div className="truncate font-semibold">{e.label}</div><div className="text-xs text-muted-foreground">CSV export</div></div>
+                </div>
+                <Button size="sm" variant="outline" disabled={busy === e.entity} onClick={() => download(e.entity)}>
+                  {busy === e.entity ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Download className="mr-1 h-4 w-4" />CSV</>}
+                </Button>
+              </CardContent></Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ session, onLogout }) {
   const [active, setActive] = useState('overview');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -920,6 +1264,7 @@ function Dashboard({ session, onLogout }) {
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
+            <GlobalSearch onNavigate={go} />
             <SyncStatusIndicator />
             <div className="hidden items-center gap-2.5 rounded-full border border-border bg-background px-2 py-1 pr-3 sm:flex">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-[11px] font-bold text-white">{userInitial}</div>
@@ -970,6 +1315,8 @@ function Dashboard({ session, onLogout }) {
           {String(active).startsWith('sub_') && <Billing key="sub" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('sub_' + t)} />}
           {String(active).startsWith('int_') && <Integrations key="int" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('int_' + t)} />}
           {active === 'portal_admin' && <PortalAdmin session={session} />}
+          {active === 'data_import' && <DataImport key="imp" session={session} onNavigate={navigateTo} />}
+          {active === 'data_export' && <DataExport key="exp" session={session} />}
           {active === 'team' && <Team session={session} />}
           {active === 'settings' && <Settings session={session} />}
           </>

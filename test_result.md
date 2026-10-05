@@ -11,6 +11,44 @@ Implement Phase 5.6 (Agency Website Builder Foundation), Phase 5.7 (SEO & Search
 - **NO verification agents allowed**
 - Manual testing only: bash, curl, python scripts, screenshot tool
 
+## SafarOS Combined Prompt 1 — Discovery & Data + Secure API Manager (Oct 5, 2026)
+
+**Status:** ✅ COMPLETED. No testing/QA/browser/autonomous/verification agents used — curl + lint + screenshot only. Existing auth/JWT/RBAC/tenant isolation, MongoDB structure, routes and UI preserved. Safar Curated (`/app/safar_intake`) NOT modified. No dependency upgrades (added one new lib `xlsx@0.18.5` for Excel parsing). No fake supplier/business data.
+
+### 0) Secure Super Admin → API & Integrations Manager (architectural add requested mid-task)
+- **New `lib/secrets.js`**: AES-256-GCM encrypt/decrypt (master key from env `CREDENTIALS_ENCRYPTION_KEY` → fallback `JWT_SECRET`, never persisted/exposed), `maskValue`, extensible `PLATFORM_PROVIDER_CATALOG` (google_places, google_maps, whatsapp_cloud, openweather, google_oauth, google_search_console, razorpay), `resolveProviderSecret`/`resolveProviderConfig` (stored→env fallback), `buildProviderView` (masked-only).
+- **New collection** `platformProviderCredentials` (unique `provider`). Secret fields stored AES-GCM-encrypted + last4 hint; non-secret identifiers stored plain. API responses return masked values ONLY — verified no plaintext in DB.
+- **Platform routes** (super_admin via new `integrations:manage`): `GET /platform/provider-credentials` (catalog+masked status), `POST /platform/provider-credentials/:provider` (save; encrypts on receipt), `POST /:provider/test` (live connection test, never leaks secret), `PUT /:provider` (enable/disable), `DELETE /:provider` (remove). All audited in `platformAuditLogs` (field names only, never values).
+- **Super Admin UI**: new "API & Integrations" section in `platform-admin.jsx` — provider cards grouped by category, Configure (secret inputs, "leave blank to keep"), Test, Enable/Disable, Remove, status badges, last-test info.
+- **Supplier Discovery wired**: `lib/discovery.js` now accepts an optional resolved key; discovery routes resolve Google Places key via `resolveProviderSecret` (DB→env). Existing `GOOGLE_PLACES_API_KEY` env support preserved. Verified: store key → `/discovery/status` configured:true; disable/delete → false.
+
+### 1) Supplier Discovery — Live Provider
+- Already fully implemented (K1). No code changes needed beyond secure-credential wiring above. Live when a Google Places key is configured via Super Admin OR `GOOGLE_PLACES_API_KEY` env. Configuration-ready when absent (no fabricated data).
+
+### 2) Data Import & Migration Engine (CSV + XLSX)
+- **New `lib/import-engine.js`**: `parseUpload` (CSV native + XLSX via SheetJS), header detection, `suggestMapping` (alias matching), target field catalog. Targets: suppliers, clients, leads, vehicles, drivers. Row cap 2000.
+- **Routes**: `POST /import/analyze` (columns + suggested mapping + sample), `POST /import/preview` (dry-run validate+dedupe), `POST /import/commit` (insert after confirmation), `GET /import/targets`, `GET /import/history` (new `importJobs` collection). Reuses EXISTING create-validators → schema-identical records. Tenant-scoped, RBAC per target. **Never overwrites**; duplicates detected (email/phone/name+city/vehicleNumber/licence). Verified: analyze→preview→commit (2 imported, 1 dup), re-commit (0 imported, 3 dup).
+- **UI**: new "Import Data" module (Upload→Map→Preview→Done stepper + history).
+
+### 3) Universal Global Search
+- **Route** `GET /search?q=` — tenant-scoped, RBAC-aware, across leads/clients/suppliers/quotations/packages/itineraries/bookings/vehicles/drivers/payments; grouped results, 6 per entity, regex-escaped. Verified "Ahmed" → clients group.
+- **UI**: debounced (300ms) global search box in the workspace header; grouped dropdown; clicking routes to the existing module.
+
+### 4) Data Export Foundation
+- **Route** `GET /export/:entity?format=csv` — CSV for suppliers/clients/leads/bookings/quotations/payments; tenant-isolated, RBAC per entity, proper `Content-Disposition`. Verified download + headers.
+- **UI**: new centralized "Export Data" module (per-entity CSV download, permission-filtered).
+
+**New nav**: "Data Tools" group (Import Data, Export Data) in Agency Workspace.
+
+**Env note**: `.env` (gitignored) was missing in this preview — restored dev values (MONGO_URL, DB_NAME, JWT_SECRET, NEXT_PUBLIC_BASE_URL) + added `CREDENTIALS_ENCRYPTION_KEY` and dev SUPER_ADMIN bootstrap. Credentials in `/app/memory/test_credentials.md`.
+
+**Configuration still required (production)**: set a real provider credential via Super Admin → API & Integrations (e.g. Google Places) OR the corresponding env var; set a stable `CREDENTIALS_ENCRYPTION_KEY` in production so encrypted secrets remain decryptable.
+
+**Deferred (out of scope):** PDF/JSON/XML/Tally imports, rollback engine, background-job infra, cloud backup/scheduled backups, full DB dump/restore, WhatsApp Cloud messaging, advanced maps/AI recommendations, agency-specific OAuth token store.
+
+---
+
+
 ## Fleet Management — Production Completion (Oct 5, 2026)
 
 **Status:** ✅ COMPLETED within 2-credit budget. No testing/QA/browser/autonomous/verification agents used (curl + lint + compile checks only). Existing `vehicles`, `drivers`, bookings & assignment functionality preserved; auth/RBAC/tenant isolation intact; no duplicate collections; no dependency upgrades; Safar Curated untouched.
