@@ -600,7 +600,7 @@ async function syncVehicleDriver(db, session, vehicleId, newDriverId, oldDriverI
 }
 
 // ======================= FINANCE & ACCOUNTING =======================
-const TXN_TYPES = ['income', 'expense'];
+const TXN_TYPES = ['income', 'expense', 'transfer'];
 const TXN_STATUSES = ['pending', 'completed', 'cancelled'];
 const PAYMENT_METHODS = ['cash', 'bank_transfer', 'upi', 'card', 'cheque', 'other'];
 const EXPENSE_CATEGORIES = ['transport', 'hotel', 'activity', 'staff', 'office', 'marketing', 'fuel', 'supplier', 'other'];
@@ -673,11 +673,46 @@ async function financeGet(db, session, path, sp) {
     const outstandingSupplier = sum(pay, 'outstandingAmount', true);
     const totalExpenses = sum(exp, 'amount', true);
     const grossProfit = round2(totalRevenue - totalPayables - totalExpenses);
-    return json({ dashboard: { totalRevenue, receivedPayments, outstandingCustomer, totalPayables, paidSupplier, outstandingSupplier, totalExpenses, grossProfit, currency: DEFAULT_CURRENCY } });
+    // Recent transactions (last 10) + 6-month income/expense trend.
+    const txns = await db.collection('financialTransactions').find(tenantFilter(session, { status: { $ne: 'cancelled' } }), { projection: { _id: 0 } }).sort({ transactionDate: -1, createdAt: -1 }).limit(400).toArray();
+    const recentTransactions = txns.slice(0, 10);
+    const months = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleString('en-US', { month: 'short' }), income: 0, expense: 0 }); }
+    const mIndex = Object.fromEntries(months.map((m, i) => [m.key, i]));
+    for (const t of txns) { const k = String(t.transactionDate || '').slice(0, 7); if (mIndex[k] === undefined) continue; if (t.type === 'income') months[mIndex[k]].income = round2(months[mIndex[k]].income + (Number(t.amount) || 0)); else if (t.type === 'expense') months[mIndex[k]].expense = round2(months[mIndex[k]].expense + (Number(t.amount) || 0)); }
+    return json({ dashboard: { totalRevenue, receivedPayments, outstandingCustomer, totalPayables, paidSupplier, outstandingSupplier, totalExpenses, grossProfit, profit: grossProfit, recentTransactions, trends: months, currency: DEFAULT_CURRENCY } });
   }
   if (path === '/finance/reports') {
+    // Optional date filtering (?from=YYYY-MM-DD&to=YYYY-MM-DD) for profitability + balances.
+    const from = (sp && sp.get('from')) || ''; const to = (sp && sp.get('to')) || '';
+    const inRange = (d) => (!from || (d && d >= from)) && (!to || (d && d <= to));
     const r = await financeGet(db, session, '/finance/dashboard', sp);
     const d = (await r.json()).dashboard;
+    const [recv, pay, exps, bookings] = await Promise.all([
+      db.collection('customerReceivables').find(tenantFilter(session), { projection: { _id: 0 } }).toArray(),
+      db.collection('supplierPayables').find(tenantFilter(session), { projection: { _id: 0 } }).toArray(),
+      db.collection('expenses').find(tenantFilter(session), { projection: { _id: 0 } }).toArray(),
+      db.collection('bookings').find(tenantFilter(session), { projection: { _id: 0, id: 1, bookingNumber: 1, customerName: 1, grandTotal: 1, internalCost: 1, startDate: 1 } }).toArray(),
+    ]);
+    // Customer & supplier outstanding balances (grouped).
+    const groupBal = (arr, idKey, nameKey, outKey) => {
+      const m = {};
+      for (const x of arr) { if (x.status === 'cancelled') continue; const key = x[idKey] || x[nameKey] || 'Unknown'; if (!m[key]) m[key] = { name: x[nameKey] || 'Unknown', outstanding: 0, total: 0 }; m[key].outstanding = round2(m[key].outstanding + (Number(x[outKey]) || 0)); m[key].total = round2(m[key].total + (Number(x.totalAmount) || 0)); }
+      return Object.values(m).filter((v) => v.outstanding > 0.001).sort((a, b) => b.outstanding - a.outstanding);
+    };
+    const customerBalances = groupBal(recv, 'clientId', 'clientName', 'outstandingAmount');
+    const supplierBalances = groupBal(pay, 'supplierId', 'supplierName', 'outstandingAmount');
+    // Booking profitability: selling (grandTotal) - supplier cost (payables) - expenses tagged to booking.
+    const payByBooking = {}; for (const p of pay) { if (!p.bookingId || p.status === 'cancelled') continue; payByBooking[p.bookingId] = round2((payByBooking[p.bookingId] || 0) + (Number(p.totalAmount) || 0)); }
+    const expByBooking = {}; for (const e of exps) { if (!e.bookingId || e.status === 'cancelled') continue; expByBooking[e.bookingId] = round2((expByBooking[e.bookingId] || 0) + (Number(e.amount) || 0)); }
+    const bookingProfitability = bookings.filter((b) => inRange(b.startDate)).map((b) => {
+      const revenue = Number(b.grandTotal) || 0;
+      const supplierCost = payByBooking[b.id] || round2(Number(b.internalCost) || 0);
+      const expenses = expByBooking[b.id] || 0;
+      const profit = round2(revenue - supplierCost - expenses);
+      return { bookingId: b.id, bookingNumber: b.bookingNumber, customerName: b.customerName, revenue: round2(revenue), supplierCost, expenses, profit };
+    }).filter((b) => b.revenue || b.supplierCost || b.expenses).sort((a, b) => b.profit - a.profit);
     return json({ reports: [
       { key: 'revenue', label: 'Revenue (billed)', value: d.totalRevenue },
       { key: 'received', label: 'Payments received', value: d.receivedPayments },
@@ -686,7 +721,7 @@ async function financeGet(db, session, path, sp) {
       { key: 'receivables_out', label: 'Outstanding (customers)', value: d.outstandingCustomer },
       { key: 'payables_out', label: 'Outstanding (suppliers)', value: d.outstandingSupplier },
       { key: 'gross_profit', label: 'Gross profit', value: d.grossProfit },
-    ], currency: DEFAULT_CURRENCY });
+    ], customerBalances, supplierBalances, bookingProfitability, filter: { from, to }, currency: DEFAULT_CURRENCY });
   }
   const map = { '/finance/transactions': 'financialTransactions', '/finance/receivables': 'customerReceivables', '/finance/payables': 'supplierPayables', '/finance/expenses': 'expenses', '/finance/invoices': 'invoices' };
   const keyMap = { '/finance/transactions': 'transactions', '/finance/receivables': 'receivables', '/finance/payables': 'payables', '/finance/expenses': 'expenses', '/finance/invoices': 'invoices' };
@@ -740,11 +775,22 @@ async function financePost(db, session, path, body) {
   }
   if (path === '/finance/invoices') {
     const refs = await resolveFinanceRefs(db, session, body);
-    const subtotal = nonNeg(body.subtotal); const discount = nonNeg(body.discount); const tax = nonNeg(body.tax);
-    const total = body.total !== undefined ? nonNeg(body.total) : Math.max(0, round2(subtotal - discount + tax));
+    const subtotal = nonNeg(body.subtotal); const discount = Math.min(nonNeg(body.discount), subtotal);
+    const taxable = Math.max(0, round2(subtotal - discount));
+    // GST/Tax foundation: configurable percent + inclusive/exclusive. Falls back to flat tax.
+    const taxPercent = Math.min(Math.max(0, num(body.taxPercent, 0)), 100);
+    const taxInclusive = !!body.taxInclusive;
+    let tax; let total;
+    if (taxPercent > 0) {
+      if (taxInclusive) { tax = round2(taxable - (taxable * 100) / (100 + taxPercent)); total = taxable; }
+      else { tax = round2(taxable * taxPercent / 100); total = round2(taxable + tax); }
+    } else {
+      tax = nonNeg(body.tax);
+      total = body.total !== undefined ? nonNeg(body.total) : Math.max(0, round2(taxable + tax));
+    }
     const status = ['draft', 'issued'].includes(body.status) ? body.status : 'draft';
     const invoiceNumber = await nextInvoiceNumber(db, session);
-    const doc = withAgency(session, { id: uuidv4(), invoiceNumber, clientId: refs.clientId, clientName: refs.clientName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, quotationId: refs.quotationId, issueDate: str(body.issueDate, 40) || today10(), dueDate: str(body.dueDate, 40), subtotal, discount, tax, total, paidAmount: 0, outstandingAmount: total, currency: DEFAULT_CURRENCY, status, notes: str(body.notes, 2000), createdAt: now, updatedAt: now });
+    const doc = withAgency(session, { id: uuidv4(), invoiceNumber, clientId: refs.clientId, clientName: refs.clientName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, quotationId: refs.quotationId, issueDate: str(body.issueDate, 40) || today10(), dueDate: str(body.dueDate, 40), subtotal, discount, taxPercent, taxInclusive, tax, total, paidAmount: 0, outstandingAmount: total, currency: DEFAULT_CURRENCY, status, notes: str(body.notes, 2000), createdAt: now, updatedAt: now });
     await db.collection('invoices').insertOne(doc); const { _id, ...safe } = doc;
     await logActivity(db, session, { type: 'invoice_created', message: `Invoice ${invoiceNumber} created`, refType: 'invoice', refId: safe.id });
     return json({ invoice: safe }, 201);

@@ -5444,21 +5444,93 @@ function FinanceDashboard() {
     { label: 'Gross profit', value: x.grossProfit, icon: BarChart3, tint: 'bg-teal-50 text-teal-600' },
   ];
   const allZero = !cards.some((c) => Number(c.value) > 0);
+  const recentTxns = x.recentTransactions || [];
+  const trends = x.trends || [];
+  const maxTrend = Math.max(...trends.map((t) => Math.max(t.income || 0, t.expense || 0)), 1);
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((c) => { const Icon = c.icon; return (<Card key={c.label}><CardContent className="flex items-center gap-3 p-4"><div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${c.tint}`}><Icon className="h-5 w-5" /></div><div className="min-w-0"><div className="text-xl font-bold leading-none">{money(c.value || 0)}</div><div className="mt-1 text-xs text-muted-foreground truncate">{c.label}</div></div></CardContent></Card>); })}
       </div>
       {allZero && <Card><CardContent className="px-6 py-10 text-center text-sm text-muted-foreground">No financial records yet. Add receivables, expenses, invoices or record a payment to see live figures here.</CardContent></Card>}
+      {!allZero && trends.length > 0 && (<Card><CardContent className="p-5 space-y-3">
+        <div className="font-semibold">Financial trends (last 6 months)</div>
+        <div className="flex items-end justify-between gap-2 h-40">
+          {trends.map((t) => { const ih = Math.round((t.income / maxTrend) * 100); const eh = Math.round((t.expense / maxTrend) * 100); return (<div key={t.key} className="flex flex-col items-center gap-1 flex-1">
+            <div className="flex items-end gap-0.5 w-full h-32">
+              <div className="flex-1 bg-emerald-200 rounded-t" style={{ height: `${ih}%` }} title={`Income: ${money(t.income)}`} />
+              <div className="flex-1 bg-rose-200 rounded-t" style={{ height: `${eh}%` }} title={`Expense: ${money(t.expense)}`} />
+            </div>
+            <div className="text-xs text-muted-foreground">{t.label}</div>
+          </div>); })}
+        </div>
+        <div className="flex gap-4 text-xs"><div className="flex items-center gap-1"><div className="h-3 w-3 rounded bg-emerald-200" /><span>Income</span></div><div className="flex items-center gap-1"><div className="h-3 w-3 rounded bg-rose-200" /><span>Expense</span></div></div>
+      </CardContent></Card>)}
+      {recentTxns.length > 0 && (<Card><CardContent className="p-5">
+        <div className="mb-3 font-semibold">Recent transactions</div>
+        <div className="space-y-2">
+          {recentTxns.map((t) => (<div key={t.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+            <div className="min-w-0 flex-1"><div className="text-sm font-medium truncate">{t.description || titleCase(t.category) || 'Transaction'}</div><div className="text-xs text-muted-foreground">{t.transactionDate} · {titleCase(t.type)}</div></div>
+            <div className={`text-sm font-semibold shrink-0 ${t.type === 'income' ? 'text-emerald-700' : t.type === 'expense' ? 'text-rose-700' : 'text-muted-foreground'}`}>{t.type === 'income' ? '+' : t.type === 'expense' ? '-' : ''}{money(t.amount)}</div>
+          </div>))}
+        </div>
+      </CardContent></Card>)}
     </div>
   );
 }
 
 function FinReports() {
-  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true);
-  useEffect(() => { (async () => { setLoading(true); try { const r = await api('/finance/reports'); setRows(r.reports || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, []);
+  const [data, setData] = useState(null); const [loading, setLoading] = useState(true);
+  const [from, setFrom] = useState(''); const [to, setTo] = useState('');
+  const load = async () => {
+    setLoading(true);
+    try {
+      let url = '/finance/reports';
+      const params = new URLSearchParams();
+      if (from) params.append('from', from);
+      if (to) params.append('to', to);
+      if (params.toString()) url += '?' + params.toString();
+      const r = await api(url);
+      setData(r);
+    } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+  const applyFilter = () => { load(); };
   if (loading) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
-  return (<Card><CardContent className="p-5"><div className="mb-3 font-semibold">Financial summary</div>{rows.map((r) => <FinRow key={r.key} label={r.label} value={money(r.value || 0)} strong={r.key === 'gross_profit'} />)}</CardContent></Card>);
+  const rows = (data && data.reports) || [];
+  const custBal = (data && data.customerBalances) || [];
+  const suppBal = (data && data.supplierBalances) || [];
+  const bookProf = (data && data.bookingProfitability) || [];
+  return (
+    <div className="space-y-4">
+      <Card><CardContent className="p-4">
+        <div className="flex flex-wrap gap-2 items-end">
+          <div className="space-y-1 flex-1 min-w-[140px]"><Label className="text-xs">From date</Label><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+          <div className="space-y-1 flex-1 min-w-[140px]"><Label className="text-xs">To date</Label><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+          <Button size="sm" onClick={applyFilter}><Filter className="h-4 w-4 mr-1" /> Apply filter</Button>
+          {(from || to) && <Button size="sm" variant="outline" onClick={() => { setFrom(''); setTo(''); setTimeout(load, 50); }}>Clear</Button>}
+        </div>
+      </CardContent></Card>
+      <Card><CardContent className="p-5"><div className="mb-3 font-semibold">Financial summary</div>{rows.map((r) => <FinRow key={r.key} label={r.label} value={money(r.value || 0)} strong={r.key === 'gross_profit'} />)}</CardContent></Card>
+      {custBal.length > 0 && (<Card><CardContent className="p-5">
+        <div className="mb-3 font-semibold">Customer outstanding balances</div>
+        <div className="space-y-2">
+          {custBal.slice(0, 10).map((c, i) => (<div key={i} className="flex items-center justify-between py-1 border-b last:border-0"><span className="text-sm">{c.name}</span><span className="text-sm font-medium">{money(c.outstanding)}</span></div>))}
+        </div>
+      </CardContent></Card>)}
+      {suppBal.length > 0 && (<Card><CardContent className="p-5">
+        <div className="mb-3 font-semibold">Supplier outstanding balances</div>
+        <div className="space-y-2">
+          {suppBal.slice(0, 10).map((s, i) => (<div key={i} className="flex items-center justify-between py-1 border-b last:border-0"><span className="text-sm">{s.name}</span><span className="text-sm font-medium">{money(s.outstanding)}</span></div>))}
+        </div>
+      </CardContent></Card>)}
+      {bookProf.length > 0 && (<Card><CardContent className="p-5">
+        <div className="mb-3 font-semibold">Booking profitability</div>
+        <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Booking</TableHead><TableHead>Customer</TableHead><TableHead className="text-right">Revenue</TableHead><TableHead className="text-right">Supplier cost</TableHead><TableHead className="text-right">Expenses</TableHead><TableHead className="text-right">Profit</TableHead></TableRow></TableHeader>
+          <TableBody>{bookProf.slice(0, 20).map((b, i) => (<TableRow key={i}><TableCell className="font-medium">{b.bookingNumber || b.bookingId}</TableCell><TableCell>{b.customerName || '—'}</TableCell><TableCell className="text-right">{money(b.revenue)}</TableCell><TableCell className="text-right">{money(b.supplierCost)}</TableCell><TableCell className="text-right">{money(b.expenses)}</TableCell><TableCell className={`text-right font-medium ${b.profit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{money(b.profit)}</TableCell></TableRow>))}</TableBody></Table></div>
+      </CardContent></Card>)}
+    </div>
+  );
 }
 
 // Generic finance list wrapper with search + create panel toggle
@@ -5481,22 +5553,26 @@ function TransactionsPane({ session }) {
   const canCreate = can(session.user.role, 'finance:create');
   const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [query, setQuery] = useState('');
   const [typeF, setTypeF] = useState('all'); const [statusF, setStatusF] = useState('all'); const [show, setShow] = useState(false);
-  const [f, setF] = useState({ type: 'income', amount: 0, category: '', description: '', paymentMethod: 'cash', transactionDate: '', status: 'completed' });
+  const [f, setF] = useState({ type: 'income', amount: 0, category: '', description: '', clientId: '', supplierId: '', bookingId: '', paymentMethod: 'cash', transactionDate: '', status: 'completed' });
   const load = async () => { setLoading(true); try { const d = await api('/finance/transactions'); setRows(d.transactions || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
   useEffect(() => { load(); }, []);
-  const save = async () => { if (!(Number(f.amount) > 0)) { toast.error('Amount must be greater than zero'); return; } try { await api('/finance/transactions', { method: 'POST', body: JSON.stringify(f) }); toast.success('Transaction recorded'); setShow(false); setF({ type: 'income', amount: 0, category: '', description: '', paymentMethod: 'cash', transactionDate: '', status: 'completed' }); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const save = async () => { if (!(Number(f.amount) > 0)) { toast.error('Amount must be greater than zero'); return; } try { await api('/finance/transactions', { method: 'POST', body: JSON.stringify(f) }); toast.success('Transaction recorded'); setShow(false); setF({ type: 'income', amount: 0, category: '', description: '', clientId: '', supplierId: '', bookingId: '', paymentMethod: 'cash', transactionDate: '', status: 'completed' }); load(); } catch (e) { toast.error(friendlyError(e)); } };
   const q = query.trim().toLowerCase();
   const rr = rows.filter((r) => (!q || [r.description, r.category, r.clientName, r.supplierName, r.bookingNumber].some((v) => String(v || '').toLowerCase().includes(q))) && (typeF === 'all' || r.type === typeF) && (statusF === 'all' || r.status === statusF));
-  const filters = (<><Select value={typeF} onValueChange={setTypeF}><SelectTrigger className="sm:w-36"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger><SelectContent><SelectItem value="all">All types</SelectItem><SelectItem value="income">Income</SelectItem><SelectItem value="expense">Expense</SelectItem></SelectContent></Select>
+  const filters = (<><Select value={typeF} onValueChange={setTypeF}><SelectTrigger className="sm:w-36"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger><SelectContent><SelectItem value="all">All types</SelectItem><SelectItem value="income">Income</SelectItem><SelectItem value="expense">Expense</SelectItem><SelectItem value="transfer">Transfer</SelectItem></SelectContent></Select>
     <Select value={statusF} onValueChange={setStatusF}><SelectTrigger className="sm:w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{Object.keys(TXN_STATUS_META).map((s) => <SelectItem key={s} value={s}>{TXN_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select></>);
+  const isTransfer = f.type === 'transfer';
   return (
     <FinListShell canCreate={canCreate} createLabel="Add transaction" onCreate={() => setShow((v) => !v)} query={query} setQuery={setQuery} searchPlaceholder="Search transactions" filters={filters}>
       {show && (<Card><CardContent className="grid gap-3 p-4 sm:grid-cols-3">
-        <div className="space-y-1"><Label>Type</Label><Select value={f.type} onValueChange={(v) => setF({ ...f, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="income">Income</SelectItem><SelectItem value="expense">Expense</SelectItem></SelectContent></Select></div>
+        <div className="space-y-1"><Label>Type</Label><Select value={f.type} onValueChange={(v) => setF({ ...f, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="income">Income</SelectItem><SelectItem value="expense">Expense</SelectItem><SelectItem value="transfer">Transfer</SelectItem></SelectContent></Select></div>
         <div className="space-y-1"><Label>Amount</Label><Input type="number" min="0" value={f.amount} onChange={(e) => setF({ ...f, amount: Math.max(0, Number(e.target.value) || 0) })} /></div>
-        <div className="space-y-1"><Label>Category</Label><Input value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} /></div>
+        <div className="space-y-1"><Label>Category</Label><Input value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} placeholder={isTransfer ? 'e.g. bank_to_cash' : ''} /></div>
         <div className="space-y-1 sm:col-span-2"><Label>Description</Label><Input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
         <div className="space-y-1"><Label>Method</Label><Select value={f.paymentMethod} onValueChange={(v) => setF({ ...f, paymentMethod: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{FIN_PAYMENT_METHODS.map((m) => <SelectItem key={m} value={m}>{FIN_PM_LABEL[m]}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-1"><Label>Client (optional)</Label><FinClientPicker value={f.clientId} onChange={(v) => setF({ ...f, clientId: v })} /></div>
+        <div className="space-y-1"><Label>Supplier (optional)</Label><FinSupplierPicker value={f.supplierId} onChange={(v) => setF({ ...f, supplierId: v })} /></div>
+        <div className="space-y-1"><Label>Booking (optional)</Label><FinBookingPicker value={f.bookingId} onChange={(v) => setF({ ...f, bookingId: v })} /></div>
         <div className="space-y-1"><Label>Date</Label><Input type="date" value={f.transactionDate} onChange={(e) => setF({ ...f, transactionDate: e.target.value })} /></div>
         <div className="space-y-1"><Label>Status</Label><Select value={f.status} onValueChange={(v) => setF({ ...f, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.keys(TXN_STATUS_META).map((s) => <SelectItem key={s} value={s}>{TXN_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select></div>
         <div className="sm:col-span-3"><Button size="sm" onClick={save}>Save transaction</Button></div>
@@ -5504,7 +5580,7 @@ function TransactionsPane({ session }) {
       {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
       {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No transactions yet.</CardContent></Card>}
       {!loading && rr.length > 0 && (<Card className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Party</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Method</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-        <TableBody>{rr.map((r) => (<TableRow key={r.id}><TableCell className="text-muted-foreground">{r.transactionDate}</TableCell><TableCell><Badge variant="outline" className={`font-normal ${r.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>{titleCase(r.type)}</Badge></TableCell><TableCell>{titleCase(r.category) || '—'}</TableCell><TableCell className="max-w-[200px] truncate">{r.description || '—'}</TableCell><TableCell className="text-muted-foreground">{r.clientName || r.supplierName || '—'}</TableCell><TableCell className={`text-right font-medium ${r.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>{r.type === 'income' ? '+' : '-'}{money(r.amount)}</TableCell><TableCell className="text-muted-foreground">{FIN_PM_LABEL[r.paymentMethod] || '—'}</TableCell><TableCell><MetaBadge meta={TXN_STATUS_META[r.status] || TXN_STATUS_META.completed} /></TableCell></TableRow>))}</TableBody></Table></Card>)}
+        <TableBody>{rr.map((r) => (<TableRow key={r.id}><TableCell className="text-muted-foreground">{r.transactionDate}</TableCell><TableCell><Badge variant="outline" className={`font-normal ${r.type === 'income' ? 'text-emerald-700' : r.type === 'expense' ? 'text-rose-700' : 'text-blue-700'}`}>{titleCase(r.type)}</Badge></TableCell><TableCell>{titleCase(r.category) || '—'}</TableCell><TableCell className="max-w-[200px] truncate">{r.description || '—'}</TableCell><TableCell className="text-muted-foreground">{r.clientName || r.supplierName || (r.bookingNumber ? `Booking ${r.bookingNumber}` : '—')}</TableCell><TableCell className={`text-right font-medium ${r.type === 'income' ? 'text-emerald-700' : r.type === 'expense' ? 'text-rose-700' : ''}`}>{r.type === 'income' ? '+' : r.type === 'expense' ? '-' : ''}{money(r.amount)}</TableCell><TableCell className="text-muted-foreground">{FIN_PM_LABEL[r.paymentMethod] || '—'}</TableCell><TableCell><MetaBadge meta={TXN_STATUS_META[r.status] || TXN_STATUS_META.completed} /></TableCell></TableRow>))}</TableBody></Table></Card>)}
     </FinListShell>
   );
 }
@@ -5629,12 +5705,21 @@ function ExpensesPane({ session }) {
 function InvoicesPane({ session }) {
   const canCreate = can(session.user.role, 'finance:create'); const canUpdate = can(session.user.role, 'finance:update');
   const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [query, setQuery] = useState(''); const [show, setShow] = useState(false);
-  const blank = { clientId: '', bookingId: '', subtotal: 0, discount: 0, tax: 0, dueDate: '', status: 'draft', notes: '' };
+  const blank = { clientId: '', bookingId: '', subtotal: 0, discount: 0, taxPercent: 0, taxInclusive: false, tax: 0, dueDate: '', status: 'draft', notes: '' };
   const [f, setF] = useState(blank);
   const load = async () => { setLoading(true); try { const d = await api('/finance/invoices'); setRows(d.invoices || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
   useEffect(() => { load(); }, []);
-  const total = Math.max(0, (Number(f.subtotal) || 0) - (Number(f.discount) || 0) + (Number(f.tax) || 0));
-  const save = async () => { try { await api('/finance/invoices', { method: 'POST', body: JSON.stringify(f) }); toast.success('Invoice created'); setShow(false); setF(blank); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const taxable = Math.max(0, (Number(f.subtotal) || 0) - (Number(f.discount) || 0));
+  const taxP = Math.min(Math.max(0, Number(f.taxPercent) || 0), 100);
+  let calcTax = 0; let calcTotal = taxable;
+  if (taxP > 0) {
+    if (f.taxInclusive) { calcTax = Math.round((taxable - (taxable * 100) / (100 + taxP)) * 100) / 100; calcTotal = taxable; }
+    else { calcTax = Math.round((taxable * taxP / 100) * 100) / 100; calcTotal = Math.round((taxable + calcTax) * 100) / 100; }
+  } else {
+    calcTax = Number(f.tax) || 0;
+    calcTotal = Math.max(0, taxable + calcTax);
+  }
+  const save = async () => { try { const payload = { ...f, tax: calcTax, total: calcTotal }; await api('/finance/invoices', { method: 'POST', body: JSON.stringify(payload) }); toast.success('Invoice created'); setShow(false); setF(blank); load(); } catch (e) { toast.error(friendlyError(e)); } };
   const setStatus = async (id, status) => { try { await api(`/finance/invoices/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }); load(); } catch (e) { toast.error(friendlyError(e)); } };
   const q = query.trim().toLowerCase();
   const rr = rows.filter((r) => !q || [r.invoiceNumber, r.clientName, r.bookingNumber].some((v) => String(v || '').toLowerCase().includes(q)));
@@ -5646,9 +5731,11 @@ function InvoicesPane({ session }) {
         <div className="space-y-1"><Label>Due date</Label><Input type="date" value={f.dueDate} onChange={(e) => setF({ ...f, dueDate: e.target.value })} /></div>
         <div className="space-y-1"><Label>Subtotal</Label><Input type="number" min="0" value={f.subtotal} onChange={(e) => setF({ ...f, subtotal: Math.max(0, Number(e.target.value) || 0) })} /></div>
         <div className="space-y-1"><Label>Discount</Label><Input type="number" min="0" value={f.discount} onChange={(e) => setF({ ...f, discount: Math.max(0, Number(e.target.value) || 0) })} /></div>
-        <div className="space-y-1"><Label>Tax</Label><Input type="number" min="0" value={f.tax} onChange={(e) => setF({ ...f, tax: Math.max(0, Number(e.target.value) || 0) })} /></div>
+        <div className="space-y-1"><Label>Tax %</Label><Input type="number" min="0" max="100" value={f.taxPercent} onChange={(e) => setF({ ...f, taxPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })} placeholder="e.g. 18 for 18%" /></div>
+        <div className="space-y-1 flex items-center gap-2 pt-6"><input type="checkbox" id="taxInc" checked={f.taxInclusive} onChange={(e) => setF({ ...f, taxInclusive: e.target.checked })} className="h-4 w-4" /><Label htmlFor="taxInc" className="cursor-pointer">Tax inclusive</Label></div>
+        {taxP === 0 && <div className="space-y-1"><Label>Tax (flat)</Label><Input type="number" min="0" value={f.tax} onChange={(e) => setF({ ...f, tax: Math.max(0, Number(e.target.value) || 0) })} /></div>}
         <div className="space-y-1"><Label>Status</Label><Select value={f.status} onValueChange={(v) => setF({ ...f, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="draft">Draft</SelectItem><SelectItem value="issued">Issued</SelectItem></SelectContent></Select></div>
-        <div className="flex items-end text-sm sm:col-span-2"><span className="text-muted-foreground mr-2">Total:</span><span className="font-semibold">{money(total)}</span></div>
+        <div className="flex items-end text-sm"><span className="text-muted-foreground mr-2">Tax: {money(calcTax)}</span><span className="text-muted-foreground mr-2">Total:</span><span className="font-semibold">{money(calcTotal)}</span></div>
         <div className="sm:col-span-3"><Button size="sm" onClick={save}>Create invoice</Button></div>
       </CardContent></Card>)}
       {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
