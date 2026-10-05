@@ -504,8 +504,33 @@ async function nextBookingNumber(db, session) {
 // --- Fleet (vehicles & drivers) helpers ---
 const VEHICLE_TYPES = ['car', 'suv', 'tempo_traveller', 'bus', 'van', 'other'];
 const VEHICLE_STATUSES = ['available', 'assigned', 'in_transit', 'maintenance', 'inactive'];
-const DRIVER_STATUSES = ['available', 'assigned', 'on_trip', 'inactive'];
+const DRIVER_STATUSES = ['available', 'assigned', 'on_trip', 'leave', 'inactive'];
 const BOOKING_ASSIGNMENT_STATUSES = ['unassigned', 'assigned', 'in_transit', 'completed', 'cancelled'];
+const MAINTENANCE_STATUSES = ['scheduled', 'in_progress', 'completed', 'cancelled'];
+
+// Vehicle maintenance / service record (cost foundation reuses existing numeric conventions).
+function validateMaintenanceInput(body) {
+  const type = str(body.type, 80).trim();
+  if (!type) return { error: 'Maintenance type is required' };
+  let status = String(body.status || 'completed').toLowerCase();
+  if (!MAINTENANCE_STATUSES.includes(status)) status = 'completed';
+  return { value: {
+    type, status,
+    date: str(body.date, 40),
+    description: str(body.description, 2000),
+    cost: Math.max(0, round2(num(body.cost, 0))),
+    odometer: Math.max(0, Math.floor(num(body.odometer, 0))),
+    nextServiceDate: str(body.nextServiceDate, 40),
+    vendor: str(body.vendor, 160),
+    notes: str(body.notes, 2000),
+  } };
+}
+
+// Simple inclusive date-range overlap (YYYY-MM-DD strings). Unknown dates => no conflict.
+function datesOverlap(a, b) {
+  if (!a || !b || !a.startDate || !a.endDate || !b.startDate || !b.endDate) return false;
+  return a.startDate <= b.endDate && b.startDate <= a.endDate;
+}
 
 function validateVehicleInput(body) {
   const vehicleNumber = String(body.vehicleNumber || '').trim();
@@ -523,6 +548,13 @@ function validateVehicleInput(body) {
     seatingCapacity: Math.max(0, Math.floor(num(body.seatingCapacity, 0))),
     fuelType: str(body.fuelType, 40),
     notes: str(body.notes, 2000),
+    // Document & expiry tracking
+    registrationExpiry: str(body.registrationExpiry, 40),
+    insuranceNumber: str(body.insuranceNumber, 80),
+    insuranceExpiry: str(body.insuranceExpiry, 40),
+    permitNumber: str(body.permitNumber, 80),
+    permitExpiry: str(body.permitExpiry, 40),
+    fitnessExpiry: str(body.fitnessExpiry, 40),
   };
   // GPS-ready optional fields (only touched when coordinates are explicitly supplied)
   if (body.latitude !== undefined && body.latitude !== null && body.latitude !== '') value.latitude = num(body.latitude, 0);
@@ -546,6 +578,9 @@ function validateDriverInput(body) {
       name: name.slice(0, 120), phone: str(body.phone, 40), email: email.slice(0, 160),
       licenseNumber: str(body.licenseNumber, 60), licenseExpiry: str(body.licenseExpiry, 40),
       status, teamMemberId: str(body.teamMemberId, 80), notes: str(body.notes, 2000),
+      address: str(body.address, 300),
+      emergencyContactName: str(body.emergencyContactName, 120),
+      emergencyContactPhone: str(body.emergencyContactPhone, 40),
     },
   };
 }
@@ -2834,10 +2869,54 @@ export async function GET(request, context) {
         db.collection('drivers').find(tenantFilter(session), { projection: { _id: 0, status: 1 } }).toArray(),
       ]);
       const by = (arr, s) => arr.filter((x) => x.status === s).length;
+      const activeAssignments = await db.collection('bookings').countDocuments(tenantFilter(session, { assignmentStatus: { $in: ['assigned', 'in_transit'] } }));
       return json({ stats: {
         vehicles: { total: vehicles.length, available: by(vehicles, 'available'), assigned: by(vehicles, 'assigned'), in_transit: by(vehicles, 'in_transit'), maintenance: by(vehicles, 'maintenance'), inactive: by(vehicles, 'inactive') },
-        drivers: { total: drivers.length, available: by(drivers, 'available'), assigned: by(drivers, 'assigned'), on_trip: by(drivers, 'on_trip'), inactive: by(drivers, 'inactive') },
+        drivers: { total: drivers.length, available: by(drivers, 'available'), assigned: by(drivers, 'assigned'), on_trip: by(drivers, 'on_trip'), leave: by(drivers, 'leave'), inactive: by(drivers, 'inactive') },
+        activeAssignments,
       } });
+    }
+
+    // ---- Fleet: document & license expiry alerts (expired + upcoming within 30 days) ----
+    if (path === '/fleet/alerts') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const [vehicles, drivers] = await Promise.all([
+        db.collection('vehicles').find(tenantFilter(session), { projection: { _id: 0, id: 1, vehicleNumber: 1, registrationExpiry: 1, insuranceExpiry: 1, permitExpiry: 1, fitnessExpiry: 1 } }).toArray(),
+        db.collection('drivers').find(tenantFilter(session), { projection: { _id: 0, id: 1, name: 1, licenseExpiry: 1 } }).toArray(),
+      ]);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const soon = new Date(today); soon.setDate(soon.getDate() + 30);
+      const alerts = [];
+      const check = (doc, refType, refId, name, dateStr) => {
+        if (!dateStr) return;
+        const d = new Date(dateStr); if (isNaN(d.getTime())) return;
+        if (d < today) alerts.push({ severity: 'expired', document: doc, refType, refId, name, expiry: dateStr });
+        else if (d <= soon) alerts.push({ severity: 'upcoming', document: doc, refType, refId, name, expiry: dateStr });
+      };
+      for (const v of vehicles) {
+        check('Registration', 'vehicle', v.id, v.vehicleNumber, v.registrationExpiry);
+        check('Insurance', 'vehicle', v.id, v.vehicleNumber, v.insuranceExpiry);
+        check('Permit', 'vehicle', v.id, v.vehicleNumber, v.permitExpiry);
+        check('Fitness', 'vehicle', v.id, v.vehicleNumber, v.fitnessExpiry);
+      }
+      for (const dr of drivers) check('Licence', 'driver', dr.id, dr.name, dr.licenseExpiry);
+      alerts.sort((a, b) => (a.severity === b.severity ? String(a.expiry).localeCompare(String(b.expiry)) : (a.severity === 'expired' ? -1 : 1)));
+      return json({ alerts });
+    }
+
+    // ---- Fleet: vehicle maintenance records (must precede generic /vehicles/:id) ----
+    if (path.startsWith('/vehicles/') && path.endsWith('/maintenance')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const vehicleId = path.split('/')[2];
+      const maintenance = await db.collection('vehicleMaintenance').find(tenantFilter(session, { vehicleId }), { projection: { _id: 0 } }).sort({ date: -1, createdAt: -1 }).toArray();
+      const totalCost = round2(maintenance.reduce((s, m) => s + (Number(m.cost) || 0), 0));
+      return json({ maintenance, totalCost });
     }
 
     if (path === '/vehicles') {
@@ -3472,6 +3551,29 @@ export async function POST(request, context) {
       return json({ driver: safe }, 201);
     }
 
+    // ---- Fleet: add a vehicle maintenance record ----
+    if (path.startsWith('/vehicles/') && path.endsWith('/maintenance')) {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'fleet:create')) return err('forbidden', 403);
+      const vehicleId = path.split('/')[2];
+      const veh = await db.collection('vehicles').findOne(tenantFilter(session2, { id: vehicleId }));
+      if (!veh) return err('Vehicle not found', 404);
+      const body = await readBody(request);
+      const { value, error } = validateMaintenanceInput(body);
+      if (error) return err(error);
+      const now = new Date().toISOString();
+      const doc = withAgency(session2, { id: uuidv4(), vehicleId, ...value, createdBy: session2.userId, createdAt: now, updatedAt: now });
+      await db.collection('vehicleMaintenance').insertOne(doc);
+      // If a service is scheduled/in progress, reflect it on the vehicle (never override inactive).
+      if ((value.status === 'scheduled' || value.status === 'in_progress') && veh.status !== 'inactive') {
+        await db.collection('vehicles').updateOne(tenantFilter(session2, { id: vehicleId }), { $set: { status: 'maintenance', updatedAt: now } });
+      }
+      const { _id, ...safe } = doc;
+      await logActivity(db, session2, { type: 'vehicle_maintenance_added', message: `Maintenance (${safe.type}) logged for ${veh.vehicleNumber}`, refType: 'vehicle', refId: vehicleId });
+      return json({ maintenance: safe }, 201);
+    }
+
     return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
@@ -3769,11 +3871,32 @@ export async function PUT(request, context) {
       if (!existing) return err('Booking not found', 404);
       const body = await readBody(request);
       let vehicleId = str(body.vehicleId, 80), driverId = str(body.driverId, 80);
-      if (vehicleId) { const v = await db.collection('vehicles').findOne(tenantFilter(session, { id: vehicleId })); if (!v) vehicleId = ''; }
-      if (driverId) { const d = await db.collection('drivers').findOne(tenantFilter(session, { id: driverId })); if (!d) driverId = ''; }
+      if (vehicleId) {
+        const v = await db.collection('vehicles').findOne(tenantFilter(session, { id: vehicleId }));
+        if (!v) { vehicleId = ''; }
+        else {
+          if (v.status === 'maintenance' || v.status === 'inactive') return err(`Vehicle ${v.vehicleNumber} is ${v.status} and cannot be assigned`);
+          const clash = await db.collection('bookings').findOne(tenantFilter(session, { id: { $ne: id }, vehicleId, assignmentStatus: { $in: ['assigned', 'in_transit'] } }));
+          if (clash && datesOverlap(existing, clash)) return err(`Vehicle ${v.vehicleNumber} is already assigned to booking ${clash.bookingNumber} for overlapping dates`);
+        }
+      }
+      if (driverId) {
+        const d = await db.collection('drivers').findOne(tenantFilter(session, { id: driverId }));
+        if (!d) { driverId = ''; }
+        else {
+          if (d.status === 'leave' || d.status === 'inactive') return err(`Driver ${d.name} is on ${d.status} and cannot be assigned`);
+          const clash = await db.collection('bookings').findOne(tenantFilter(session, { id: { $ne: id }, driverId, assignmentStatus: { $in: ['assigned', 'in_transit'] } }));
+          if (clash && datesOverlap(existing, clash)) return err(`Driver ${d.name} is already assigned to booking ${clash.bookingNumber} for overlapping dates`);
+        }
+      }
       let assignmentStatus = String(body.assignmentStatus || '').toLowerCase();
       if (!BOOKING_ASSIGNMENT_STATUSES.includes(assignmentStatus)) assignmentStatus = (vehicleId || driverId) ? 'assigned' : 'unassigned';
-      await db.collection('bookings').updateOne(tenantFilter(session, { id }), { $set: { vehicleId, driverId, assignmentStatus, updatedAt: new Date().toISOString() } });
+      const nowA = new Date().toISOString();
+      await db.collection('bookings').updateOne(tenantFilter(session, { id }), { $set: { vehicleId, driverId, assignmentStatus, updatedAt: nowA } });
+      // Keep vehicle/driver availability in sync with the assignment (non-destructive).
+      const vehStatus = assignmentStatus === 'in_transit' ? 'in_transit' : 'assigned';
+      if (vehicleId) await db.collection('vehicles').updateOne(tenantFilter(session, { id: vehicleId, status: { $in: ['available', 'assigned', 'in_transit'] } }), { $set: { status: vehStatus, updatedAt: nowA } });
+      if (driverId) await db.collection('drivers').updateOne(tenantFilter(session, { id: driverId, status: { $in: ['available', 'assigned', 'on_trip'] } }), { $set: { status: assignmentStatus === 'in_transit' ? 'on_trip' : 'assigned', updatedAt: nowA } });
       await logActivity(db, session, { type: 'booking_assigned', message: `Fleet assignment updated for booking ${existing.bookingNumber}`, refType: 'booking', refId: id });
       const booking = await db.collection('bookings').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
       return json({ booking });
@@ -3927,6 +4050,15 @@ export async function DELETE(request, context) {
     if (path.match(/^\/webhooks\/[^/]+$/) || path.match(/^\/dev\/api-keys\/[^/]+$/)) {
       if (!can(session.role, 'integrations:manage')) return err('forbidden', 403);
       return integrationsDelete(db, session, path);
+    }
+
+    // ---- Fleet: delete a vehicle maintenance record ----
+    if (path.startsWith('/maintenance/')) {
+      if (!can(session.role, 'fleet:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const r = await db.collection('vehicleMaintenance').deleteOne(tenantFilter(session, { id }));
+      if (r.deletedCount === 0) return err('Maintenance record not found', 404);
+      return json({ ok: true });
     }
 
     if (path.startsWith('/clients/')) {

@@ -11,6 +11,30 @@ Implement Phase 5.6 (Agency Website Builder Foundation), Phase 5.7 (SEO & Search
 - **NO verification agents allowed**
 - Manual testing only: bash, curl, python scripts, screenshot tool
 
+## Fleet Management — Production Completion (Oct 5, 2026)
+
+**Status:** ✅ COMPLETED within 2-credit budget. No testing/QA/browser/autonomous/verification agents used (curl + lint + compile checks only). Existing `vehicles`, `drivers`, bookings & assignment functionality preserved; auth/RBAC/tenant isolation intact; no duplicate collections; no dependency upgrades; Safar Curated untouched.
+
+**Backend (`app/api/[[...path]]/route.js`):**
+- Driver status `leave` added (now available/assigned/on_trip/leave/inactive). Vehicle statuses unchanged (available/assigned/in_transit/maintenance/inactive).
+- Vehicle: added document/expiry fields (registrationExpiry, insuranceNumber, insuranceExpiry, permitNumber, permitExpiry, fitnessExpiry). Driver: added address, emergencyContactName, emergencyContactPhone.
+- **Maintenance** (new `vehicleMaintenance` collection): `GET/POST /vehicles/:id/maintenance` (+ totalCost), `DELETE /maintenance/:id`. Fields: type, status(scheduled/in_progress/completed/cancelled), date, description, cost, odometer, nextServiceDate, vendor, notes. Scheduled/in-progress service auto-sets vehicle→maintenance.
+- **Alerts** `GET /fleet/alerts` — expired + upcoming-within-30-days for vehicle reg/insurance/permit/fitness + driver licence.
+- **Stats** `GET /fleet/stats` — added `drivers.leave` + top-level `activeAssignments` (bookings assigned/in_transit).
+- **Assignment conflict prevention** (`PUT /bookings/:id/assignment`): rejects vehicles in maintenance/inactive, drivers on leave/inactive, and date-overlapping double-bookings of the same vehicle/driver; auto-syncs assigned vehicle/driver status.
+
+**Frontend (`components/safaros/app-experience.jsx`):**
+- Driver `leave` status meta. Fleet overview: expiry-alerts banner (expired/upcoming), available-drivers / on-leave / active-assignments stat cards.
+- VehicleForm: documents & expiry inputs. VehicleDetail: document rows + **Maintenance** section (list, total cost, add dialog, delete).
+- DriverForm: address + emergency contact inputs. DriverDetail: address + emergency contact rows.
+- Existing filters (type/status/driver/availability) preserved; responsive tables/cards preserved.
+
+**Verified (curl):** vehicle+docs create; driver leave+emergency+licence create; maintenance create/list(totalCost)/delete; alerts (2 expired + 1 upcoming computed correctly); stats (leave + activeAssignments); assignment guards → 400 for leave driver and maintenance vehicle; valid assign → 200 with vehicle/driver auto-synced to assigned. Lint clean (only pre-existing unrelated WebsiteSeo warning). Pages compile 200. Verification artifacts (booking/client) cleaned up.
+
+**Deferred:** real-time GPS/live-location/route history/ETA (coords stored, no provider this phase); trip fuel/driver cost into Finance (maintenance cost captured; Finance not rebuilt); vehicle/driver hard-delete (no existing route — out of scope).
+
+---
+
 ## Itinerary Final Enhancements (Oct 5, 2026) — Supplier Linking, Cost Summary, Send to Client, Live Maps
 
 **Status:** ✅ ALL FOUR COMPLETED. No testing/QA/browser/autonomous/verification agents used (curl + compile checks only). Existing `itineraries` collection + routes reused; package/quotation/booking links, auth, RBAC, tenant isolation preserved. No new deps, no new collections, no secrets stored. Safar Curated & unrelated modules untouched.

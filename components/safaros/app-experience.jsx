@@ -4905,6 +4905,7 @@ const DRIVER_STATUS_META = {
   available: { label: 'Available', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   assigned:  { label: 'Assigned',  cls: 'bg-sky-50 text-sky-700 border-sky-200' },
   on_trip:   { label: 'On Trip',   cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  leave:     { label: 'On Leave',  cls: 'bg-purple-50 text-purple-700 border-purple-200' },
   inactive:  { label: 'Inactive',  cls: 'bg-muted text-muted-foreground border-border' },
 };
 const DRIVER_STATUS_OPTIONS = Object.keys(DRIVER_STATUS_META);
@@ -4929,12 +4930,40 @@ function FleetStatCard({ icon: Icon, label, value, tint }) {
 }
 function FleetOverview() {
   const [stats, setStats] = useState(null);
+  const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { (async () => { setLoading(true); try { const d = await api('/fleet/stats'); setStats(d.stats); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, []);
+  useEffect(() => { (async () => { setLoading(true); try {
+    const [s, a] = await Promise.all([api('/fleet/stats'), api('/fleet/alerts').catch(() => ({ alerts: [] }))]);
+    setStats(s.stats); setAlerts(a.alerts || []);
+  } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, []);
   if (loading) return <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-20 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
   const v = (stats && stats.vehicles) || {}; const d = (stats && stats.drivers) || {};
+  const expired = alerts.filter((a) => a.severity === 'expired');
+  const upcoming = alerts.filter((a) => a.severity === 'upcoming');
   return (
     <div className="space-y-5">
+      {alerts.length > 0 && (
+        <Card className={expired.length ? 'border-rose-200' : 'border-amber-200'}>
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <X className={`h-4 w-4 ${expired.length ? 'text-rose-600' : 'text-amber-600'}`} />
+              Document & licence alerts
+              {expired.length > 0 && <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">{expired.length} expired</Badge>}
+              {upcoming.length > 0 && <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">{upcoming.length} expiring soon</Badge>}
+            </div>
+            <div className="grid gap-1 sm:grid-cols-2">
+              {alerts.slice(0, 8).map((a, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${a.severity === 'expired' ? 'bg-rose-500' : 'bg-amber-500'}`} />
+                  <span className="font-medium">{a.name}</span>
+                  <span className="text-muted-foreground">· {a.document} {a.severity === 'expired' ? 'expired' : 'expires'} {formatJoined(a.expiry)}</span>
+                </div>
+              ))}
+            </div>
+            {alerts.length > 8 && <div className="text-xs text-muted-foreground">+{alerts.length - 8} more</div>}
+          </CardContent>
+        </Card>
+      )}
       <div>
         <div className="mb-2 text-sm font-semibold text-muted-foreground">Vehicles</div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -4946,18 +4975,19 @@ function FleetOverview() {
         </div>
       </div>
       <div>
-        <div className="mb-2 text-sm font-semibold text-muted-foreground">Drivers</div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-2 text-sm font-semibold text-muted-foreground">Drivers & assignments</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <FleetStatCard icon={Users} label="Total drivers" value={d.total || 0} tint="bg-violet-50 text-violet-600" />
-          <FleetStatCard icon={CheckCircle2} label="Available" value={d.available || 0} tint="bg-emerald-50 text-emerald-600" />
-          <FleetStatCard icon={ClipboardList} label="Assigned" value={d.assigned || 0} tint="bg-sky-50 text-sky-600" />
+          <FleetStatCard icon={CheckCircle2} label="Available drivers" value={d.available || 0} tint="bg-emerald-50 text-emerald-600" />
           <FleetStatCard icon={MapPin} label="On trip" value={d.on_trip || 0} tint="bg-amber-50 text-amber-600" />
+          <FleetStatCard icon={CalendarClock} label="On leave" value={d.leave || 0} tint="bg-purple-50 text-purple-600" />
+          <FleetStatCard icon={ClipboardList} label="Active assignments" value={(stats && stats.activeAssignments) || 0} tint="bg-sky-50 text-sky-600" />
         </div>
       </div>
-      <Card><CardContent className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+      <Card><CardContent className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><MapPin className="h-6 w-6 text-muted-foreground" /></div>
         <h3 className="font-semibold">Live map</h3>
-        <p className="max-w-sm text-sm text-muted-foreground">No live vehicle locations available. Real-time GPS tracking will be available in a future phase.</p>
+        <p className="max-w-sm text-sm text-muted-foreground">Vehicle coordinates are stored and ready. Real-time GPS tracking will be available in a future phase.</p>
       </CardContent></Card>
     </div>
   );
@@ -4965,7 +4995,7 @@ function FleetOverview() {
 
 // ----------------------------- VEHICLES -----------------------------
 function VehicleForm({ session, mode, vehicleId, onDone, onCancel }) {
-  const [form, setForm] = useState({ vehicleNumber: '', registrationNumber: '', vehicleType: 'car', make: '', model: '', year: 0, color: '', seatingCapacity: 0, fuelType: '', status: 'available', currentDriverId: '', notes: '' });
+  const [form, setForm] = useState({ vehicleNumber: '', registrationNumber: '', vehicleType: 'car', make: '', model: '', year: 0, color: '', seatingCapacity: 0, fuelType: '', status: 'available', currentDriverId: '', notes: '', registrationExpiry: '', insuranceNumber: '', insuranceExpiry: '', permitNumber: '', permitExpiry: '', fitnessExpiry: '' });
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(mode === 'edit');
   const [submitting, setSubmitting] = useState(false);
@@ -4975,7 +5005,7 @@ function VehicleForm({ session, mode, vehicleId, onDone, onCancel }) {
   useEffect(() => {
     if (mode === 'edit' && vehicleId) {
       (async () => { setLoading(true); try { const { vehicle: v } = await api(`/vehicles/${vehicleId}`);
-        setForm({ vehicleNumber: v.vehicleNumber || '', registrationNumber: v.registrationNumber || '', vehicleType: v.vehicleType || 'car', make: v.make || '', model: v.model || '', year: v.year || 0, color: v.color || '', seatingCapacity: v.seatingCapacity || 0, fuelType: v.fuelType || '', status: v.status || 'available', currentDriverId: v.currentDriverId || '', notes: v.notes || '' });
+        setForm({ vehicleNumber: v.vehicleNumber || '', registrationNumber: v.registrationNumber || '', vehicleType: v.vehicleType || 'car', make: v.make || '', model: v.model || '', year: v.year || 0, color: v.color || '', seatingCapacity: v.seatingCapacity || 0, fuelType: v.fuelType || '', status: v.status || 'available', currentDriverId: v.currentDriverId || '', notes: v.notes || '', registrationExpiry: v.registrationExpiry || '', insuranceNumber: v.insuranceNumber || '', insuranceExpiry: v.insuranceExpiry || '', permitNumber: v.permitNumber || '', permitExpiry: v.permitExpiry || '', fitnessExpiry: v.fitnessExpiry || '' });
       } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })();
     }
   }, [mode, vehicleId]);
@@ -5011,9 +5041,85 @@ function VehicleForm({ session, mode, vehicleId, onDone, onCancel }) {
           </Select>
         </div>
         <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Textarea rows={2} value={form.notes} onChange={set('notes')} /></div>
+        <div className="sm:col-span-2 pt-1 text-sm font-semibold text-muted-foreground">Documents & expiry</div>
+        <div className="space-y-1.5"><Label>Registration expiry</Label><Input type="date" value={form.registrationExpiry} onChange={set('registrationExpiry')} /></div>
+        <div className="space-y-1.5"><Label>Fitness expiry</Label><Input type="date" value={form.fitnessExpiry} onChange={set('fitnessExpiry')} /></div>
+        <div className="space-y-1.5"><Label>Insurance number</Label><Input value={form.insuranceNumber} onChange={set('insuranceNumber')} /></div>
+        <div className="space-y-1.5"><Label>Insurance expiry</Label><Input type="date" value={form.insuranceExpiry} onChange={set('insuranceExpiry')} /></div>
+        <div className="space-y-1.5"><Label>Permit number</Label><Input value={form.permitNumber} onChange={set('permitNumber')} /></div>
+        <div className="space-y-1.5"><Label>Permit expiry</Label><Input type="date" value={form.permitExpiry} onChange={set('permitExpiry')} /></div>
       </CardContent></Card>
       <div className="flex gap-2"><Button className="flex-1 sm:flex-none" onClick={submit} disabled={!canSubmit || submitting}>{submitting ? 'Saving…' : (mode === 'edit' ? 'Save changes' : 'Add vehicle')}</Button><Button variant="outline" onClick={onCancel}>Cancel</Button></div>
     </div>
+  );
+}
+
+const MAINTENANCE_STATUS_META = {
+  scheduled:   { label: 'Scheduled',   cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  in_progress: { label: 'In Progress', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  completed:   { label: 'Completed',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  cancelled:   { label: 'Cancelled',   cls: 'bg-muted text-muted-foreground border-border' },
+};
+const MAINTENANCE_STATUS_OPTIONS = Object.keys(MAINTENANCE_STATUS_META);
+
+function VehicleMaintenance({ session, vehicleId }) {
+  const canUpdate = can(session.user.role, 'fleet:update');
+  const canCreate = can(session.user.role, 'fleet:create');
+  const [rows, setRows] = useState([]); const [totalCost, setTotalCost] = useState(0);
+  const [loading, setLoading] = useState(true); const [open, setOpen] = useState(false); const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ type: '', date: '', description: '', cost: 0, odometer: 0, nextServiceDate: '', vendor: '', status: 'completed', notes: '' });
+  const load = async () => { setLoading(true); try { const d = await api(`/vehicles/${vehicleId}/maintenance`); setRows(d.maintenance || []); setTotalCost(d.totalCost || 0); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, [vehicleId]);
+  const submit = async () => {
+    if (!form.type.trim()) { toast.error('Maintenance type is required'); return; }
+    setSaving(true);
+    try { await api(`/vehicles/${vehicleId}/maintenance`, { method: 'POST', body: JSON.stringify(form) }); toast.success('Maintenance logged'); setOpen(false); setForm({ type: '', date: '', description: '', cost: 0, odometer: 0, nextServiceDate: '', vendor: '', status: 'completed', notes: '' }); load(); }
+    catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); }
+  };
+  const remove = async (id) => { if (!window.confirm('Delete this maintenance record?')) return; try { await api(`/maintenance/${id}`, { method: 'DELETE' }); toast.success('Record deleted'); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  return (
+    <Card><CardContent className="p-5 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 font-semibold"><ClipboardList className="h-4 w-4 text-orange-600" /> Maintenance
+          {totalCost > 0 && <span className="text-xs font-normal text-muted-foreground">· Total {fmtMoney(totalCost)}</span>}</div>
+        {canCreate && <Button variant="outline" size="sm" onClick={() => setOpen(true)}><Plus className="h-4 w-4 mr-1" /> Add record</Button>}
+      </div>
+      {loading && <div className="h-12 rounded-lg border bg-muted/30 animate-pulse" />}
+      {!loading && rows.length === 0 && <p className="text-sm text-muted-foreground">No maintenance records yet.</p>}
+      {!loading && rows.map((m) => (
+        <div key={m.id} className="rounded-lg border p-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2"><span className="font-medium">{m.type}</span><MetaBadge meta={MAINTENANCE_STATUS_META[m.status] || MAINTENANCE_STATUS_META.completed} /></div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold">{fmtMoney(m.cost)}</span>
+              {canUpdate && <Button variant="ghost" size="icon" onClick={() => remove(m.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+            </div>
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {m.date ? formatJoined(m.date) : ''}{m.vendor ? ` · ${m.vendor}` : ''}{m.odometer ? ` · ${fmtNum(m.odometer)} km` : ''}{m.nextServiceDate ? ` · Next: ${formatJoined(m.nextServiceDate)}` : ''}
+          </div>
+          {m.description && <p className="mt-1 text-sm whitespace-pre-wrap">{m.description}</p>}
+          {m.notes && <p className="mt-1 text-sm text-muted-foreground italic">{m.notes}</p>}
+        </div>
+      ))}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add maintenance record</DialogTitle></DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label>Type *</Label><Input value={form.type} placeholder="Service / Repair / Tyre" onChange={(e) => setForm({ ...form, type: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Status</Label><Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{MAINTENANCE_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{MAINTENANCE_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-1.5"><Label>Date</Label><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Next service date</Label><Input type="date" value={form.nextServiceDate} onChange={(e) => setForm({ ...form, nextServiceDate: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Cost</Label><Input type="number" min="0" value={form.cost} onChange={(e) => setForm({ ...form, cost: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Odometer (km)</Label><Input type="number" min="0" value={form.odometer} onChange={(e) => setForm({ ...form, odometer: e.target.value })} /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Vendor / garage</Label><Input value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Description</Label><Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Textarea rows={1} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Add record'}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </CardContent></Card>
   );
 }
 
@@ -5054,6 +5160,12 @@ function VehicleDetail({ session, vehicleId, onBack, onEdit }) {
           <PkgRow label="Seating capacity" value={v.seatingCapacity || ''} />
           <PkgRow label="Fuel type" value={v.fuelType} />
           <PkgRow label="Registration" value={v.registrationNumber} />
+          <PkgRow label="Registration expiry" value={formatJoined(v.registrationExpiry)} />
+          <PkgRow label="Insurance" value={v.insuranceNumber} />
+          <PkgRow label="Insurance expiry" value={formatJoined(v.insuranceExpiry)} />
+          <PkgRow label="Permit" value={v.permitNumber} />
+          <PkgRow label="Permit expiry" value={formatJoined(v.permitExpiry)} />
+          <PkgRow label="Fitness expiry" value={formatJoined(v.fitnessExpiry)} />
           <PkgRow label="Current driver" value={v.currentDriverName} />
           <Separator className="my-2" /><PkgRow label="Created" value={formatJoined(v.createdAt)} /><PkgRow label="Updated" value={formatJoined(v.updatedAt)} />
           {v.notes && (<><Separator className="my-2" /><div className="pt-1"><div className="text-sm text-muted-foreground mb-1">Notes</div><p className="text-sm whitespace-pre-wrap">{v.notes}</p></div></>)}
@@ -5064,6 +5176,7 @@ function VehicleDetail({ session, vehicleId, onBack, onEdit }) {
             : <p className="text-sm text-muted-foreground">No location set. GPS tracking will be available in a future phase.</p>}
         </CardContent></Card>
       </div>
+      <VehicleMaintenance session={session} vehicleId={vehicleId} />
     </div>
   );
 }
@@ -5117,10 +5230,10 @@ function VehiclesPane({ session }) {
 
 // ----------------------------- DRIVERS -----------------------------
 function DriverForm({ session, mode, driverId, onDone, onCancel }) {
-  const [form, setForm] = useState({ name: '', phone: '', email: '', licenseNumber: '', licenseExpiry: '', status: 'available', notes: '' });
+  const [form, setForm] = useState({ name: '', phone: '', email: '', licenseNumber: '', licenseExpiry: '', status: 'available', notes: '', address: '', emergencyContactName: '', emergencyContactPhone: '' });
   const [loading, setLoading] = useState(mode === 'edit'); const [submitting, setSubmitting] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  useEffect(() => { if (mode === 'edit' && driverId) { (async () => { setLoading(true); try { const { driver: d } = await api(`/drivers/${driverId}`); setForm({ name: d.name || '', phone: d.phone || '', email: d.email || '', licenseNumber: d.licenseNumber || '', licenseExpiry: d.licenseExpiry || '', status: d.status || 'available', notes: d.notes || '' }); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); } }, [mode, driverId]);
+  useEffect(() => { if (mode === 'edit' && driverId) { (async () => { setLoading(true); try { const { driver: d } = await api(`/drivers/${driverId}`); setForm({ name: d.name || '', phone: d.phone || '', email: d.email || '', licenseNumber: d.licenseNumber || '', licenseExpiry: d.licenseExpiry || '', status: d.status || 'available', notes: d.notes || '', address: d.address || '', emergencyContactName: d.emergencyContactName || '', emergencyContactPhone: d.emergencyContactPhone || '' }); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); } }, [mode, driverId]);
   const canSubmit = form.name.trim();
   const submit = async () => { if (!canSubmit) { toast.error('Driver name is required'); return; } setSubmitting(true); try { const res = mode === 'edit' ? await api(`/drivers/${driverId}`, { method: 'PUT', body: JSON.stringify(form) }) : await api('/drivers', { method: 'POST', body: JSON.stringify(form) }); toast.success(mode === 'edit' ? 'Driver updated' : 'Driver added'); onDone(res.driver); } catch (e) { toast.error(friendlyError(e)); } finally { setSubmitting(false); } };
   if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
@@ -5134,6 +5247,9 @@ function DriverForm({ session, mode, driverId, onDone, onCancel }) {
         <div className="space-y-1.5"><Label>License number</Label><Input value={form.licenseNumber} onChange={set('licenseNumber')} /></div>
         <div className="space-y-1.5"><Label>License expiry</Label><Input type="date" value={form.licenseExpiry} onChange={set('licenseExpiry')} /></div>
         <div className="space-y-1.5"><Label>Status</Label><Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DRIVER_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{DRIVER_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Address</Label><Input value={form.address} onChange={set('address')} /></div>
+        <div className="space-y-1.5"><Label>Emergency contact name</Label><Input value={form.emergencyContactName} onChange={set('emergencyContactName')} /></div>
+        <div className="space-y-1.5"><Label>Emergency contact phone</Label><Input value={form.emergencyContactPhone} onChange={set('emergencyContactPhone')} /></div>
         <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Textarea rows={2} value={form.notes} onChange={set('notes')} /></div>
       </CardContent></Card>
       <div className="flex gap-2"><Button className="flex-1 sm:flex-none" onClick={submit} disabled={!canSubmit || submitting}>{submitting ? 'Saving…' : (mode === 'edit' ? 'Save changes' : 'Add driver')}</Button><Button variant="outline" onClick={onCancel}>Cancel</Button></div>
@@ -5160,6 +5276,8 @@ function DriverDetail({ session, driverId, onBack, onEdit }) {
         <PkgRow label="Phone" value={d.phone} /><PkgRow label="Email" value={d.email} />
         <PkgRow label="License number" value={d.licenseNumber} /><PkgRow label="License expiry" value={d.licenseExpiry ? formatJoined(d.licenseExpiry) : ''} />
         <PkgRow label="Assigned vehicle" value={d.assignedVehicleNumber} />
+        <PkgRow label="Address" value={d.address} />
+        <PkgRow label="Emergency contact" value={[d.emergencyContactName, d.emergencyContactPhone].filter(Boolean).join(' · ')} />
         <Separator className="my-2" /><PkgRow label="Created" value={formatJoined(d.createdAt)} /><PkgRow label="Updated" value={formatJoined(d.updatedAt)} />
         {d.notes && (<><Separator className="my-2" /><div className="pt-1"><div className="text-sm text-muted-foreground mb-1">Notes</div><p className="text-sm whitespace-pre-wrap">{d.notes}</p></div></>)}
       </CardContent></Card>
