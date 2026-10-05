@@ -30,6 +30,12 @@ import {
 import {
   IMPORT_META, IMPORT_FIELDS, isValidImportTarget, parseUpload, suggestMapping, IMPORT_ROW_CAP,
 } from '@/lib/import-engine';
+import {
+  RULE_SERVICE_CATEGORIES, RULE_SEASONS, RULE_CONDITIONS, RULE_SURCHARGE_TYPES,
+  buildTravelRule, calculateSurcharge,
+  DOCUMENT_ENTITY_TYPES, DOCUMENT_CATEGORIES, DOCUMENT_MAX_BYTES, buildDocumentMeta,
+  CUSTOM_FIELD_ENTITIES, CUSTOM_FIELD_TYPES, slugify as slugifyKey, buildFieldDefinition, coerceFieldValue, buildCustomModule,
+} from '@/lib/intelligence';
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -2826,6 +2832,92 @@ export async function GET(request, context) {
       });
     }
 
+    // ---- Kashmir Travel Intelligence (read) ----
+    if (path === '/travel-rules' || path.startsWith('/travel-rules/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'travelrules:read')) return err('forbidden', 403);
+      const db = await getDb();
+      if (path === '/travel-rules') {
+        const sp = new URL(request.url).searchParams;
+        const q = {}; const cat = sp.get('category'); if (cat) q.serviceCategory = cat;
+        const rules = await db.collection('travelRules').find(tenantFilter(session, q), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+        return json({ rules, meta: { categories: RULE_SERVICE_CATEGORIES, seasons: RULE_SEASONS, conditions: RULE_CONDITIONS, surchargeTypes: RULE_SURCHARGE_TYPES } });
+      }
+      if (path === '/travel-rules/meta') {
+        return json({ categories: RULE_SERVICE_CATEGORIES, seasons: RULE_SEASONS, conditions: RULE_CONDITIONS, surchargeTypes: RULE_SURCHARGE_TYPES });
+      }
+      const id = path.split('/')[2];
+      const rule = await db.collection('travelRules').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      if (!rule) return err('Rule not found', 404);
+      return json({ rule });
+    }
+
+    // ---- Universal Document Vault (read) ----
+    if (path === '/documents' || path === '/documents/expiring' || path === '/documents/meta' || path.startsWith('/documents/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'documents:read')) return err('forbidden', 403);
+      const db = await getDb();
+      if (path === '/documents/meta') return json({ entityTypes: DOCUMENT_ENTITY_TYPES, categories: DOCUMENT_CATEGORIES, maxBytes: DOCUMENT_MAX_BYTES });
+      if (path === '/documents') {
+        const sp = new URL(request.url).searchParams;
+        const q = {};
+        if (sp.get('entityType')) q.entityType = sp.get('entityType');
+        if (sp.get('entityId')) q.entityId = sp.get('entityId');
+        if (sp.get('category')) q.category = sp.get('category');
+        const docs = await db.collection('documentVault').find(tenantFilter(session, q), { projection: { _id: 0, data: 0 } }).sort({ createdAt: -1 }).limit(500).toArray();
+        return json({ documents: docs });
+      }
+      if (path === '/documents/expiring') {
+        const now = new Date(); const soon = new Date(now.getTime() + 30 * 86400000).toISOString().slice(0, 10); const today = now.toISOString().slice(0, 10);
+        const docs = await db.collection('documentVault').find(tenantFilter(session, { expiryDate: { $gte: '1900-01-01', $lte: soon } }), { projection: { _id: 0, data: 0 } }).sort({ expiryDate: 1 }).limit(200).toArray();
+        return json({ documents: docs.map((d) => ({ ...d, expired: d.expiryDate && d.expiryDate < today })) });
+      }
+      // /documents/:id/download
+      const parts = path.split('/');
+      if (parts.length === 4 && parts[3] === 'download') {
+        const doc = await db.collection('documentVault').findOne(tenantFilter(session, { id: parts[2] }));
+        if (!doc || !doc.data) return err('Document not found', 404);
+        const buf = Buffer.from(doc.data, 'base64');
+        return new NextResponse(buf, { status: 200, headers: { 'Content-Type': doc.fileType || 'application/octet-stream', 'Content-Disposition': `attachment; filename="${encodeURIComponent(doc.fileName || doc.name)}"`, 'Cache-Control': 'private, no-store' } });
+      }
+      const doc = await db.collection('documentVault').findOne(tenantFilter(session, { id: parts[2] }), { projection: { _id: 0, data: 0 } });
+      if (!doc) return err('Document not found', 404);
+      return json({ document: doc });
+    }
+
+    // ---- Custom Fields & Modules (read) ----
+    if (path === '/custom-fields' || path === '/custom-fields/values') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'customization:read')) return err('forbidden', 403);
+      const db = await getDb();
+      const sp = new URL(request.url).searchParams;
+      if (path === '/custom-fields/values') {
+        const entityType = sp.get('entityType') || ''; const entityId = sp.get('entityId') || '';
+        if (!entityType || !entityId) return err('entityType and entityId are required');
+        const rec = await db.collection('customFieldValues').findOne(tenantFilter(session, { entityType, entityId }), { projection: { _id: 0 } });
+        return json({ values: rec ? rec.values : {} });
+      }
+      const q = {}; const et = sp.get('entityType'); if (et) q.entityType = et;
+      const defs = await db.collection('customFieldDefinitions').find(tenantFilter(session, q), { projection: { _id: 0 } }).sort({ order: 1, createdAt: 1 }).toArray();
+      return json({ fields: defs, meta: { entities: CUSTOM_FIELD_ENTITIES, fieldTypes: CUSTOM_FIELD_TYPES } });
+    }
+    if (path === '/custom-modules' || path.startsWith('/custom-modules/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'customization:read')) return err('forbidden', 403);
+      const db = await getDb();
+      if (path === '/custom-modules') {
+        const mods = await db.collection('customModules').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
+        return json({ modules: mods });
+      }
+      const mod = await db.collection('customModules').findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
+      if (!mod) return err('Module not found', 404);
+      return json({ module: mod });
+    }
+
     if (path.startsWith('/billing/')) {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
@@ -3498,6 +3590,123 @@ export async function POST(request, context) {
       return json({ target, result });
     }
 
+    // ---- Kashmir Travel Intelligence ----
+    if (path === '/travel-rules') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'travelrules:manage')) return err('forbidden', 403);
+      const { value, error } = buildTravelRule(await readBody(request), {});
+      if (error) return err(error);
+      const now = new Date().toISOString();
+      const doc = withAgency(session, { id: uuidv4(), ...value, createdBy: session.userId, createdAt: now, updatedAt: now });
+      await db.collection('travelRules').insertOne(doc);
+      const { _id, ...safe } = doc;
+      return json({ rule: safe }, 201);
+    }
+    if (path === '/travel-rules/calculate') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'travelrules:read')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const q = {};
+      if (body.serviceCategory) q.serviceCategory = body.serviceCategory;
+      const rules = await db.collection('travelRules').find(tenantFilter(session, { ...q, active: true }), { projection: { _id: 0 } }).toArray();
+      const result = calculateSurcharge(rules, {
+        serviceCategory: str(body.serviceCategory, 40), vehicleType: str(body.vehicleType, 60),
+        season: str(body.season, 20), condition: str(body.condition, 20), destination: str(body.destination, 120),
+        supplierId: str(body.supplierId, 80), date: str(body.date, 40),
+        baseAmount: body.baseAmount, nightHalts: body.nightHalts,
+      });
+      return json(result);
+    }
+
+    // ---- Universal Document Vault (upload) ----
+    if (path === '/documents') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'documents:create')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const { value, error } = buildDocumentMeta(body);
+      if (error) return err(error);
+      const content = String(body.content || '');
+      if (!content) return err('A file is required');
+      const approxBytes = Math.floor(content.length * 0.75);
+      if (approxBytes > DOCUMENT_MAX_BYTES) return err('File is too large (max 8MB in this foundation)');
+      const now = new Date().toISOString();
+      const doc = withAgency(session, {
+        id: uuidv4(), ...value,
+        fileName: str(body.fileName, 200) || value.name,
+        fileType: str(body.fileType, 120) || 'application/octet-stream',
+        fileSize: approxBytes, data: content,
+        uploadedBy: session.userId, uploadedByName: session.name || '',
+        createdAt: now, updatedAt: now,
+      });
+      await db.collection('documentVault').insertOne(doc);
+      await logActivity(db, session, { type: 'document_uploaded', message: `Document "${value.name}" uploaded`, refType: value.entityType, refId: value.entityId });
+      const { _id, data, ...safe } = doc;
+      return json({ document: safe }, 201);
+    }
+
+    // ---- Custom Fields & Modules ----
+    if (path === '/custom-fields') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'customization:manage')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const entityType = str(body.entityType).toLowerCase();
+      if (!CUSTOM_FIELD_ENTITIES.includes(entityType)) return err('Invalid entity');
+      const { value, error } = buildFieldDefinition(body, {});
+      if (error) return err(error);
+      const key = slugifyKey(body.key || value.label);
+      if (!key) return err('Could not derive a field key');
+      const dupe = await db.collection('customFieldDefinitions').findOne(tenantFilter(session, { entityType, key }));
+      if (dupe) return err('A field with this key already exists for this entity', 409);
+      const now = new Date().toISOString();
+      const doc = withAgency(session, { id: uuidv4(), entityType, key, ...value, createdBy: session.userId, createdAt: now, updatedAt: now });
+      await db.collection('customFieldDefinitions').insertOne(doc);
+      const { _id, ...safe } = doc;
+      return json({ field: safe }, 201);
+    }
+    if (path === '/custom-fields/values') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'customization:read')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const entityType = str(body.entityType).toLowerCase(); const entityId = str(body.entityId, 80);
+      if (!CUSTOM_FIELD_ENTITIES.includes(entityType) || !entityId) return err('entityType and entityId are required');
+      const defs = await db.collection('customFieldDefinitions').find(tenantFilter(session, { entityType, active: true })).toArray();
+      const incoming = (body.values && typeof body.values === 'object') ? body.values : {};
+      const clean = {};
+      for (const d of defs) {
+        if (incoming[d.key] === undefined) continue;
+        clean[d.key] = coerceFieldValue(d.fieldType, d.options, incoming[d.key]);
+      }
+      const now = new Date().toISOString();
+      await db.collection('customFieldValues').updateOne(
+        tenantFilter(session, { entityType, entityId }),
+        { $set: { values: clean, updatedAt: now }, $setOnInsert: withAgency(session, { id: uuidv4(), entityType, entityId, createdAt: now }) },
+        { upsert: true },
+      );
+      return json({ values: clean });
+    }
+    if (path === '/custom-modules') {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'customization:manage')) return err('forbidden', 403);
+      const body = await readBody(request);
+      const { value, error } = buildCustomModule(body, {});
+      if (error) return err(error);
+      const slug = slugifyKey(body.slug || value.name);
+      if (!slug) return err('Could not derive a module slug');
+      const dupe = await db.collection('customModules').findOne(tenantFilter(session, { slug }));
+      if (dupe) return err('A module with this slug already exists', 409);
+      const now = new Date().toISOString();
+      const doc = withAgency(session, { id: uuidv4(), slug, ...value, createdBy: session.userId, createdAt: now, updatedAt: now });
+      await db.collection('customModules').insertOne(doc);
+      const { _id, ...safe } = doc;
+      return json({ module: safe }, 201);
+    }
+
     // Agency onboarding: creates an agency + its owner user (REBUILD).
     if (path === '/auth/register-agency') {
       const { agencyName, name, email, password } = await readBody(request);
@@ -4062,6 +4271,73 @@ export async function PUT(request, context) {
       return integrationsPut(db, session, path, await readBody(request));
     }
 
+    // ---- Kashmir Travel Intelligence (update) ----
+    if (path.match(/^\/travel-rules\/[^/]+$/)) {
+      if (!can(session.role, 'travelrules:manage')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const { value, error } = buildTravelRule(await readBody(request), { partial: true });
+      if (error) return err(error);
+      value.updatedAt = new Date().toISOString();
+      const r = await db.collection('travelRules').updateOne(tenantFilter(session, { id }), { $set: value });
+      if (r.matchedCount === 0) return err('Rule not found', 404);
+      const rule = await db.collection('travelRules').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ rule });
+    }
+
+    // ---- B2B Supplier Network (visibility / verification / service areas) ----
+    if (path.match(/^\/suppliers\/[^/]+\/network$/)) {
+      if (!can(session.role, 'suppliers:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const body = await readBody(request);
+      const set = { updatedAt: new Date().toISOString() };
+      if (body.networkVisibility !== undefined) {
+        const v = String(body.networkVisibility).toLowerCase();
+        if (!['private', 'network', 'public'].includes(v)) return err('Invalid network visibility');
+        set.networkVisibility = v;
+      }
+      if (body.verificationStatus !== undefined) {
+        const v = String(body.verificationStatus).toLowerCase();
+        if (!['unverified', 'pending', 'verified'].includes(v)) return err('Invalid verification status');
+        set.verificationStatus = v;
+      }
+      if (body.claimStatus !== undefined) {
+        const v = String(body.claimStatus).toLowerCase();
+        if (!['unclaimed', 'claimed'].includes(v)) return err('Invalid claim status');
+        set.claimStatus = v;
+      }
+      if (body.serviceAreas !== undefined) set.serviceAreas = (Array.isArray(body.serviceAreas) ? body.serviceAreas : []).map((a) => str(a, 120)).filter(Boolean).slice(0, 50);
+      if (body.servicesOffered !== undefined) set.servicesOffered = (Array.isArray(body.servicesOffered) ? body.servicesOffered : []).map((a) => str(a, 120)).filter(Boolean).slice(0, 50);
+      if (body.source !== undefined) set.source = str(body.source, 60);
+      const r = await db.collection('suppliers').updateOne(tenantFilter(session, { id }), { $set: set });
+      if (r.matchedCount === 0) return err('Supplier not found', 404);
+      const supplier = await db.collection('suppliers').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ supplier });
+    }
+
+    // ---- Custom Fields & Modules (update) ----
+    if (path.match(/^\/custom-fields\/[^/]+$/)) {
+      if (!can(session.role, 'customization:manage')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const { value, error } = buildFieldDefinition(await readBody(request), { partial: true });
+      if (error) return err(error);
+      value.updatedAt = new Date().toISOString();
+      const r = await db.collection('customFieldDefinitions').updateOne(tenantFilter(session, { id }), { $set: value });
+      if (r.matchedCount === 0) return err('Field not found', 404);
+      const field = await db.collection('customFieldDefinitions').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ field });
+    }
+    if (path.match(/^\/custom-modules\/[^/]+$/)) {
+      if (!can(session.role, 'customization:manage')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const { value, error } = buildCustomModule(await readBody(request), { partial: true });
+      if (error) return err(error);
+      value.updatedAt = new Date().toISOString();
+      const r = await db.collection('customModules').updateOne(tenantFilter(session, { id }), { $set: value });
+      if (r.matchedCount === 0) return err('Module not found', 404);
+      const module = await db.collection('customModules').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ module });
+    }
+
     // Agency onboarding setup — updates the session's own agency only.
     if (path === '/agency') {      if (!can(session.role, 'agency:manage')) return err('forbidden', 403);
       const b = await readBody(request);
@@ -4497,6 +4773,34 @@ export async function DELETE(request, context) {
     if (path.match(/^\/webhooks\/[^/]+$/) || path.match(/^\/dev\/api-keys\/[^/]+$/)) {
       if (!can(session.role, 'integrations:manage')) return err('forbidden', 403);
       return integrationsDelete(db, session, path);
+    }
+
+    // ---- Kashmir Travel Intelligence (delete) ----
+    if (path.match(/^\/travel-rules\/[^/]+$/)) {
+      if (!can(session.role, 'travelrules:manage')) return err('forbidden', 403);
+      const r = await db.collection('travelRules').deleteOne(tenantFilter(session, { id: path.split('/')[2] }));
+      if (r.deletedCount === 0) return err('Rule not found', 404);
+      return json({ ok: true });
+    }
+    // ---- Document Vault (delete) ----
+    if (path.match(/^\/documents\/[^/]+$/)) {
+      if (!can(session.role, 'documents:delete')) return err('forbidden', 403);
+      const r = await db.collection('documentVault').deleteOne(tenantFilter(session, { id: path.split('/')[2] }));
+      if (r.deletedCount === 0) return err('Document not found', 404);
+      return json({ ok: true });
+    }
+    // ---- Custom Fields & Modules (delete) ----
+    if (path.match(/^\/custom-fields\/[^/]+$/)) {
+      if (!can(session.role, 'customization:manage')) return err('forbidden', 403);
+      const r = await db.collection('customFieldDefinitions').deleteOne(tenantFilter(session, { id: path.split('/')[2] }));
+      if (r.deletedCount === 0) return err('Field not found', 404);
+      return json({ ok: true });
+    }
+    if (path.match(/^\/custom-modules\/[^/]+$/)) {
+      if (!can(session.role, 'customization:manage')) return err('forbidden', 403);
+      const r = await db.collection('customModules').deleteOne(tenantFilter(session, { id: path.split('/')[2] }));
+      if (r.deletedCount === 0) return err('Module not found', 404);
+      return json({ ok: true });
     }
 
     // ---- Fleet: delete a vehicle maintenance record ----

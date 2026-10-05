@@ -320,6 +320,7 @@ const SECTION_TITLES = {
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
   int_overview: 'Integrations', int_webhooks: 'Webhooks', int_api: 'Developer API',
   data_import: 'Import Data', data_export: 'Export Data',
+  travelrules: 'Travel Intelligence', documents: 'Document Vault', customfields: 'Custom Fields', suppliers_network: 'Supplier Network',
   team: 'Team', settings: 'Settings',
 };
 
@@ -448,6 +449,10 @@ const DESKTOP_WORKSPACES = [
     { id: 'comm_inbox', label: 'Communications', desc: 'Inbox, templates & logs', icon: MessageSquare, tone: 'sky' },
     { id: 'copilot', label: 'AI Copilot', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
     { id: 'an_overview', label: 'Analytics', desc: 'Business insights & reports', icon: Gauge, tone: 'emerald' },
+    { id: 'travelrules', label: 'Travel Intelligence', desc: 'Rules & surcharges', icon: MapPin, tone: 'violet' },
+    { id: 'documents', label: 'Document Vault', desc: 'Secure document storage', icon: FileText, tone: 'sky' },
+    { id: 'customfields', label: 'Custom Fields', desc: 'Extend modules with fields', icon: Database, tone: 'emerald' },
+    { id: 'suppliers_network', label: 'Supplier Network', desc: 'B2B network visibility', icon: Store, tone: 'amber' },
     { id: 'web_dashboard', label: 'Website', desc: 'Your agency website', icon: Globe, tone: 'amber' },
     { id: 'portal_admin', label: 'Customer Portal', desc: 'Client portal access', icon: ShieldCheck, tone: 'violet' },
     { id: 'int_overview', label: 'Integrations', desc: 'Connect external tools', icon: ExternalLink, tone: 'sky' },
@@ -1315,6 +1320,10 @@ function Dashboard({ session, onLogout }) {
           {String(active).startsWith('sub_') && <Billing key="sub" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('sub_' + t)} />}
           {String(active).startsWith('int_') && <Integrations key="int" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('int_' + t)} />}
           {active === 'portal_admin' && <PortalAdmin session={session} />}
+          {active === 'travelrules' && <TravelRules session={session} />}
+          {active === 'documents' && <DocumentVault session={session} />}
+          {active === 'customfields' && <CustomFields session={session} />}
+          {active === 'suppliers_network' && <SupplierNetwork session={session} />}
           {active === 'data_import' && <DataImport key="imp" session={session} onNavigate={navigateTo} />}
           {active === 'data_export' && <DataExport key="exp" session={session} />}
           {active === 'team' && <Team session={session} />}
@@ -7123,6 +7132,581 @@ function Integrations({ session, tab, onNav }) {
     {current === 'webhooks' && <IntWebhooks canManage={canManage} />}
     {current === 'api' && <IntApiKeys canManage={canManage} />}
   </div>);
+}
+
+// ================================================================
+// PROMPT 2 FRONTEND: Kashmir Travel Intelligence / Travel Rules
+// ================================================================
+function TravelRules({ session }) {
+  const [rules, setRules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editRule, setEditRule] = useState(null);
+  const [form, setForm] = useState({ name: '', serviceCategory: '', surchargeType: 'fixed', surchargeValue: 0, destination: '', season: '', effectiveFrom: '', effectiveTo: '', active: true });
+
+  const canManage = can(session.role, 'travelrules:manage');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await api('/travel-rules');
+      setRules(data.rules || []);
+    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleCreate = async () => {
+    try {
+      await api('/travel-rules', { method: 'POST', body: JSON.stringify(form) });
+      toast.success('Travel rule created');
+      setCreateOpen(false);
+      setForm({ name: '', serviceCategory: '', surchargeType: 'fixed', surchargeValue: 0, destination: '', season: '', effectiveFrom: '', effectiveTo: '', active: true });
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleEdit = async () => {
+    if (!editRule) return;
+    try {
+      await api(`/travel-rules/${editRule.id}`, { method: 'PUT', body: JSON.stringify(form) });
+      toast.success('Travel rule updated');
+      setEditRule(null);
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this travel rule?')) return;
+    try {
+      await api(`/travel-rules/${id}`, { method: 'DELETE' });
+      toast.success('Travel rule deleted');
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const openEdit = (rule) => {
+    setEditRule(rule);
+    setForm({ name: rule.name, serviceCategory: rule.serviceCategory, surchargeType: rule.surchargeType, surchargeValue: rule.surchargeValue, destination: rule.destination || '', season: rule.season || '', effectiveFrom: rule.effectiveFrom || '', effectiveTo: rule.effectiveTo || '', active: rule.active });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Travel Intelligence</h2>
+          <p className="text-sm text-muted-foreground">Manage travel rules and surcharges</p>
+        </div>
+        {canManage && (
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button><Plus className="mr-2 h-4 w-4" />Create Rule</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader><DialogTitle>Create Travel Rule</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                <div><Label>Rule Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+                <div><Label>Service Category</Label><Input placeholder="transport, hotel, activities..." value={form.serviceCategory} onChange={(e) => setForm({ ...form, serviceCategory: e.target.value })} /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Surcharge Type</Label>
+                    <Select value={form.surchargeType} onValueChange={(v) => setForm({ ...form, surchargeType: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="fixed">Fixed</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>Surcharge Value</Label><Input type="number" value={form.surchargeValue} onChange={(e) => setForm({ ...form, surchargeValue: parseFloat(e.target.value) || 0 })} /></div>
+                </div>
+                <div><Label>Destination (optional)</Label><Input value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} /></div>
+                <div><Label>Season (optional)</Label><Input placeholder="winter, summer..." value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Effective From</Label><Input type="date" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} /></div>
+                  <div><Label>Effective To</Label><Input type="date" value={form.effectiveTo} onChange={(e) => setForm({ ...form, effectiveTo: e.target.value })} /></div>
+                </div>
+              </div>
+              <DialogFooter><Button onClick={handleCreate}>Create Rule</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : rules.length === 0 ? (
+        <Card><CardContent className="flex flex-col items-center justify-center py-12 text-center"><MapPin className="mb-4 h-12 w-12 text-muted-foreground" /><p className="text-sm text-muted-foreground">No travel rules yet</p></CardContent></Card>
+      ) : (
+        <Card>
+          <Table>
+            <TableHeader><TableRow><TableHead>Rule Name</TableHead><TableHead>Service</TableHead><TableHead>Surcharge</TableHead><TableHead>Destination</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
+            <TableBody>
+              {rules.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell className="font-medium">{r.name}</TableCell>
+                  <TableCell><Badge variant="outline">{r.serviceCategory}</Badge></TableCell>
+                  <TableCell>{r.surchargeType === 'percentage' ? `${r.surchargeValue}%` : `₹${r.surchargeValue}`}</TableCell>
+                  <TableCell>{r.destination || '—'}</TableCell>
+                  <TableCell>{r.active ? <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Active</Badge> : <Badge variant="outline">Inactive</Badge>}</TableCell>
+                  <TableCell>
+                    {canManage && (
+                      <div className="flex gap-2">
+                        <Dialog open={editRule?.id === r.id} onOpenChange={(open) => { if (!open) setEditRule(null); }}>
+                          <DialogTrigger asChild><Button size="sm" variant="ghost" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button></DialogTrigger>
+                          <DialogContent className="max-w-lg">
+                            <DialogHeader><DialogTitle>Edit Travel Rule</DialogTitle></DialogHeader>
+                            <div className="space-y-3">
+                              <div><Label>Rule Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+                              <div><Label>Service Category</Label><Input value={form.serviceCategory} onChange={(e) => setForm({ ...form, serviceCategory: e.target.value })} /></div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div><Label>Surcharge Type</Label>
+                                  <Select value={form.surchargeType} onValueChange={(v) => setForm({ ...form, surchargeType: v })}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent><SelectItem value="fixed">Fixed</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent>
+                                  </Select>
+                                </div>
+                                <div><Label>Surcharge Value</Label><Input type="number" value={form.surchargeValue} onChange={(e) => setForm({ ...form, surchargeValue: parseFloat(e.target.value) || 0 })} /></div>
+                              </div>
+                              <div><Label>Destination (optional)</Label><Input value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} /></div>
+                              <div><Label>Season (optional)</Label><Input value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} /></div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div><Label>Effective From</Label><Input type="date" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} /></div>
+                                <div><Label>Effective To</Label><Input type="date" value={form.effectiveTo} onChange={(e) => setForm({ ...form, effectiveTo: e.target.value })} /></div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input type="checkbox" id="active" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
+                                <Label htmlFor="active">Active</Label>
+                              </div>
+                            </div>
+                            <DialogFooter><Button onClick={handleEdit}>Save Changes</Button></DialogFooter>
+                          </DialogContent>
+                        </Dialog>
+                        <Button size="sm" variant="ghost" onClick={() => handleDelete(r.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      </div>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ================================================================
+// PROMPT 2 FRONTEND: Universal Document Vault
+// ================================================================
+function DocumentVault({ session }) {
+  const [documents, setDocuments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [form, setForm] = useState({ entityType: 'clients', entityId: '', fileName: '', file: null, category: 'contract', expiryDate: '' });
+
+  const canCreate = can(session.role, 'documents:create');
+  const canDelete = can(session.role, 'documents:delete');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await api('/documents');
+      setDocuments(data.documents || []);
+    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleUpload = async () => {
+    if (!form.file) { toast.error('Please select a file'); return; }
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result.split(',')[1];
+        await api('/documents', { method: 'POST', body: JSON.stringify({ ...form, fileData: base64, file: undefined }) });
+        toast.success('Document uploaded');
+        setUploadOpen(false);
+        setForm({ entityType: 'clients', entityId: '', fileName: '', file: null, category: 'contract', expiryDate: '' });
+        load();
+      };
+      reader.readAsDataURL(form.file);
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleDownload = (doc) => {
+    window.open(`/api/documents/${doc.id}/download`, '_blank');
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this document?')) return;
+    try {
+      await api(`/documents/${id}`, { method: 'DELETE' });
+      toast.success('Document deleted');
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Document Vault</h2>
+          <p className="text-sm text-muted-foreground">Secure document storage and management</p>
+        </div>
+        {canCreate && (
+          <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+            <DialogTrigger asChild>
+              <Button><Upload className="mr-2 h-4 w-4" />Upload Document</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                <div><Label>Entity Type</Label>
+                  <Select value={form.entityType} onValueChange={(v) => setForm({ ...form, entityType: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="clients">Client</SelectItem>
+                      <SelectItem value="leads">Lead</SelectItem>
+                      <SelectItem value="bookings">Booking</SelectItem>
+                      <SelectItem value="suppliers">Supplier</SelectItem>
+                      <SelectItem value="vehicles">Vehicle</SelectItem>
+                      <SelectItem value="drivers">Driver</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div><Label>Entity ID</Label><Input placeholder="Enter ID of client, booking, etc." value={form.entityId} onChange={(e) => setForm({ ...form, entityId: e.target.value })} /></div>
+                <div><Label>Category</Label>
+                  <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="contract">Contract</SelectItem>
+                      <SelectItem value="invoice">Invoice</SelectItem>
+                      <SelectItem value="id_proof">ID Proof</SelectItem>
+                      <SelectItem value="license">License</SelectItem>
+                      <SelectItem value="permit">Permit</SelectItem>
+                      <SelectItem value="insurance">Insurance</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div><Label>File Name</Label><Input value={form.fileName} onChange={(e) => setForm({ ...form, fileName: e.target.value })} /></div>
+                <div><Label>File</Label><Input type="file" onChange={(e) => setForm({ ...form, file: e.target.files[0] })} /></div>
+                <div><Label>Expiry Date (optional)</Label><Input type="date" value={form.expiryDate} onChange={(e) => setForm({ ...form, expiryDate: e.target.value })} /></div>
+              </div>
+              <DialogFooter><Button onClick={handleUpload}>Upload</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : documents.length === 0 ? (
+        <Card><CardContent className="flex flex-col items-center justify-center py-12 text-center"><FileText className="mb-4 h-12 w-12 text-muted-foreground" /><p className="text-sm text-muted-foreground">No documents yet</p></CardContent></Card>
+      ) : (
+        <Card>
+          <Table>
+            <TableHeader><TableRow><TableHead>File Name</TableHead><TableHead>Category</TableHead><TableHead>Entity</TableHead><TableHead>Expiry</TableHead><TableHead>Uploaded</TableHead><TableHead></TableHead></TableRow></TableHeader>
+            <TableBody>
+              {documents.map((d) => (
+                <TableRow key={d.id}>
+                  <TableCell className="font-medium">{d.fileName}</TableCell>
+                  <TableCell><Badge variant="outline">{d.category}</Badge></TableCell>
+                  <TableCell className="text-xs">{d.entityType} • {d.entityId.slice(0, 8)}</TableCell>
+                  <TableCell>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</TableCell>
+                  <TableCell className="text-xs">{new Date(d.uploadedAt).toLocaleDateString()}</TableCell>
+                  <TableCell>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => handleDownload(d)}><Download className="h-4 w-4" /></Button>
+                      {canDelete && <Button size="sm" variant="ghost" onClick={() => handleDelete(d.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ================================================================
+// PROMPT 2 FRONTEND: Custom Fields & Custom Modules
+// ================================================================
+function CustomFields({ session }) {
+  const [fields, setFields] = useState([]);
+  const [modules, setModules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [createFieldOpen, setCreateFieldOpen] = useState(false);
+  const [createModuleOpen, setCreateModuleOpen] = useState(false);
+  const [fieldForm, setFieldForm] = useState({ name: '', fieldType: 'text', moduleName: 'clients', required: false, options: '' });
+  const [moduleForm, setModuleForm] = useState({ name: '', description: '' });
+
+  const canManage = can(session.role, 'customization:manage');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [fieldsData, modulesData] = await Promise.all([api('/custom-fields'), api('/custom-modules')]);
+      setFields(fieldsData.fields || []);
+      setModules(modulesData.modules || []);
+    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleCreateField = async () => {
+    try {
+      const payload = { ...fieldForm };
+      if (fieldForm.fieldType === 'select' && fieldForm.options) {
+        payload.options = fieldForm.options.split(',').map(o => o.trim()).filter(Boolean);
+      }
+      await api('/custom-fields', { method: 'POST', body: JSON.stringify(payload) });
+      toast.success('Custom field created');
+      setCreateFieldOpen(false);
+      setFieldForm({ name: '', fieldType: 'text', moduleName: 'clients', required: false, options: '' });
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleCreateModule = async () => {
+    try {
+      await api('/custom-modules', { method: 'POST', body: JSON.stringify(moduleForm) });
+      toast.success('Custom module created');
+      setCreateModuleOpen(false);
+      setModuleForm({ name: '', description: '' });
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleDeleteField = async (id) => {
+    if (!confirm('Delete this field?')) return;
+    try {
+      await api(`/custom-fields/${id}`, { method: 'DELETE' });
+      toast.success('Field deleted');
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const handleDeleteModule = async (id) => {
+    if (!confirm('Delete this module?')) return;
+    try {
+      await api(`/custom-modules/${id}`, { method: 'DELETE' });
+      toast.success('Module deleted');
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Custom Fields & Modules</h2>
+        <p className="text-sm text-muted-foreground">Extend modules with custom fields</p>
+      </div>
+
+      <Tabs defaultValue="fields">
+        <TabsList><TabsTrigger value="fields">Custom Fields</TabsTrigger><TabsTrigger value="modules">Custom Modules</TabsTrigger></TabsList>
+
+        <TabsContent value="fields" className="space-y-4">
+          <div className="flex justify-end">
+            {canManage && (
+              <Dialog open={createFieldOpen} onOpenChange={setCreateFieldOpen}>
+                <DialogTrigger asChild>
+                  <Button><Plus className="mr-2 h-4 w-4" />Create Field</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>Create Custom Field</DialogTitle></DialogHeader>
+                  <div className="space-y-3">
+                    <div><Label>Field Name</Label><Input value={fieldForm.name} onChange={(e) => setFieldForm({ ...fieldForm, name: e.target.value })} /></div>
+                    <div><Label>Field Type</Label>
+                      <Select value={fieldForm.fieldType} onValueChange={(v) => setFieldForm({ ...fieldForm, fieldType: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="text">Text</SelectItem>
+                          <SelectItem value="number">Number</SelectItem>
+                          <SelectItem value="date">Date</SelectItem>
+                          <SelectItem value="boolean">Boolean</SelectItem>
+                          <SelectItem value="select">Select</SelectItem>
+                          <SelectItem value="textarea">Text Area</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div><Label>Module</Label>
+                      <Select value={fieldForm.moduleName} onValueChange={(v) => setFieldForm({ ...fieldForm, moduleName: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="clients">Clients</SelectItem>
+                          <SelectItem value="leads">Leads</SelectItem>
+                          <SelectItem value="bookings">Bookings</SelectItem>
+                          <SelectItem value="suppliers">Suppliers</SelectItem>
+                          <SelectItem value="quotations">Quotations</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {fieldForm.fieldType === 'select' && (
+                      <div><Label>Options (comma-separated)</Label><Input placeholder="Option 1, Option 2, Option 3" value={fieldForm.options} onChange={(e) => setFieldForm({ ...fieldForm, options: e.target.value })} /></div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" id="required" checked={fieldForm.required} onChange={(e) => setFieldForm({ ...fieldForm, required: e.target.checked })} />
+                      <Label htmlFor="required">Required field</Label>
+                    </div>
+                  </div>
+                  <DialogFooter><Button onClick={handleCreateField}>Create Field</Button></DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+          ) : fields.length === 0 ? (
+            <Card><CardContent className="flex flex-col items-center justify-center py-12 text-center"><Database className="mb-4 h-12 w-12 text-muted-foreground" /><p className="text-sm text-muted-foreground">No custom fields yet</p></CardContent></Card>
+          ) : (
+            <Card>
+              <Table>
+                <TableHeader><TableRow><TableHead>Field Name</TableHead><TableHead>Type</TableHead><TableHead>Module</TableHead><TableHead>Required</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {fields.map((f) => (
+                    <TableRow key={f.id}>
+                      <TableCell className="font-medium">{f.name}</TableCell>
+                      <TableCell><Badge variant="outline">{f.fieldType}</Badge></TableCell>
+                      <TableCell>{f.moduleName}</TableCell>
+                      <TableCell>{f.required ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : '—'}</TableCell>
+                      <TableCell>{f.active ? <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Active</Badge> : <Badge variant="outline">Inactive</Badge>}</TableCell>
+                      <TableCell>
+                        {canManage && <Button size="sm" variant="ghost" onClick={() => handleDeleteField(f.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="modules" className="space-y-4">
+          <div className="flex justify-end">
+            {canManage && (
+              <Dialog open={createModuleOpen} onOpenChange={setCreateModuleOpen}>
+                <DialogTrigger asChild>
+                  <Button><Plus className="mr-2 h-4 w-4" />Create Module</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>Create Custom Module</DialogTitle></DialogHeader>
+                  <div className="space-y-3">
+                    <div><Label>Module Name</Label><Input value={moduleForm.name} onChange={(e) => setModuleForm({ ...moduleForm, name: e.target.value })} /></div>
+                    <div><Label>Description</Label><Textarea value={moduleForm.description} onChange={(e) => setModuleForm({ ...moduleForm, description: e.target.value })} /></div>
+                  </div>
+                  <DialogFooter><Button onClick={handleCreateModule}>Create Module</Button></DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+          ) : modules.length === 0 ? (
+            <Card><CardContent className="flex flex-col items-center justify-center py-12 text-center"><Layers className="mb-4 h-12 w-12 text-muted-foreground" /><p className="text-sm text-muted-foreground">No custom modules yet</p></CardContent></Card>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {modules.map((m) => (
+                <Card key={m.id}>
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <CardTitle className="text-base">{m.name}</CardTitle>
+                        <CardDescription className="text-xs mt-1">{m.description}</CardDescription>
+                      </div>
+                      {canManage && <Button size="sm" variant="ghost" onClick={() => handleDeleteModule(m.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {m.active ? <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Active</Badge> : <Badge variant="outline">Inactive</Badge>}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// ================================================================
+// PROMPT 2 FRONTEND: B2B Supplier Network
+// ================================================================
+function SupplierNetwork({ session }) {
+  const [suppliers, setSuppliers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const canManage = can(session.role, 'suppliers:update');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await api('/suppliers');
+      setSuppliers(data.suppliers || []);
+    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleToggleNetwork = async (id, currentVisibility) => {
+    try {
+      const newVisibility = currentVisibility === 'network' ? 'private' : 'network';
+      await api(`/suppliers/${id}/network`, { method: 'PUT', body: JSON.stringify({ networkVisibility: newVisibility }) });
+      toast.success(`Supplier visibility set to ${newVisibility}`);
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Supplier Network</h2>
+        <p className="text-sm text-muted-foreground">Manage B2B supplier network visibility</p>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : suppliers.length === 0 ? (
+        <Card><CardContent className="flex flex-col items-center justify-center py-12 text-center"><Store className="mb-4 h-12 w-12 text-muted-foreground" /><p className="text-sm text-muted-foreground">No suppliers yet</p></CardContent></Card>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {suppliers.map((s) => {
+            const isNetwork = s.networkVisibility === 'network';
+            return (
+              <Card key={s.id}>
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <CardTitle className="text-base">{s.name}</CardTitle>
+                      <CardDescription className="text-xs mt-1">{s.category}</CardDescription>
+                    </div>
+                    <Badge variant={isNetwork ? 'default' : 'outline'} className={isNetwork ? 'bg-violet-100 text-violet-700 border-violet-200' : ''}>
+                      {isNetwork ? 'Network' : 'Private'}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="text-xs space-y-1">
+                    {s.phone && <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-3.5 w-3.5" />{s.phone}</div>}
+                    {s.email && <div className="flex items-center gap-2 text-muted-foreground"><Mail className="h-3.5 w-3.5" />{s.email}</div>}
+                    {s.services && <div className="flex items-center gap-2 text-muted-foreground"><Layers className="h-3.5 w-3.5" />{s.services}</div>}
+                  </div>
+                  {canManage && (
+                    <Button size="sm" variant="outline" className="w-full" onClick={() => handleToggleNetwork(s.id, s.networkVisibility)}>
+                      {isNetwork ? <Lock className="mr-2 h-3.5 w-3.5" /> : <Globe className="mr-2 h-3.5 w-3.5" />}
+                      {isNetwork ? 'Make Private' : 'Share to Network'}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default AppExperience;
