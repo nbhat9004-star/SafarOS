@@ -10,7 +10,7 @@ import json
 from datetime import datetime, timedelta
 
 # Base URL from supervisor config
-BASE_URL = "https://safari-itinerary-2.preview.emergentagent.com/api"
+BASE_URL = "https://safar-data.preview.emergentagent.com/api"
 
 # Test results
 results = {
