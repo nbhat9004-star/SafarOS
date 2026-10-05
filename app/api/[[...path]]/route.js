@@ -307,7 +307,54 @@ function validatePackageInput(body) {
 
 function str(v, max = 300) { return String(v == null ? '' : v).slice(0, max); }
 
-// Normalize the embedded day-by-day structure (activities/meals/transport/accommodation).
+// Itinerary lifecycle states (draft → prepared → shared → approved → archived).
+const ITINERARY_STATUSES = ['draft', 'prepared', 'shared', 'approved', 'archived'];
+// Flexible per-day service types (hotels/transport/activities/meals/guides/other).
+const ITIN_SERVICE_TYPES = ['hotel', 'transport', 'activity', 'meal', 'guide', 'other'];
+
+// Normalize a flexible service line attached to a day. Supports supplier + cost/selling
+// + timing + location (incl. lat/lng for a future Maps integration — no external API now).
+function normalizeItinServices(rawServices) {
+  return (Array.isArray(rawServices) ? rawServices : []).map((s) => ({
+    id: s.id || uuidv4(),
+    type: ITIN_SERVICE_TYPES.includes(String(s.type || '').toLowerCase()) ? String(s.type).toLowerCase() : 'other',
+    name: str(s.name, 200),
+    description: str(s.description, 1000),
+    location: str(s.location, 200),
+    lat: str(s.lat, 40),
+    lng: str(s.lng, 40),
+    startTime: str(s.startTime, 20),
+    endTime: str(s.endTime, 20),
+    supplierId: str(s.supplierId, 80),
+    supplierName: str(s.supplierName, 160),
+    cost: Math.max(0, round2(num(s.cost, 0))),
+    price: Math.max(0, round2(num(s.price, 0))),
+    notes: str(s.notes, 1000),
+  }));
+}
+
+// Normalize itinerary-level travel details + contact (shared by create/update).
+function normalizeItineraryTravel(body, existing = {}) {
+  const t = body.travelers || {};
+  const c = body.contact || {};
+  return {
+    travelers: {
+      adults: Math.max(0, Math.floor(num(t.adults != null ? t.adults : (body.adults != null ? body.adults : (existing.travelers && existing.travelers.adults)), 0))),
+      children: Math.max(0, Math.floor(num(t.children != null ? t.children : (body.children != null ? body.children : (existing.travelers && existing.travelers.children)), 0))),
+    },
+    pickupLocation: body.pickupLocation !== undefined ? str(body.pickupLocation, 200) : (existing.pickupLocation || ''),
+    dropLocation: body.dropLocation !== undefined ? str(body.dropLocation, 200) : (existing.dropLocation || ''),
+    meetingPoint: body.meetingPoint !== undefined ? str(body.meetingPoint, 200) : (existing.meetingPoint || ''),
+    mealPlan: body.mealPlan !== undefined ? str(body.mealPlan, 120) : (existing.mealPlan || ''),
+    contact: {
+      name: c.name !== undefined ? str(c.name, 160) : ((existing.contact && existing.contact.name) || ''),
+      phone: c.phone !== undefined ? str(c.phone, 40) : ((existing.contact && existing.contact.phone) || ''),
+      email: c.email !== undefined ? str(c.email, 160) : ((existing.contact && existing.contact.email) || ''),
+    },
+  };
+}
+
+// Normalize the embedded day-by-day structure (activities/meals/transport/accommodation + flexible services).
 function normalizeItineraryDays(rawDays) {
   const days = Array.isArray(rawDays) ? rawDays : [];
   return days.map((d, i) => ({
@@ -317,9 +364,12 @@ function normalizeItineraryDays(rawDays) {
     title: str(d.title, 200),
     description: str(d.description, 2000),
     location: str(d.location, 200),
+    lat: str(d.lat, 40),
+    lng: str(d.lng, 40),
     startTime: str(d.startTime, 20),
     endTime: str(d.endTime, 20),
     notes: str(d.notes, 2000),
+    services: normalizeItinServices(d.services),
     activities: (Array.isArray(d.activities) ? d.activities : []).map((a) => ({
       id: a.id || uuidv4(),
       name: str(a.name, 200), description: str(a.description, 1000),
@@ -1173,7 +1223,7 @@ function safePayment(p) {
   return { id: p.id, paymentNumber: p.paymentNumber, amount: p.amount, paymentMethod: p.paymentMethod, paymentDate: p.paymentDate, status: p.status, currency: p.currency || DEFAULT_CURRENCY, bookingNumber: p.bookingNumber || '' };
 }
 function safeItinerary(it) {
-  return { id: it.id, destination: it.destination, startDate: it.startDate, endDate: it.endDate, title: it.title || it.name || '', days: clip(it.days, 60).map((d) => ({ dayNumber: d.dayNumber, date: d.date, title: d.title, description: d.description, location: d.location, activities: clip(d.activities, 20).map((a) => ({ name: a.name, description: a.description, location: a.location, startTime: a.startTime, endTime: a.endTime })), meals: d.meals, transport: d.transport ? { type: d.transport.type, pickupLocation: d.transport.pickupLocation, dropLocation: d.transport.dropLocation, pickupTime: d.transport.pickupTime } : null, accommodation: d.accommodation ? { name: d.accommodation.name, location: d.accommodation.location, checkIn: d.accommodation.checkIn, checkOut: d.accommodation.checkOut } : null })) };
+  return { id: it.id, destination: it.destination, startDate: it.startDate, endDate: it.endDate, title: it.title || it.name || '', status: it.status || 'draft', travelers: it.travelers || null, pickupLocation: it.pickupLocation || '', dropLocation: it.dropLocation || '', meetingPoint: it.meetingPoint || '', mealPlan: it.mealPlan || '', contact: it.contact || null, notes: it.notes || '', days: clip(it.days, 60).map((d) => ({ dayNumber: d.dayNumber, date: d.date, title: d.title, description: d.description, location: d.location, services: clip(d.services, 30).map((s) => ({ type: s.type, name: s.name, description: s.description, location: s.location, startTime: s.startTime, endTime: s.endTime, notes: s.notes })), activities: clip(d.activities, 20).map((a) => ({ name: a.name, description: a.description, location: a.location, startTime: a.startTime, endTime: a.endTime })), meals: d.meals, transport: d.transport ? { type: d.transport.type, pickupLocation: d.transport.pickupLocation, dropLocation: d.transport.dropLocation, pickupTime: d.transport.pickupTime } : null, accommodation: d.accommodation ? { name: d.accommodation.name, location: d.accommodation.location, checkIn: d.accommodation.checkIn, checkOut: d.accommodation.checkOut } : null })) };
 }
 function safeComm(c) {
   return { id: c.id, channel: c.channel, subject: c.subject, message: c.message, direction: c.direction, status: c.status, createdAt: c.createdAt };
@@ -3186,26 +3236,82 @@ export async function POST(request, context) {
       if (!session2) return err('unauthenticated', 401);
       if (!can(session2.role, 'itineraries:create')) return err('forbidden', 403);
       const body = await readBody(request);
+      // Package link is OPTIONAL — itineraries can be standalone or linked to a package.
       const packageId = String(body.packageId || '').trim();
-      if (!packageId) return err('A package is required');
-      const pkg = await db.collection('packages').findOne(tenantFilter(session2, { id: packageId }));
-      if (!pkg) return err('The package was not found', 404);
-      const title = String(body.title || '').trim() || `${pkg.name} itinerary`;
+      let pkg = null;
+      if (packageId) {
+        pkg = await db.collection('packages').findOne(tenantFilter(session2, { id: packageId }));
+        if (!pkg) return err('The package was not found', 404);
+      }
+      const destination = String(body.destination || (pkg && pkg.destination) || '').trim();
+      if (!destination) return err('Destination is required');
+      const startDate = String(body.startDate || (pkg && pkg.startDate) || '').trim();
+      const endDate = String(body.endDate || (pkg && pkg.endDate) || '').trim();
+      if (startDate && endDate && startDate > endDate) return err('End date must be on or after the start date');
+      const title = (String(body.title || '').trim() || (pkg ? `${pkg.name} itinerary` : `${destination} itinerary`)).slice(0, 200);
+      const status = ITINERARY_STATUSES.includes(String(body.status || '').toLowerCase()) ? String(body.status).toLowerCase() : 'draft';
+      const travel = normalizeItineraryTravel(body);
       const now = new Date().toISOString();
       const doc = withAgency(session2, {
-        id: uuidv4(), packageId, title: title.slice(0, 200),
-        destination: String(body.destination || pkg.destination || '').slice(0, 160),
-        startDate: String(body.startDate || pkg.startDate || '').trim(),
-        endDate: String(body.endDate || pkg.endDate || '').trim(),
+        id: uuidv4(), packageId, title, destination: destination.slice(0, 160),
+        startDate, endDate, status,
+        customerType: pkg ? pkg.customerType : (body.customerType === 'lead' ? 'lead' : (body.customerType === 'client' ? 'client' : '')),
+        customerId: pkg ? pkg.customerId : str(body.customerId, 80),
+        customerName: pkg ? pkg.customerName : str(body.customerName, 160),
+        ...travel,
         notes: String(body.notes || '').slice(0, 4000),
         days: normalizeItineraryDays(body.days),
         createdBy: session2.userId, createdAt: now, updatedAt: now,
       });
       await db.collection('itineraries').insertOne(doc);
-      await db.collection('packages').updateOne(tenantFilter(session2, { id: packageId }), { $set: { itineraryId: doc.id, updatedAt: now } });
+      if (packageId) await db.collection('packages').updateOne(tenantFilter(session2, { id: packageId }), { $set: { itineraryId: doc.id, updatedAt: now } });
       const { _id, ...safe } = doc;
-      await logActivity(db, session2, { type: 'itinerary_created', message: `Itinerary created for package "${pkg.name}"`, refType: 'itinerary', refId: safe.id });
+      await logActivity(db, session2, { type: 'itinerary_created', message: pkg ? `Itinerary created for package "${pkg.name}"` : `Itinerary "${safe.title}" created`, refType: 'itinerary', refId: safe.id });
       return json({ itinerary: safe }, 201);
+    }
+
+    // ---- Send itinerary to client (reuses the existing communications/email architecture) ----
+    // Integration point: logs an outgoing email communication. When a live email provider is
+    // wired later it can dispatch here — no external API key required in this phase.
+    if (path.startsWith('/itineraries/') && path.endsWith('/share')) {
+      const session2 = getSession(request);
+      if (!session2) return err('unauthenticated', 401);
+      if (!can(session2.role, 'itineraries:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      const itin = await db.collection('itineraries').findOne(tenantFilter(session2, { id }));
+      if (!itin) return err('Itinerary not found', 404);
+      // Resolve the client from the itinerary's customer, or its linked package.
+      let customerType = itin.customerType; let customerId = itin.customerId;
+      if ((!customerType || !customerId) && itin.packageId) {
+        const pkg = await db.collection('packages').findOne(tenantFilter(session2, { id: itin.packageId }));
+        if (pkg) { customerType = pkg.customerType; customerId = pkg.customerId; }
+      }
+      if (!customerId) return err('No client is linked to this itinerary. Link a package or client first.');
+      const cust = await resolveQuotationCustomer(db, session2, customerType === 'lead' ? 'lead' : 'client', customerId);
+      if (!cust) return err('The linked client or lead was not found', 404);
+      if (!cust.customerEmail) return err(`No email on file for ${cust.customerName || 'this client'}. Add an email first.`);
+      const now = new Date().toISOString();
+      const dayCount = (itin.days || []).length;
+      // Customer-safe content only — NEVER includes internal cost/profit.
+      const subject = `Your itinerary: ${itin.title || itin.destination || 'Trip plan'}`;
+      const message = [
+        `Dear ${cust.customerName || 'traveller'},`, '',
+        `Please find your travel itinerary${itin.destination ? ` for ${itin.destination}` : ''}${(itin.startDate || itin.endDate) ? ` (${[itin.startDate, itin.endDate].filter(Boolean).join(' to ')})` : ''}.`,
+        `It covers ${dayCount} day${dayCount === 1 ? '' : 's'} with your hotels, activities, transport and meals.`, '',
+        'Please review the day-by-day plan shared with this message and let us know if you have any questions.', '', 'Warm regards',
+      ].join('\n');
+      const commDoc = withAgency(session2, {
+        id: uuidv4(), type: 'message', channel: 'email',
+        clientId: customerType === 'lead' ? '' : customerId, leadId: customerType === 'lead' ? customerId : '',
+        subject, message, direction: 'outgoing', status: 'sent', to: cust.customerEmail,
+        refType: 'itinerary', refId: id, createdBy: session2.userId, createdAt: now, updatedAt: now,
+      });
+      await db.collection('communications').insertOne(commDoc);
+      // Status flips to "shared" ONLY after the send/log succeeds.
+      await db.collection('itineraries').updateOne(tenantFilter(session2, { id }), { $set: { status: 'shared', sharedAt: now, updatedAt: now } });
+      await logActivity(db, session2, { type: 'itinerary_shared', message: `Itinerary "${itin.title || itin.destination}" sent to ${cust.customerEmail}`, refType: 'itinerary', refId: id });
+      const { _id, ...safeComm } = commDoc;
+      return json({ ok: true, sentTo: cust.customerEmail, status: 'shared', communication: safeComm });
     }
 
     if (path.startsWith('/finance')) {
@@ -3575,10 +3681,28 @@ export async function PUT(request, context) {
       const body = await readBody(request);
       const update = { updatedAt: new Date().toISOString() };
       if (body.title !== undefined) update.title = String(body.title || '').slice(0, 200) || existing.title;
-      if (body.destination !== undefined) update.destination = String(body.destination || '').slice(0, 160);
-      if (body.startDate !== undefined) update.startDate = String(body.startDate || '').trim();
-      if (body.endDate !== undefined) update.endDate = String(body.endDate || '').trim();
+      if (body.destination !== undefined) {
+        const dest = String(body.destination || '').slice(0, 160);
+        if (!dest.trim()) return err('Destination is required');
+        update.destination = dest;
+      }
+      const nextStart = body.startDate !== undefined ? String(body.startDate || '').trim() : (existing.startDate || '');
+      const nextEnd = body.endDate !== undefined ? String(body.endDate || '').trim() : (existing.endDate || '');
+      if (nextStart && nextEnd && nextStart > nextEnd) return err('End date must be on or after the start date');
+      if (body.startDate !== undefined) update.startDate = nextStart;
+      if (body.endDate !== undefined) update.endDate = nextEnd;
+      if (body.status !== undefined) {
+        const st = String(body.status || '').toLowerCase();
+        if (!ITINERARY_STATUSES.includes(st)) return err('Invalid itinerary status');
+        update.status = st;
+      }
       if (body.notes !== undefined) update.notes = String(body.notes || '').slice(0, 4000);
+      // Travel details (travelers / pickup-drop / meeting point / meal plan / contact).
+      if (body.travelers !== undefined || body.adults !== undefined || body.children !== undefined
+        || body.pickupLocation !== undefined || body.dropLocation !== undefined
+        || body.meetingPoint !== undefined || body.mealPlan !== undefined || body.contact !== undefined) {
+        Object.assign(update, normalizeItineraryTravel(body, existing));
+      }
       if (body.days !== undefined) update.days = normalizeItineraryDays(body.days);
       await db.collection('itineraries').updateOne(tenantFilter(session, { id }), { $set: update });
       const itinerary = await db.collection('itineraries').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });

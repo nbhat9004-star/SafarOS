@@ -11,6 +11,50 @@ Implement Phase 5.6 (Agency Website Builder Foundation), Phase 5.7 (SEO & Search
 - **NO verification agents allowed**
 - Manual testing only: bash, curl, python scripts, screenshot tool
 
+## Itinerary Final Enhancements (Oct 5, 2026) — Supplier Linking, Cost Summary, Send to Client, Live Maps
+
+**Status:** ✅ ALL FOUR COMPLETED. No testing/QA/browser/autonomous/verification agents used (curl + compile checks only). Existing `itineraries` collection + routes reused; package/quotation/booking links, auth, RBAC, tenant isolation preserved. No new deps, no new collections, no secrets stored. Safar Curated & unrelated modules untouched.
+
+1. **Supplier Linking** — itinerary service already stores `supplierId`/`supplierName`; DayCard service row now shows a **supplier picker** sourced from existing `/suppliers` (active only), setting both id + name. Falls back to free-text when no suppliers exist. No new supplier collection/records.
+2. **Cost Summary** (builder, internal-only) — per-day and whole-trip **Cost / Selling / Profit** computed from service `cost`/`price` using the existing `fmtMoney` (₹) convention. Shown only when costs exist; explicitly labelled internal.
+3. **Send to Client** — new `POST /api/itineraries/:id/share`: resolves client email from itinerary customer or linked package (tenant-safe via `resolveQuotationCustomer`), logs an **outgoing email** into the existing `communications` collection (channel=email, status=sent) — the clean integration point (no external key this phase), then flips status→`shared` ONLY on success. Message is customer-safe (NO cost/profit). Frontend "Send to client" button in builder header. Verified curl: 200 + status shared + comm logged + no cost leak; 400 guards for no-client and no-email.
+4. **Live Maps** (customer view) — new `ItineraryMap` using stored day/service lat/lng via a **key-less OpenStreetMap embed** + clickable location list; architecture ready for the planned centralized SafarOS Maps/Places service. No new provider/API key.
+
+**Files changed:** `app/api/[[...path]]/route.js` (added share route only), `components/safaros/app-experience.jsx` (DayCard supplier picker; ItineraryEditor suppliers fetch + cost summary + Send-to-client; new `ItineraryMap`/`collectItinPoints`; map in `CustomerItineraryView`). RBAC unchanged (share uses `itineraries:update`).
+
+**Verified:** backend via curl (share success + both 400 guards, supplier/cost persistence); both `/` and `/login` compile → 200, no errors. Lint clean (only a pre-existing unrelated `WebsiteSeo` warning). Note: dev server runs with `--max-old-space-size=512`, causing occasional dev-only ChunkLoadError restarts during heavy UI automation — not a code issue; pages recover and serve 200.
+
+**Deferred:** live email provider dispatch (integration point ready), centralized Maps/Places service (OSM embed used), supplier cost auto-fill (suppliers store no cost field in current schema).
+
+---
+
+## Itinerary Management — Production Upgrade (Oct 5, 2026)
+
+**Status:** ✅ COMPLETED. No testing/browser/QA/autonomous agents used — verified via curl + screenshot tool only. Existing `itineraries` collection + routes REUSED (no duplicates). Safar Curated & unrelated modules NOT modified.
+
+**Backend (`app/api/[[...path]]/route.js`) — same collection/routes, enriched:**
+- Day model now supports a flexible `services[]` array (types: hotel/transport/activity/meal/guide/other) each with name/description/location/lat/lng/startTime/endTime/supplierId/supplierName/cost/price/notes. Legacy per-day activities/meals/transport/accommodation PRESERVED for backward compatibility.
+- Itinerary-level fields added: `status` (draft/prepared/shared/approved/archived), `travelers{adults,children}`, `pickupLocation`, `dropLocation`, `meetingPoint`, `mealPlan`, `contact{name,phone,email}`, plus customerType/customerId/customerName.
+- `POST /itineraries`: packageId now OPTIONAL — supports standalone itineraries AND package-linked (package link behaviour preserved). Validates required destination + date order.
+- `PUT /itineraries/:id`: accepts new fields + status; validates status enum + date order + required destination.
+- `safeItinerary()` (portal/customer view) now includes services + travel details + status.
+- New helpers: `normalizeItinServices`, `normalizeItineraryTravel`, `ITINERARY_STATUSES`, `ITIN_SERVICE_TYPES`.
+
+**Frontend (`components/safaros/app-experience.jsx`):**
+- ItineraryEditor: full travel-details card (status, travellers, pickup/drop, meeting point, meal plan, contact) + auto day-date calc from start date.
+- DayCard: multi-service builder (add/duplicate/remove service, move service to another day), day actions (move up/down, duplicate day), auto renumbering.
+- Itineraries list: standalone "Create itinerary" dialog, status badges + filter, delete.
+- Customer-facing printable view (`CustomerItineraryView`) with Print / Save-as-PDF (browser print, print-scoped CSS).
+- RBAC/tenancy unchanged (existing `can()` + `tenantFilter`).
+
+**Verified (curl):** register 201; standalone create 201 (packageId '', travellers/pickup/mealPlan stored); update w/ days+services+status→200 (cost/price/lat preserved, status=prepared); invalid date→400; invalid status→400; list 200; delete 200. **Verified (UI):** login → Operations → Itineraries → create standalone → builder renders travel details + dates auto-filled → Add day → Add Hotel service (type/supplier/cost/price/lat/lng/notes) all render; mobile overflow check clean.
+
+**Env note:** `/app/.env` was missing in this preview (gitignored) — restored minimal dev values (MONGO_URL=mongodb://localhost:27017, DB_NAME=safaros, JWT_SECRET dev-only, NEXT_PUBLIC_BASE_URL). Dev owner login in `/app/memory/test_credentials.md`.
+
+**Deferred (out of this phase):** live Maps/geocoding (lat/lng stored only), server-side PDF engine (uses browser print), AI itinerary generation, live GPS, customer payments, supplier inventory.
+
+---
+
 ## Final Stage 1 — Super Admin & Platform Control Foundation (Oct 3, 2026)
 
 **Status:** ✅ COMPLETED. No testing/browser/QA/autonomous/verification agents used — verified via curl + screenshot tool only. Safar Curated (`/app/safar_intake`) NOT modified.

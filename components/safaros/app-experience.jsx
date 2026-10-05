@@ -2991,14 +2991,40 @@ function travelerSummary(p) {
   return bits.length ? bits.join(' · ') : '—';
 }
 
-// ---- Itinerary day/activity factories + client-side normalization ----
+// ---- Itinerary status + service metadata ----
+const ITINERARY_STATUS_META = {
+  draft:    { label: 'Draft',    cls: 'bg-muted text-muted-foreground border-border' },
+  prepared: { label: 'Prepared', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  shared:   { label: 'Shared',   cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+  approved: { label: 'Approved', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  archived: { label: 'Archived', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+};
+const ITINERARY_STATUS_OPTIONS = Object.keys(ITINERARY_STATUS_META);
+function ItineraryStatusBadge({ status }) { return <MetaBadge meta={ITINERARY_STATUS_META[status] || ITINERARY_STATUS_META.draft} />; }
+
+const ITIN_SERVICE_META = {
+  hotel:     { label: 'Hotel',     icon: BedDouble, cls: 'text-rose-600' },
+  transport: { label: 'Transport', icon: Car,       cls: 'text-emerald-600' },
+  activity:  { label: 'Activity',  icon: Clock,     cls: 'text-sky-600' },
+  meal:      { label: 'Meal',      icon: Utensils,  cls: 'text-amber-600' },
+  guide:     { label: 'Guide',     icon: Users,     cls: 'text-violet-600' },
+  other:     { label: 'Other',     icon: MapPin,    cls: 'text-muted-foreground' },
+};
+const ITIN_SERVICE_OPTIONS = Object.keys(ITIN_SERVICE_META);
+const rid = (p) => p + Math.random().toString(36).slice(2);
+
+// ---- Itinerary day/service factories + client-side normalization ----
 function blankActivity() {
-  return { id: 'a' + Math.random().toString(36).slice(2), name: '', description: '', location: '', startTime: '', endTime: '', notes: '' };
+  return { id: rid('a'), name: '', description: '', location: '', startTime: '', endTime: '', notes: '' };
+}
+function blankItinService(type = 'activity') {
+  return { id: rid('s'), type, name: '', description: '', location: '', lat: '', lng: '', startTime: '', endTime: '', supplierId: '', supplierName: '', cost: 0, price: 0, notes: '' };
 }
 function blankDay(n) {
   return {
-    id: 'd' + Math.random().toString(36).slice(2),
-    dayNumber: n, date: '', title: '', description: '', location: '', startTime: '', endTime: '', notes: '',
+    id: rid('d'),
+    dayNumber: n, date: '', title: '', description: '', location: '', lat: '', lng: '', startTime: '', endTime: '', notes: '',
+    services: [],
     activities: [],
     meals: { breakfast: '', lunch: '', dinner: '' },
     transport: { type: '', pickupLocation: '', dropLocation: '', pickupTime: '', notes: '' },
@@ -3013,7 +3039,19 @@ function normalizeDayClient(d) {
     transport: { ...base.transport, ...(d.transport || {}) },
     accommodation: { ...base.accommodation, ...(d.accommodation || {}) },
     activities: (d.activities || []).map((a) => ({ ...blankActivity(), ...a })),
+    services: (d.services || []).map((s) => ({ ...blankItinService(s.type || 'other'), ...s })),
   };
+}
+// Renumber days 1..n and recompute each day's date from the trip start date.
+function renumberDays(days, startDate) {
+  return days.map((d, i) => {
+    const next = { ...d, dayNumber: i + 1 };
+    if (startDate) { const dt = new Date(startDate + 'T00:00:00'); if (!isNaN(dt.getTime())) { dt.setDate(dt.getDate() + i); next.date = dt.toISOString().slice(0, 10); } }
+    return next;
+  });
+}
+function blankTravelMeta() {
+  return { title: '', destination: '', startDate: '', endDate: '', status: 'draft', notes: '', adults: 0, children: 0, pickupLocation: '', dropLocation: '', meetingPoint: '', mealPlan: '', contactName: '', contactPhone: '', contactEmail: '' };
 }
 
 // ----------------------------- PACKAGE LIST -----------------------------
@@ -3298,8 +3336,10 @@ function FieldInput({ label, ...props }) {
   return (<div className="space-y-1"><Label className="text-xs text-muted-foreground">{label}</Label><Input {...props} /></div>);
 }
 
-function DayCard({ day, index, open, onToggle, canUpdate, onPatch, onRemove }) {
+function DayCard({ day, index, open, onToggle, canUpdate, onPatch, onRemove, isFirst, isLast, onMoveUp, onMoveDown, onDuplicate, dayOptions, onMoveService, suppliers }) {
   const upd = (fn) => onPatch(fn(day));
+  const services = day.services || [];
+  const otherDays = (dayOptions || []).filter((o) => o.id !== day.id);
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
@@ -3307,8 +3347,16 @@ function DayCard({ day, index, open, onToggle, canUpdate, onPatch, onRemove }) {
           {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
           <span className="inline-flex h-6 items-center rounded-full bg-violet-600 px-2.5 text-xs font-semibold text-white">Day {day.dayNumber}</span>
           <span className="truncate text-sm font-medium">{day.title || day.location || 'Untitled day'}</span>
+          {services.length > 0 && <span className="hidden sm:inline text-xs text-muted-foreground">· {services.length} service{services.length === 1 ? '' : 's'}</span>}
         </button>
-        {canUpdate && <Button variant="ghost" size="icon" onClick={onRemove} title="Remove day"><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+        {canUpdate && (
+          <div className="flex items-center gap-0.5">
+            <Button variant="ghost" size="icon" disabled={isFirst} title="Move up" onClick={onMoveUp}><ChevronUp className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="icon" disabled={isLast} title="Move down" onClick={onMoveDown}><ChevronDown className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="icon" title="Duplicate day" onClick={onDuplicate}><Copy className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="icon" onClick={onRemove} title="Remove day"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+          </div>
+        )}
       </div>
       {open && (
         <CardContent className="space-y-4 p-4">
@@ -3322,6 +3370,70 @@ function DayCard({ day, index, open, onToggle, canUpdate, onPatch, onRemove }) {
             </div>
           </div>
           <div className="space-y-1"><Label className="text-xs text-muted-foreground">Day description</Label><Textarea rows={2} value={day.description} disabled={!canUpdate} onChange={(e) => upd((d) => ({ ...d, description: e.target.value }))} placeholder="Overview of the day" /></div>
+
+          {/* Services (hotels / transport / activities / meals / guides / other) */}
+          <div className="rounded-lg border p-3 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-sm font-medium"><Layers className="h-4 w-4 text-violet-600" /> Services</span>
+              {canUpdate && (
+                <Select value="" onValueChange={(t) => upd((d) => ({ ...d, services: [...(d.services || []), blankItinService(t)] }))}>
+                  <SelectTrigger className="h-8 w-[140px] text-xs"><span className="flex items-center gap-1"><Plus className="h-3.5 w-3.5" /> Add service</span></SelectTrigger>
+                  <SelectContent>{ITIN_SERVICE_OPTIONS.map((t) => <SelectItem key={t} value={t}>{ITIN_SERVICE_META[t].label}</SelectItem>)}</SelectContent>
+                </Select>
+              )}
+            </div>
+            {services.length === 0 && <p className="text-xs text-muted-foreground">No services yet. Add hotels, transport, activities, meals or guides.</p>}
+            {services.map((s) => {
+              const meta = ITIN_SERVICE_META[s.type] || ITIN_SERVICE_META.other;
+              const SIcon = meta.icon;
+              const setS = (patch) => upd((d) => ({ ...d, services: d.services.map((x) => x.id === s.id ? { ...x, ...patch } : x) }));
+              return (
+                <div key={s.id} className="rounded-md bg-muted/40 p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <SIcon className={`h-4 w-4 shrink-0 ${meta.cls}`} />
+                    <Select value={s.type} disabled={!canUpdate} onValueChange={(v) => setS({ type: v })}>
+                      <SelectTrigger className="h-8 w-[118px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{ITIN_SERVICE_OPTIONS.map((t) => <SelectItem key={t} value={t}>{ITIN_SERVICE_META[t].label}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Input className="flex-1 min-w-0" value={s.name} disabled={!canUpdate} placeholder={`${meta.label} name`} onChange={(e) => setS({ name: e.target.value })} />
+                    {canUpdate && <Button variant="ghost" size="icon" title="Duplicate service" onClick={() => upd((d) => { const idx = d.services.findIndex((x) => x.id === s.id); const copy = { ...s, id: rid('s') }; const arr = [...d.services]; arr.splice(idx + 1, 0, copy); return { ...d, services: arr }; })}><Copy className="h-4 w-4" /></Button>}
+                    {canUpdate && <Button variant="ghost" size="icon" title="Remove service" onClick={() => upd((d) => ({ ...d, services: d.services.filter((x) => x.id !== s.id) }))}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <Input value={s.location} disabled={!canUpdate} placeholder="Location" onChange={(e) => setS({ location: e.target.value })} />
+                    <Input type="time" value={s.startTime} disabled={!canUpdate} onChange={(e) => setS({ startTime: e.target.value })} />
+                    <Input type="time" value={s.endTime} disabled={!canUpdate} onChange={(e) => setS({ endTime: e.target.value })} />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {(suppliers && suppliers.length > 0) ? (
+                      <Select value={s.supplierId || 'none'} disabled={!canUpdate} onValueChange={(v) => { if (v === 'none') { setS({ supplierId: '', supplierName: '' }); } else { const sup = suppliers.find((x) => x.id === v); setS({ supplierId: v, supplierName: sup ? sup.name : '' }); } }}>
+                        <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Supplier" /></SelectTrigger>
+                        <SelectContent><SelectItem value="none">No supplier</SelectItem>{suppliers.map((x) => <SelectItem key={x.id} value={x.id}>{x.name}</SelectItem>)}</SelectContent>
+                      </Select>
+                    ) : (
+                      <Input value={s.supplierName} disabled={!canUpdate} placeholder="Supplier" onChange={(e) => setS({ supplierName: e.target.value })} />
+                    )}
+                    <Input type="number" min="0" value={s.cost} disabled={!canUpdate} placeholder="Cost" onChange={(e) => setS({ cost: e.target.value })} />
+                    <Input type="number" min="0" value={s.price} disabled={!canUpdate} placeholder="Selling price" onChange={(e) => setS({ price: e.target.value })} />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input value={s.lat} disabled={!canUpdate} placeholder="Latitude (optional)" onChange={(e) => setS({ lat: e.target.value })} />
+                    <Input value={s.lng} disabled={!canUpdate} placeholder="Longitude (optional)" onChange={(e) => setS({ lng: e.target.value })} />
+                  </div>
+                  <Textarea rows={1} value={s.notes} disabled={!canUpdate} placeholder="Notes" onChange={(e) => setS({ notes: e.target.value })} />
+                  {canUpdate && otherDays.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground shrink-0">Move to</span>
+                      <Select value="" onValueChange={(target) => onMoveService && onMoveService(day.id, target, s.id)}>
+                        <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue placeholder="another day" /></SelectTrigger>
+                        <SelectContent>{otherDays.map((o) => <SelectItem key={o.id} value={o.id}>Day {o.dayNumber}{o.title ? ` · ${o.title}` : ''}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
 
           {/* Activities */}
           <div className="rounded-lg border p-3 space-y-3">
@@ -3390,30 +3502,86 @@ function ItineraryEditor({ session, itineraryId, heading, onBack, onSaved }) {
   const canUpdate = can(session.user.role, 'itineraries:update');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [meta, setMeta] = useState({ title: '', destination: '', startDate: '', endDate: '', notes: '' });
+  const [meta, setMeta] = useState(blankTravelMeta());
   const [days, setDays] = useState([]);
   const [open, setOpen] = useState({});
+  const [suppliers, setSuppliers] = useState([]);
+  const [sharing, setSharing] = useState(false);
+
+  useEffect(() => { (async () => { try { const d = await api('/suppliers'); setSuppliers((d.suppliers || []).filter((s) => s.status !== 'inactive')); } catch { /* suppliers optional */ } })(); }, []);
 
   useEffect(() => { (async () => { setLoading(true); try {
     const { itinerary } = await api(`/itineraries/${itineraryId}`);
-    setMeta({ title: itinerary.title || '', destination: itinerary.destination || '', startDate: itinerary.startDate || '', endDate: itinerary.endDate || '', notes: itinerary.notes || '' });
+    const t = itinerary.travelers || {}; const c = itinerary.contact || {};
+    setMeta({
+      title: itinerary.title || '', destination: itinerary.destination || '',
+      startDate: itinerary.startDate || '', endDate: itinerary.endDate || '',
+      status: itinerary.status || 'draft', notes: itinerary.notes || '',
+      adults: t.adults || 0, children: t.children || 0,
+      pickupLocation: itinerary.pickupLocation || '', dropLocation: itinerary.dropLocation || '',
+      meetingPoint: itinerary.meetingPoint || '', mealPlan: itinerary.mealPlan || '',
+      contactName: c.name || '', contactPhone: c.phone || '', contactEmail: c.email || '',
+    });
     const nd = (itinerary.days || []).map(normalizeDayClient);
     setDays(nd);
     setOpen(nd.length ? { [nd[0].id]: true } : {});
   } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, [itineraryId]);
 
-  const addDay = () => { const d = blankDay(days.length + 1); setDays((x) => [...x, d]); setOpen((o) => ({ ...o, [d.id]: true })); };
-  const removeDay = (id) => { setDays((x) => x.filter((d) => d.id !== id).map((d, i) => ({ ...d, dayNumber: i + 1 }))); };
+  const dayOptions = days.map((d) => ({ id: d.id, dayNumber: d.dayNumber, title: d.title }));
+
+  const setStartDate = (v) => { setMeta((m) => ({ ...m, startDate: v })); setDays((x) => renumberDays(x, v)); };
+  const addDay = () => { const nd = renumberDays([...days, blankDay(days.length + 1)], meta.startDate); setDays(nd); setOpen((o) => ({ ...o, [nd[nd.length - 1].id]: true })); };
+  const removeDay = (id) => setDays((x) => renumberDays(x.filter((d) => d.id !== id), meta.startDate));
   const patchDay = (id, nextDay) => setDays((x) => x.map((d) => d.id === id ? nextDay : d));
+  const moveDay = (id, dir) => { const i = days.findIndex((d) => d.id === id); const j = i + dir; if (i < 0 || j < 0 || j >= days.length) return; const arr = [...days]; [arr[i], arr[j]] = [arr[j], arr[i]]; setDays(renumberDays(arr, meta.startDate)); };
+  const duplicateDay = (id) => { const i = days.findIndex((d) => d.id === id); if (i < 0) return; const src = days[i]; const copy = { ...normalizeDayClient(src), id: rid('d'), services: (src.services || []).map((s) => ({ ...s, id: rid('s') })), activities: (src.activities || []).map((a) => ({ ...a, id: rid('a') })) }; const arr = [...days]; arr.splice(i + 1, 0, copy); setDays(renumberDays(arr, meta.startDate)); setOpen((o) => ({ ...o, [copy.id]: true })); };
+  const moveService = (fromId, toId, serviceId) => {
+    let moving = null;
+    const stripped = days.map((d) => { if (d.id === fromId) { const found = (d.services || []).find((s) => s.id === serviceId); if (found) moving = found; return { ...d, services: (d.services || []).filter((s) => s.id !== serviceId) }; } return d; });
+    if (!moving) return;
+    setDays(stripped.map((d) => d.id === toId ? { ...d, services: [...(d.services || []), moving] } : d));
+    toast.success('Service moved');
+  };
 
   const save = async () => {
+    if (!meta.destination.trim()) { toast.error('Destination is required'); return; }
+    if (meta.startDate && meta.endDate && meta.startDate > meta.endDate) { toast.error('End date must be on or after the start date'); return; }
     setSaving(true);
     try {
-      const { itinerary } = await api(`/itineraries/${itineraryId}`, { method: 'PUT', body: JSON.stringify({ ...meta, days }) });
+      const payload = {
+        title: meta.title, destination: meta.destination, startDate: meta.startDate, endDate: meta.endDate,
+        status: meta.status, notes: meta.notes,
+        travelers: { adults: Number(meta.adults) || 0, children: Number(meta.children) || 0 },
+        pickupLocation: meta.pickupLocation, dropLocation: meta.dropLocation,
+        meetingPoint: meta.meetingPoint, mealPlan: meta.mealPlan,
+        contact: { name: meta.contactName, phone: meta.contactPhone, email: meta.contactEmail },
+        days,
+      };
+      const { itinerary } = await api(`/itineraries/${itineraryId}`, { method: 'PUT', body: JSON.stringify(payload) });
       toast.success('Itinerary saved');
       setDays((itinerary.days || []).map(normalizeDayClient));
       onSaved && onSaved(itinerary);
     } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); }
+  };
+
+  // Cost summary — per-day and whole-trip totals from itinerary service cost/selling fields.
+  const dayTotals = days.map((d) => {
+    const cost = (d.services || []).reduce((s, x) => s + (Number(x.cost) || 0), 0);
+    const sell = (d.services || []).reduce((s, x) => s + (Number(x.price) || 0), 0);
+    return { id: d.id, dayNumber: d.dayNumber, cost, sell, profit: sell - cost };
+  });
+  const tripTotals = dayTotals.reduce((a, d) => ({ cost: a.cost + d.cost, sell: a.sell + d.sell, profit: a.profit + d.profit }), { cost: 0, sell: 0, profit: 0 });
+  const hasCosts = dayTotals.some((d) => d.cost || d.sell);
+
+  const sendToClient = async () => {
+    if (!window.confirm('Send this itinerary to the linked client by email? The itinerary status will be set to "Shared".')) return;
+    setSharing(true);
+    try {
+      const r = await api(`/itineraries/${itineraryId}/share`, { method: 'POST', body: JSON.stringify({}) });
+      toast.success(`Itinerary sent to ${r.sentTo}`);
+      setMeta((m) => ({ ...m, status: 'shared' }));
+      onSaved && onSaved({ ...r, id: itineraryId });
+    } catch (e) { toast.error(friendlyError(e)); } finally { setSharing(false); }
   };
 
   if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
@@ -3424,21 +3592,71 @@ function ItineraryEditor({ session, itineraryId, heading, onBack, onSaved }) {
         <div className="flex items-start gap-3">
           <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
           <div><h2 className="text-xl font-bold">{heading || 'Itinerary builder'}</h2>
-            <p className="text-sm text-muted-foreground">Plan the trip day by day — activities, meals, transport and stays.</p></div>
+            <p className="text-sm text-muted-foreground">Plan the trip day by day — services, meals, transport and stays.</p></div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {canUpdate && <Button variant="outline" size="sm" onClick={addDay}><Plus className="h-4 w-4 mr-1" /> Add day</Button>}
+          {canUpdate && <Button variant="outline" size="sm" onClick={sendToClient} disabled={sharing}><Send className="h-4 w-4 mr-1" /> {sharing ? 'Sending…' : 'Send to client'}</Button>}
           {canUpdate && <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save itinerary'}</Button>}
         </div>
       </div>
 
       <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
         <div className="space-y-1.5 sm:col-span-2"><Label>Itinerary title</Label><Input value={meta.title} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, title: e.target.value })} /></div>
-        <div className="space-y-1.5 sm:col-span-2"><Label>Destination</Label><Input value={meta.destination} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, destination: e.target.value })} /></div>
-        <div className="space-y-1.5"><Label>Start date</Label><Input type="date" value={meta.startDate} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, startDate: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Destination</Label><Input value={meta.destination} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, destination: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Status</Label>
+          <Select value={meta.status} disabled={!canUpdate} onValueChange={(v) => setMeta({ ...meta, status: v })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{ITINERARY_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{ITINERARY_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5"><Label>Start date</Label><Input type="date" value={meta.startDate} disabled={!canUpdate} onChange={(e) => setStartDate(e.target.value)} /></div>
         <div className="space-y-1.5"><Label>End date</Label><Input type="date" value={meta.endDate} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, endDate: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Adults</Label><Input type="number" min="0" value={meta.adults} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, adults: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Children</Label><Input type="number" min="0" value={meta.children} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, children: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Pickup location</Label><Input value={meta.pickupLocation} disabled={!canUpdate} placeholder="Airport / hotel" onChange={(e) => setMeta({ ...meta, pickupLocation: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Drop location</Label><Input value={meta.dropLocation} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, dropLocation: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Meeting point</Label><Input value={meta.meetingPoint} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, meetingPoint: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Meal plan</Label><Input value={meta.mealPlan} disabled={!canUpdate} placeholder="e.g. Breakfast + Dinner (MAP)" onChange={(e) => setMeta({ ...meta, mealPlan: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Contact name</Label><Input value={meta.contactName} disabled={!canUpdate} placeholder="Trip coordinator" onChange={(e) => setMeta({ ...meta, contactName: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Contact phone</Label><Input value={meta.contactPhone} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, contactPhone: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Contact email</Label><Input value={meta.contactEmail} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, contactEmail: e.target.value })} /></div>
         <div className="space-y-1.5 sm:col-span-2"><Label>Overall notes</Label><Textarea rows={2} value={meta.notes} disabled={!canUpdate} onChange={(e) => setMeta({ ...meta, notes: e.target.value })} /></div>
       </CardContent></Card>
+
+      {hasCosts && (
+        <Card><CardContent className="p-5 space-y-3">
+          <div className="flex items-center gap-2 font-semibold"><Wallet className="h-4 w-4 text-emerald-600" /> Cost summary <span className="text-xs font-normal text-muted-foreground">(internal — not shown to the customer)</span></div>
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b text-left text-muted-foreground">
+                <th className="py-1.5 pr-2 font-medium">Day</th><th className="py-1.5 px-2 font-medium text-right">Cost</th><th className="py-1.5 px-2 font-medium text-right">Selling</th><th className="py-1.5 pl-2 font-medium text-right">Profit</th>
+              </tr></thead>
+              <tbody>
+                {dayTotals.map((d) => (
+                  <tr key={d.id} className="border-b last:border-0">
+                    <td className="py-1.5 pr-2">Day {d.dayNumber}</td>
+                    <td className="py-1.5 px-2 text-right">{fmtMoney(d.cost)}</td>
+                    <td className="py-1.5 px-2 text-right">{fmtMoney(d.sell)}</td>
+                    <td className={`py-1.5 pl-2 text-right ${d.profit < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{fmtMoney(d.profit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr className="border-t-2 font-semibold">
+                <td className="py-2 pr-2">Whole trip</td>
+                <td className="py-2 px-2 text-right">{fmtMoney(tripTotals.cost)}</td>
+                <td className="py-2 px-2 text-right">{fmtMoney(tripTotals.sell)}</td>
+                <td className={`py-2 pl-2 text-right ${tripTotals.profit < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{fmtMoney(tripTotals.profit)}</td>
+              </tr></tfoot>
+            </table>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:hidden">
+            <div className="rounded-lg border p-2 text-center"><div className="text-xs text-muted-foreground">Cost</div><div className="font-semibold">{fmtMoney(tripTotals.cost)}</div></div>
+            <div className="rounded-lg border p-2 text-center"><div className="text-xs text-muted-foreground">Selling</div><div className="font-semibold">{fmtMoney(tripTotals.sell)}</div></div>
+            <div className="rounded-lg border p-2 text-center"><div className="text-xs text-muted-foreground">Profit</div><div className={`font-semibold ${tripTotals.profit < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{fmtMoney(tripTotals.profit)}</div></div>
+          </div>
+        </CardContent></Card>
+      )}
 
       {days.length === 0 && (
         <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-10 text-center">
@@ -3451,8 +3669,11 @@ function ItineraryEditor({ session, itineraryId, heading, onBack, onSaved }) {
       <div className="space-y-3">
         {days.map((d, i) => (
           <DayCard key={d.id} day={d} index={i} open={!!open[d.id]} canUpdate={canUpdate}
+            isFirst={i === 0} isLast={i === days.length - 1}
             onToggle={() => setOpen((o) => ({ ...o, [d.id]: !o[d.id] }))}
-            onPatch={(nd) => patchDay(d.id, nd)} onRemove={() => removeDay(d.id)} />
+            onPatch={(nd) => patchDay(d.id, nd)} onRemove={() => removeDay(d.id)}
+            onMoveUp={() => moveDay(d.id, -1)} onMoveDown={() => moveDay(d.id, 1)}
+            onDuplicate={() => duplicateDay(d.id)} dayOptions={dayOptions} onMoveService={moveService} suppliers={suppliers} />
         ))}
       </div>
 
@@ -3472,6 +3693,51 @@ function ViewLine({ icon: Icon, label, value }) {
   return (<div className="flex gap-2 text-sm"><Icon className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" /><span className="text-muted-foreground">{label}:</span><span className="font-medium">{value}</span></div>);
 }
 
+function ItineraryTravelOverview({ itin }) {
+  const t = itin.travelers || {};
+  const c = itin.contact || {};
+  const pax = [t.adults ? `${t.adults} adult${t.adults === 1 ? '' : 's'}` : '', t.children ? `${t.children} child${t.children === 1 ? '' : 'ren'}` : ''].filter(Boolean).join(', ');
+  const rows = [
+    ['Travellers', pax], ['Pickup', itin.pickupLocation], ['Drop-off', itin.dropLocation],
+    ['Meeting point', itin.meetingPoint], ['Meal plan', itin.mealPlan],
+    ['Contact', [c.name, c.phone, c.email].filter(Boolean).join(' · ')],
+  ].filter(([, v]) => v);
+  if (rows.length === 0) return null;
+  return (
+    <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex gap-2 text-sm"><span className="text-muted-foreground shrink-0">{label}:</span><span className="font-medium">{value}</span></div>
+      ))}
+    </div>
+  );
+}
+
+function DayServices({ services }) {
+  if (!services || services.length === 0) return null;
+  return (
+    <div className="mt-3 space-y-1.5">
+      {services.map((s) => {
+        const meta = ITIN_SERVICE_META[s.type] || ITIN_SERVICE_META.other;
+        const SIcon = meta.icon;
+        const time = [s.startTime, s.endTime].filter(Boolean).join('–');
+        const extra = [time, s.location, s.supplierName && `Supplier: ${s.supplierName}`].filter(Boolean).join(' · ');
+        return (
+          <div key={s.id} className="flex gap-2 text-sm">
+            <SIcon className={`h-4 w-4 shrink-0 mt-0.5 ${meta.cls}`} />
+            <div className="min-w-0">
+              <span className="font-medium">{s.name || meta.label}</span>
+              <span className="text-xs text-muted-foreground"> · {meta.label}</span>
+              {extra && <span className="text-muted-foreground"> · {extra}</span>}
+              {s.description && <div className="text-muted-foreground">{s.description}</div>}
+              {s.notes && <div className="text-muted-foreground italic">{s.notes}</div>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ItineraryView({ itin }) {
   const days = itin.days || [];
   if (days.length === 0) return <p className="text-sm text-muted-foreground">No days have been planned yet.</p>;
@@ -3483,7 +3749,7 @@ function ItineraryView({ itin }) {
         const acc = day.accommodation || {};
         const mealText = ['breakfast', 'lunch', 'dinner'].filter((k) => meals[k]).map((k) => `${k[0].toUpperCase()}${k.slice(1)}: ${meals[k]}`).join(' · ');
         return (
-          <div key={day.id} className="rounded-xl border p-4">
+          <div key={day.id || day.dayNumber} className="rounded-xl border p-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2">
                 <span className="inline-flex h-7 items-center rounded-full bg-violet-600 px-3 text-sm font-semibold text-white">Day {day.dayNumber}</span>
@@ -3492,6 +3758,8 @@ function ItineraryView({ itin }) {
               <div className="text-sm text-muted-foreground">{day.date ? formatJoined(day.date) : ''}{day.location ? `${day.date ? ' · ' : ''}${day.location}` : ''}</div>
             </div>
             {day.description && <p className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap">{day.description}</p>}
+
+            <DayServices services={day.services} />
 
             {(day.activities || []).length > 0 && (
               <div className="mt-3">
@@ -3553,25 +3821,195 @@ function Packages({ session, navPayload, onConsumePayload }) {
 }
 
 // ----------------------------- ITINERARIES WORKSPACE -----------------------------
+// Live Maps foundation — reuses the lat/lng already stored on days & services.
+// Uses a key-less OpenStreetMap embed (no new provider/API key); architecture stays
+// ready for the centralized SafarOS Maps/Places service planned later.
+function collectItinPoints(itin) {
+  const pts = [];
+  for (const d of (itin.days || [])) {
+    const dlat = parseFloat(d.lat); const dlng = parseFloat(d.lng);
+    if (!isNaN(dlat) && !isNaN(dlng)) pts.push({ name: d.title || `Day ${d.dayNumber}`, lat: dlat, lng: dlng });
+    for (const s of (d.services || [])) {
+      const slat = parseFloat(s.lat); const slng = parseFloat(s.lng);
+      if (!isNaN(slat) && !isNaN(slng)) pts.push({ name: s.name || s.location || 'Location', lat: slat, lng: slng });
+    }
+  }
+  return pts;
+}
+function ItineraryMap({ itin }) {
+  const pts = collectItinPoints(itin);
+  if (pts.length === 0) return null;
+  const lats = pts.map((p) => p.lat); const lngs = pts.map((p) => p.lng);
+  let minLat = Math.min(...lats); let maxLat = Math.max(...lats);
+  let minLng = Math.min(...lngs); let maxLng = Math.max(...lngs);
+  const padLat = Math.max((maxLat - minLat) * 0.3, 0.03);
+  const padLng = Math.max((maxLng - minLng) * 0.3, 0.03);
+  minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
+  const center = pts[0];
+  const src = `https://www.openstreetmap.org/export/embed.html?bbox=${minLng},${minLat},${maxLng},${maxLat}&layer=mapnik&marker=${center.lat},${center.lng}`;
+  return (
+    <div className="mt-6">
+      <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><MapPin className="h-4 w-4 text-violet-600" /> Trip map</div>
+      <div className="no-print overflow-hidden rounded-xl border">
+        <iframe title="Itinerary map" src={src} className="h-64 w-full" loading="lazy" />
+      </div>
+      <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
+        {pts.map((p, i) => (
+          <li key={i} className="flex gap-1.5"><MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5 text-slate-400" /><a className="text-violet-700 hover:underline" href={`https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}#map=14/${p.lat}/${p.lng}`} target="_blank" rel="noreferrer">{p.name}</a></li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function CustomerItineraryView({ itin, agencyName }) {
+  const days = itin.days || [];
+  const t = itin.travelers || {};
+  const c = itin.contact || {};
+  const pax = [t.adults ? `${t.adults} adult${t.adults === 1 ? '' : 's'}` : '', t.children ? `${t.children} child${t.children === 1 ? '' : 'ren'}` : ''].filter(Boolean).join(', ');
+  return (
+    <div id="itinerary-print" className="mx-auto max-w-3xl bg-white p-8 text-slate-800">
+      <style>{`@media print { body * { visibility: hidden !important; } #itinerary-print, #itinerary-print * { visibility: visible !important; } #itinerary-print { position: absolute; left: 0; top: 0; width: 100%; } .no-print { display: none !important; } }`}</style>
+      <div className="border-b-2 border-violet-600 pb-4">
+        <div className="text-xs font-semibold uppercase tracking-wide text-violet-600">{agencyName || 'Travel Itinerary'}</div>
+        <h1 className="mt-1 text-2xl font-bold">{itin.title || 'Trip Itinerary'}</h1>
+        <p className="mt-1 text-sm text-slate-500">{itin.destination}{itin.destination && (itin.startDate || itin.endDate) ? ' · ' : ''}{travelDates(itin)}</p>
+      </div>
+
+      <div className="mt-4 grid gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
+        {pax && <div><span className="text-slate-500">Travellers: </span><span className="font-medium">{pax}</span></div>}
+        {itin.mealPlan && <div><span className="text-slate-500">Meal plan: </span><span className="font-medium">{itin.mealPlan}</span></div>}
+        {itin.pickupLocation && <div><span className="text-slate-500">Pickup: </span><span className="font-medium">{itin.pickupLocation}</span></div>}
+        {itin.dropLocation && <div><span className="text-slate-500">Drop-off: </span><span className="font-medium">{itin.dropLocation}</span></div>}
+        {itin.meetingPoint && <div><span className="text-slate-500">Meeting point: </span><span className="font-medium">{itin.meetingPoint}</span></div>}
+      </div>
+
+      {itin.notes && <p className="mt-4 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm">{itin.notes}</p>}
+
+      <div className="mt-6 space-y-5">
+        {days.map((day) => {
+          const meals = day.meals || {};
+          const mealText = ['breakfast', 'lunch', 'dinner'].filter((k) => meals[k]).map((k) => `${k[0].toUpperCase()}${k.slice(1)}: ${meals[k]}`).join(' · ');
+          const acc = day.accommodation || {};
+          return (
+            <div key={day.id || day.dayNumber} className="break-inside-avoid">
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-bold text-violet-700">Day {day.dayNumber}</span>
+                <span className="font-semibold">{day.title || ''}</span>
+                <span className="ml-auto text-xs text-slate-500">{day.date ? formatJoined(day.date) : ''}{day.location ? `${day.date ? ' · ' : ''}${day.location}` : ''}</span>
+              </div>
+              {day.description && <p className="mt-1 text-sm text-slate-600 whitespace-pre-wrap">{day.description}</p>}
+              <ul className="mt-2 space-y-1 text-sm">
+                {(day.services || []).map((s) => {
+                  const meta = ITIN_SERVICE_META[s.type] || ITIN_SERVICE_META.other;
+                  const extra = [[s.startTime, s.endTime].filter(Boolean).join('–'), s.location].filter(Boolean).join(' · ');
+                  return <li key={s.id} className="pl-3">• <span className="font-medium">{s.name || meta.label}</span> <span className="text-slate-400 text-xs">({meta.label})</span>{extra && <span className="text-slate-500"> — {extra}</span>}</li>;
+                })}
+                {(day.activities || []).map((a) => (
+                  <li key={a.id} className="pl-3">• <span className="font-medium">{a.name || 'Activity'}</span>{(a.startTime || a.endTime) && <span className="text-slate-500"> — {[a.startTime, a.endTime].filter(Boolean).join('–')}</span>}</li>
+                ))}
+              </ul>
+              <div className="mt-1 space-y-0.5 pl-3 text-sm text-slate-600">
+                {mealText && <div>Meals: {mealText}</div>}
+                {acc.name && <div>Stay: {[acc.name, acc.location].filter(Boolean).join(', ')}</div>}
+                {day.notes && <div className="italic">{day.notes}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <ItineraryMap itin={itin} />
+
+      {(c.name || c.phone || c.email) && (
+        <div className="mt-6 border-t pt-3 text-sm text-slate-600">
+          <span className="font-semibold">Contact:</span> {[c.name, c.phone, c.email].filter(Boolean).join(' · ')}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ItineraryViewPage({ session, itineraryId, onBack, onEdit }) {
   const [itin, setItin] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [customer, setCustomer] = useState(false);
   const canUpdate = can(session.user.role, 'itineraries:update');
+  const agencyName = (session.agency && session.agency.name) || (session.user && session.user.agencyName) || '';
   useEffect(() => { (async () => { setLoading(true); try { const d = await api(`/itineraries/${itineraryId}`); setItin(d.itinerary); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, [itineraryId]);
   if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
   if (!itin) return <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Itinerary not found.</CardContent></Card>;
+
+  if (customer) {
+    return (
+      <div className="space-y-4">
+        <div className="no-print flex flex-wrap items-center justify-between gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setCustomer(false)}><ArrowLeft className="h-4 w-4 mr-1" /> Back to editor view</Button>
+          <Button size="sm" onClick={() => window.print()}><Printer className="h-4 w-4 mr-1" /> Print / Save as PDF</Button>
+        </div>
+        <Card className="overflow-hidden"><CardContent className="p-0"><CustomerItineraryView itin={itin} agencyName={agencyName} /></CardContent></Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
-          <div><h2 className="text-xl font-bold">{itin.title}</h2><p className="text-sm text-muted-foreground">{itin.destination} · {travelDates(itin)}</p></div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap"><h2 className="text-xl font-bold">{itin.title}</h2><ItineraryStatusBadge status={itin.status} /></div>
+            <p className="text-sm text-muted-foreground">{itin.destination} · {travelDates(itin)}</p>
+          </div>
         </div>
-        {canUpdate && <Button variant="outline" size="sm" onClick={onEdit}><Pencil className="h-4 w-4 mr-1" /> Edit itinerary</Button>}
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setCustomer(true)}><Eye className="h-4 w-4 mr-1" /> Customer view</Button>
+          {canUpdate && <Button variant="outline" size="sm" onClick={onEdit}><Pencil className="h-4 w-4 mr-1" /> Edit itinerary</Button>}
+        </div>
       </div>
+      <Card><CardContent className="p-5"><ItineraryTravelOverview itin={itin} /></CardContent></Card>
       {itin.notes && <Card><CardContent className="p-4 text-sm whitespace-pre-wrap">{itin.notes}</CardContent></Card>}
       <Card><CardContent className="p-5"><ItineraryView itin={itin} /></CardContent></Card>
     </div>
+  );
+}
+
+function ItineraryCreateDialog({ open, onOpenChange, onCreated }) {
+  const [form, setForm] = useState({ title: '', destination: '', startDate: '', endDate: '', adults: 2, children: 0 });
+  const [saving, setSaving] = useState(false);
+  const submit = async () => {
+    if (!form.destination.trim()) { toast.error('Destination is required'); return; }
+    if (form.startDate && form.endDate && form.startDate > form.endDate) { toast.error('End date must be on or after the start date'); return; }
+    setSaving(true);
+    try {
+      const { itinerary } = await api('/itineraries', { method: 'POST', body: JSON.stringify({
+        title: form.title, destination: form.destination, startDate: form.startDate, endDate: form.endDate,
+        travelers: { adults: Number(form.adults) || 0, children: Number(form.children) || 0 },
+      }) });
+      toast.success('Itinerary created');
+      onOpenChange(false);
+      setForm({ title: '', destination: '', startDate: '', endDate: '', adults: 2, children: 0 });
+      onCreated && onCreated(itinerary);
+    } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>New itinerary</DialogTitle></DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5 sm:col-span-2"><Label>Title</Label><Input value={form.title} placeholder="Optional — auto-named from destination" onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label>Destination *</Label><Input value={form.destination} placeholder="Goa" onChange={(e) => setForm({ ...form, destination: e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Start date</Label><Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>End date</Label><Input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Adults</Label><Input type="number" min="0" value={form.adults} onChange={(e) => setForm({ ...form, adults: e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Children</Label><Input type="number" min="0" value={form.children} onChange={(e) => setForm({ ...form, children: e.target.value })} /></div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Creating…' : 'Create & build'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -3579,11 +4017,20 @@ function Itineraries({ session }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [openId, setOpenId] = useState(null);
   const [mode, setMode] = useState('view');
+  const [creating, setCreating] = useState(false);
+  const canCreate = can(session.user.role, 'itineraries:create');
+  const canDelete = can(session.user.role, 'itineraries:delete');
 
   const load = async () => { setLoading(true); try { const d = await api('/itineraries'); setRows(d.itineraries || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
   useEffect(() => { load(); }, []);
+
+  const remove = async (id) => {
+    if (!window.confirm('Delete this itinerary? This cannot be undone.')) return;
+    try { await api(`/itineraries/${id}`, { method: 'DELETE' }); toast.success('Itinerary deleted'); load(); } catch (e) { toast.error(friendlyError(e)); }
+  };
 
   if (openId) {
     if (mode === 'edit') return <ItineraryEditor session={session} itineraryId={openId} onBack={() => setMode('view')} onSaved={() => { setMode('view'); load(); }} />;
@@ -3591,17 +4038,30 @@ function Itineraries({ session }) {
   }
 
   const q = query.trim().toLowerCase();
-  const filtered = rows.filter((r) => !q || [r.title, r.destination].some((f) => String(f || '').toLowerCase().includes(q)));
+  const filtered = rows.filter((r) => {
+    const mq = !q || [r.title, r.destination].some((f) => String(f || '').toLowerCase().includes(q));
+    const ms = statusFilter === 'all' || (r.status || 'draft') === statusFilter;
+    return mq && ms;
+  });
   const isEmpty = !loading && rows.length === 0;
 
   return (
     <div className="space-y-5">
-      <div><h2 className="text-xl font-bold">Itineraries</h2><p className="text-sm text-muted-foreground">Day-by-day plans linked to your packages.</p></div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-xl font-bold">Itineraries</h2><p className="text-sm text-muted-foreground">Day-by-day travel plans — standalone or linked to your packages.</p></div>
+        {canCreate && !isEmpty && <Button onClick={() => setCreating(true)} className="w-full sm:w-auto"><Plus className="h-4 w-4 mr-1.5" /> Create itinerary</Button>}
+      </div>
 
       {!isEmpty && !loading && (
-        <div className="relative sm:max-w-sm">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search title or destination" className="pl-9" />
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative sm:max-w-sm sm:flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search title or destination" className="pl-9" />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="sm:w-44"><div className="flex items-center gap-2"><Filter className="h-4 w-4" /><SelectValue /></div></SelectTrigger>
+            <SelectContent><SelectItem value="all">All statuses</SelectItem>{ITINERARY_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{ITINERARY_STATUS_META[s].label}</SelectItem>)}</SelectContent>
+          </Select>
         </div>
       )}
 
@@ -3610,7 +4070,8 @@ function Itineraries({ session }) {
       {isEmpty && (
         <Card><CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Map className="h-6 w-6 text-muted-foreground" /></div>
-          <div className="space-y-1"><h3 className="font-semibold">No itineraries yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Open a package and create an itinerary to start planning day by day.</p></div>
+          <div className="space-y-1"><h3 className="font-semibold">No itineraries yet</h3><p className="mx-auto max-w-sm text-sm text-muted-foreground">Create a standalone itinerary here, or open a package to build one linked to it.</p></div>
+          {canCreate && <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4 mr-1.5" /> Create itinerary</Button>}
         </CardContent></Card>
       )}
 
@@ -3623,7 +4084,7 @@ function Itineraries({ session }) {
           <Card className="hidden md:block overflow-hidden">
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Title</TableHead><TableHead>Destination</TableHead><TableHead>Dates</TableHead><TableHead>Days</TableHead><TableHead>Created</TableHead>
+                <TableHead>Title</TableHead><TableHead>Destination</TableHead><TableHead>Dates</TableHead><TableHead>Days</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
               </TableRow></TableHeader>
               <TableBody>
                 {filtered.map((r) => (
@@ -3632,7 +4093,11 @@ function Itineraries({ session }) {
                     <TableCell className="text-muted-foreground">{r.destination}</TableCell>
                     <TableCell className="text-muted-foreground">{travelDates(r)}</TableCell>
                     <TableCell className="text-muted-foreground">{(r.days || []).length}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatJoined(r.createdAt)}</TableCell>
+                    <TableCell><ItineraryStatusBadge status={r.status} /></TableCell>
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <Button variant="ghost" size="icon" title="Open" onClick={() => { setOpenId(r.id); setMode('view'); }}><Eye className="h-4 w-4" /></Button>
+                      {canDelete && <Button variant="ghost" size="icon" title="Delete" onClick={() => remove(r.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -3641,14 +4106,19 @@ function Itineraries({ session }) {
           <div className="space-y-3 md:hidden">
             {filtered.map((r) => (
               <Card key={r.id} className="cursor-pointer" onClick={() => { setOpenId(r.id); setMode('view'); }}><CardContent className="space-y-2 p-4">
-                <div className="font-semibold truncate">{r.title}</div>
+                <div className="flex items-center justify-between gap-2"><div className="font-semibold truncate">{r.title}</div><ItineraryStatusBadge status={r.status} /></div>
                 <div className="text-sm text-muted-foreground truncate">{r.destination} · {(r.days || []).length} day{(r.days || []).length === 1 ? '' : 's'}</div>
-                <div className="text-sm text-muted-foreground">{travelDates(r)}</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-muted-foreground">{travelDates(r)}</div>
+                  {canDelete && <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); remove(r.id); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                </div>
               </CardContent></Card>
             ))}
           </div>
         </>
       )}
+
+      <ItineraryCreateDialog open={creating} onOpenChange={setCreating} onCreated={(it) => { setOpenId(it.id); setMode('edit'); }} />
     </div>
   );
 }
