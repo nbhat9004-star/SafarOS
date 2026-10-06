@@ -456,6 +456,8 @@ const DESKTOP_WORKSPACES = [
     { id: 'web_dashboard', label: 'Website', desc: 'Your agency website', icon: Globe, tone: 'amber' },
     { id: 'portal_admin', label: 'Customer Portal', desc: 'Client portal access', icon: ShieldCheck, tone: 'violet' },
     { id: 'int_overview', label: 'Integrations', desc: 'Connect external tools', icon: ExternalLink, tone: 'sky' },
+    { id: 'data_import', label: 'Import Data', desc: 'Import CSV / XLSX records', icon: Upload, tone: 'emerald' },
+    { id: 'data_export', label: 'Export Data', desc: 'Export your records to CSV', icon: Download, tone: 'sky' },
     { id: 'sub_overview', label: 'Subscription', desc: 'Plan & billing', icon: CreditCard, tone: 'rose' },
     { id: 'team', label: 'Team', desc: 'Members & roles', icon: Users, tone: 'emerald' },
     { id: 'settings', label: 'Settings', desc: 'Agency settings', icon: Building2, tone: 'violet' },
