@@ -407,7 +407,7 @@ const MOBILE_NAV = [
     { id: 'copilot', label: 'AI Copilot' }, { id: 'an_overview', label: 'Analytics' },
   ] },
   { id: 'more', label: 'More', icon: LayoutGrid, items: [
-    { id: 'web_dashboard', label: 'Website' }, { id: 'int_overview', label: 'Integrations' }, { id: 'sub_overview', label: 'Subscription' }, { id: 'team', label: 'Team' }, { id: 'settings', label: 'Settings' },
+    { id: 'web_dashboard', label: 'Website' }, { id: 'int_overview', label: 'Integrations' }, { id: 'data_import', label: 'Import Data' }, { id: 'data_export', label: 'Export Data' }, { id: 'sub_overview', label: 'Subscription' }, { id: 'team', label: 'Team' }, { id: 'settings', label: 'Settings' },
   ] },
 ];
 
