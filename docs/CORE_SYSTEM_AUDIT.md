@@ -17,9 +17,10 @@ This document records findings to guide the first completion pass. It does **not
 
 - Static inspection of `app/api/[[...path]]/route.js` found that the staff and platform cookie setters, and the customer portal login/logout cookie setters, specify `httpOnly`, `sameSite`, `path`, and expiry but do not set `secure`.
 - On HTTPS deployments, setting `Secure` in production is a standard defense against sending session cookies over unencrypted HTTP. Local development should continue to work over localhost.
-- This is a concrete code-level hardening candidate. It has **not** been changed in this audit because the API route is very large and the change should be made as a small, isolated patch with a clear diff, then reviewed on the preview deployment. Do not alter cookie names, lifetimes, or auth flows as part of this fix.
+- The work branch now sets `secure: process.env.NODE_ENV === 'production'` on all six staff, platform, and portal cookie set/clear operations. This keeps cookies secure in production while allowing HTTP localhost development. Cookie names, lifetimes, SameSite settings, and auth flows were not otherwise changed.
+- The source was fetched again after the commit and the six updated cookie setters were inspected. No build, automated test, or login/logout runtime check has been run, so the fix still needs manual verification on the preview.
 
-**Next action:** add `secure: process.env.NODE_ENV === 'production'` consistently to all staff, platform, and portal cookie set/clear operations, then review the exact diff and manually check login/logout on the preview.
+**Next action:** review the exact diff and manually check staff, platform, and portal login/logout on the preview before merging.
 
 ### P1 — Review production security headers and cross-origin behavior
 
