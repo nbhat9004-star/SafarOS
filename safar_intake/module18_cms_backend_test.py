@@ -10,7 +10,7 @@ import sys
 from datetime import datetime
 
 # Configuration
-BASE_URL = "https://safar-data.preview.emergentagent.com"
+BASE_URL = "https://safar-admin-fix.preview.emergentagent.com"
 API_BASE = f"{BASE_URL}/api"
 
 # Super Admin credentials

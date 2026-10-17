@@ -200,7 +200,7 @@
 ## 📝 DEPLOYMENT NOTES
 
 ### Current Environment
-- **URL**: https://safar-data.preview.emergentagent.com
+- **URL**: https://safar-admin-fix.preview.emergentagent.com
 - **Database**: MongoDB running locally (in container)
 - **Server**: Next.js on port 3000
 - **Status**: ✅ STABLE and RUNNING
@@ -270,4 +270,4 @@ The Safar website is fully functional for user testing and gathering feedback. A
 ---
 
 **Website is LIVE and ready for testing at:**  
-https://safar-data.preview.emergentagent.com
+https://safar-admin-fix.preview.emergentagent.com

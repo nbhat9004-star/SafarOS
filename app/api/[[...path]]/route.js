@@ -2149,7 +2149,7 @@ function platformAdminView(a) {
   return { id: a.id, email: a.email, name: a.name, role: a.role, status: a.status, mustChangePassword: !!a.mustChangePassword, createdAt: a.createdAt, lastLoginAt: a.lastLoginAt || null };
 }
 
-async function ensureSuperAdmin(db) {
+async function ensureSuperAdmin(db, request = null) {
   // Production-safe, idempotent bootstrap. Runs on-demand (serverless friendly)
   // against the SAME production DB as the rest of SafarOS (MONGO_URL/DB_NAME).
   // Creates the initial Super Admin ONLY from secure server-side env vars and
@@ -2159,6 +2159,23 @@ async function ensureSuperAdmin(db) {
   if (!email || !password) return;
   const existing = await db.collection('platformAdmins').findOne({ email });
   if (existing) return; // idempotent — do not duplicate or reset password
+  // One-time, env-gated in-place recovery (no endpoint). If SUPER_ADMIN_RECOVER_FROM_EMAIL
+  // matches an existing admin, move THAT record (same id/role/data) to SUPER_ADMIN_EMAIL with a
+  // new bcrypt hash. Self-disables once applied (old email no longer exists). Nothing is logged.
+  const recoverFrom = String(process.env.SUPER_ADMIN_RECOVER_FROM_EMAIL || '').toLowerCase().trim();
+  if (recoverFrom && recoverFrom !== email) {
+    const old = await db.collection('platformAdmins').findOne({ email: recoverFrom });
+    if (old) {
+      if (password.length < 10) return; // refuse weak recovery password
+      const now = new Date().toISOString();
+      const r = await db.collection('platformAdmins').updateOne(
+        { id: old.id, email: recoverFrom },
+        { $set: { email, passwordHash: await hashPassword(password), mustChangePassword: true, updatedAt: now, recoveredAt: now } },
+      );
+      if (r.modifiedCount) await platformAudit(db, { adminId: old.id, email }, request, { action: 'platform.admin_recovered', targetType: 'platform_admin', targetId: old.id });
+      return;
+    }
+  }
   try {
     const now = new Date().toISOString();
     await db.collection('platformAdmins').insertOne({
@@ -2174,7 +2191,7 @@ async function ensureSuperAdmin(db) {
 }
 
 async function platformLogin(db, body, request) {
-  await ensureSuperAdmin(db); // ensure the initial Super Admin exists in production
+  await ensureSuperAdmin(db, request); // ensure the initial Super Admin exists in production
   const email = String(body.email || '').toLowerCase();
   const password = String(body.password || '');
   if (!email || !password) return err('email and password required');
