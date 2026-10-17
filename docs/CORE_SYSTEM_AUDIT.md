@@ -13,53 +13,63 @@ This document records findings to guide the first completion pass. It does **not
 
 ## Findings
 
-### P1 — Review production security headers and session-cookie flags
+### P1 — Session cookies are missing the Secure attribute
+
+- Static inspection of `app/api/[[...path]]/route.js` found that the staff and platform cookie setters, and the customer portal login/logout cookie setters, specify `httpOnly`, `sameSite`, `path`, and expiry but do not set `secure`.
+- On HTTPS deployments, setting `Secure` in production is a standard defense against sending session cookies over unencrypted HTTP. Local development should continue to work over localhost.
+- This is a concrete code-level hardening candidate. It has **not** been changed in this audit because the API route is very large and the change should be made as a small, isolated patch with a clear diff, then reviewed on the preview deployment. Do not alter cookie names, lifetimes, or auth flows as part of this fix.
+
+**Next action:** add `secure: process.env.NODE_ENV === 'production'` consistently to all staff, platform, and portal cookie set/clear operations, then review the exact diff and manually check login/logout on the preview.
+
+### P1 — Review production security headers and cross-origin behavior
 
 - `next.config.js` applies `Access-Control-Allow-Origin: *` by default and allows all origins in `Content-Security-Policy: frame-ancestors *;`. It also sets `X-Frame-Options: ALLOWALL`, which is not a standard restrictive X-Frame-Options value.
-- `lib/auth.js` defines separate staff, customer-portal, and platform-admin JWT session types and cookies. The cookie-setting helpers in the API route should be checked for the `Secure` flag in production.
-- **Do not change these settings blindly.** SafarOS has iframe-based preview/integration behavior, so first identify which origins genuinely need embedding or cross-origin access. Then restrict the policy to those origins and keep local development working.
+- These settings may be intentional for embedding or integrations, so they should not be tightened blindly before identifying the actual iframe and cross-origin consumers.
+- No production header change has been made.
 
-**Next action:** inspect the deployed domains and all iframe/API consumers; make a minimal, separately reviewable security change only after the required origins are known.
+**Next action:** identify the origins that genuinely need embedding or cross-origin access, then propose a minimal allowlist that keeps the required integrations working.
 
 ### P1 — Establish repeatable build and smoke-check commands
 
-- The root `package.json` currently exposes `dev`, `dev:no-reload`, `dev:webpack`, `build`, and `start`; there is no root `test` or `lint` script.
+- The root `package.json` exposes `dev`, `dev:no-reload`, `dev:webpack`, `build`, and `start`; there is no root `test` or `lint` script.
 - The root `tests/` directory contains only its package initializer, and `test_reports/` has no committed test report beyond placeholders.
-- Existing development notes describe manual curl/lint/compile checks, but those results are historical and cannot prove that the current `main` revision or current Vercel deployment is healthy.
+- Existing development notes describe manual checks, but those historical results cannot prove that the current revision or current Vercel deployment is healthy.
 
-**Next action:** use a small, deterministic, manually invoked smoke-check checklist for public page response, login/logout, unauthenticated API rejection, and tenant/role boundaries. Keep the user's restriction against autonomous browser/QA/testing agents.
+**Next action:** use a small, deterministic, manually invoked checklist for public page response, login/logout, unauthenticated API rejection, and tenant/role boundaries. Keep the user's restriction against autonomous browser/QA/testing agents.
 
 ### P1 — Verify tenant isolation and authorization on the live route set
 
 - The main API is concentrated in `app/api/[[...path]]/route.js`, which imports auth, RBAC, tenancy, integrations, provider-secret handling, import/export, travel rules, documents, and customization helpers.
 - `lib/rbac.js` uses an explicit action-to-role matrix and denies unknown actions. `lib/auth.js` separates staff, portal, and platform session token kinds.
-- These are useful safeguards, but a static review cannot establish that every read/write handler consistently uses the session-derived agency ID and the correct permission check.
+- Several inspected helpers scope record lookups through `tenantFilter(session, ...)`, and portal reads use both the portal session's agency and client identifiers. This is positive evidence for the inspected paths only; it is not proof that every route is correctly scoped.
+- A full route-by-route review and runtime cross-tenant check have not been completed.
 
-**Next action:** map each sensitive route to its required permission and tenant filter; focus first on create/update/delete operations and cross-tenant ID lookups. Do not rewrite the catch-all API wholesale.
+**Next action:** map sensitive routes to their required permission and tenant filter; focus first on create/update/delete operations and cross-tenant ID lookups. Do not rewrite the catch-all API wholesale.
 
-### P2 — Verify environment and production deployment configuration
+### P2 — Verify environment and deployment configuration
 
 - `lib/db.js` resolves the database URI from `MONGO_URL`, `MONGODB_URI`, or `DATABASE_URL`, and defaults `DB_NAME` to `safaros`.
 - Authentication requires `JWT_SECRET`. Provider integrations may also require a stable `CREDENTIALS_ENCRYPTION_KEY` and provider-specific credentials.
-- A historical report notes that development environment values were restored in a preview. That does not establish that the correct Vercel project has the correct production environment variables.
+- The Vercel GitHub status for the audit commit reported the `safaros-agency-os` deployment as Ready and supplied a branch-specific preview URL: https://safaros-agency-os-git-work-core-system-audit-c-4b03c3-safar-os1.vercel.app. This confirms deployment status only, not application workflows or database isolation.
+- Production environment values have not been inspected or changed.
 
-**Next action:** identify the one intended production Vercel project and verify required variable *names and presence* without exposing secret values. Do not change or delete project settings during this pass.
+**Next action:** verify required variable names and presence without exposing secret values. Do not change or delete project settings during this pass.
 
 ### P2 — Keep demo data separate from real customer data
 
-- Historical development notes emphasize tenant isolation and avoiding fabricated supplier/business records. The current request now includes demo data, so any demo setup must be explicitly opt-in and clearly labeled.
+- Demo setup must be explicitly opt-in and clearly labeled. Do not invent real supplier/business records or insert demo records into a real agency tenant.
 - Demo credentials must be returned to the project owner after creation, but passwords must not be committed to the repository, printed in logs, or stored in a public report.
-- Demo data must never be seeded automatically into production or inserted into a real agency tenant.
+- Demo data must never be seeded automatically into production.
 
-**Next action:** after core checks, define an isolated demo setup that creates a clearly labeled demo agency and a least-privilege demo user, uses a generated one-time password or secure reset flow, and reports the login email and setup instructions without writing secrets to Git.
+**Next action:** after core checks, define an isolated demo setup that creates a clearly labeled demo agency and least-privilege demo user, uses a generated one-time password or secure reset flow, and reports login instructions without writing secrets to Git.
 
 ## Completion order
 
-1. Confirm the intended production Vercel project and current deployment status without modifying settings.
+1. Confirm the intended Vercel project and deployment status without modifying settings.
 2. Inspect and document core auth, tenant isolation, RBAC, and CRUD paths.
-3. Fix only reproducible, high-confidence defects in a dedicated branch.
+3. Make only reproducible, high-confidence fixes in a dedicated branch.
 4. Add or document a manual smoke-check sequence that does not use autonomous agents.
-5. Add opt-in demo data only after the core flow is verified; return demo login details securely and never commit credentials.
+5. Add opt-in demo data only after core flows are reviewed; return demo login details securely and never commit credentials.
 6. Defer new Super Admin, auth, and email features until the existing core is stable, as requested.
 
 ## Explicit exclusions for this pass
