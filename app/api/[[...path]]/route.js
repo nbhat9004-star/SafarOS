@@ -2222,6 +2222,303 @@ async function platformChangePassword(db, session, body, request) {
   return json({ ok: true });
 }
 
+// ============================================================ Demo agency (env-gated, idempotent)
+// Seeds a dedicated, clearly FICTIONAL "SafarOS Demo Agency" only when DEMO_USER_PASSWORD (>=12 chars)
+// is set server-side, triggered by a login attempt with DEMO_USER_EMAIL. Every record is stamped with
+// the demo agencyId only, uses deterministic ids + upsert/$setOnInsert (re-runs never duplicate or
+// overwrite), and nothing is ever deleted. No email/WhatsApp/payment is sent — communications are
+// stored as simulated history only. No endpoint is exposed; the password is never logged.
+const DEMO_AGENCY_ID = 'demo-safaros-agency';
+const DEMO_USER_ID = 'demo-safaros-manager';
+const DEMO_USER_EMAIL = 'demo@safaros-demo.example';
+const DEMO_SEED_VERSION = 1;
+const demoDay = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const demoTs = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString(); };
+const demoAddDays = (ymd, k) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + k); return d.toISOString().slice(0, 10); };
+
+function buildDemoRecords() {
+  const S = { agencyId: DEMO_AGENCY_ID, userId: DEMO_USER_ID };
+  const base = (id, n, extra) => withAgency(S, { id, ...extra, isDemo: true, createdBy: DEMO_USER_ID, createdAt: demoTs(n), updatedAt: demoTs(n) });
+  const phone = (i) => `+91 55500 ${String(100 + i).padStart(5, '0')}`; // non-dialable fictional range
+  const mail = (name) => `${name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/(^\.|\.$)/g, '')}@example.com`;
+  const year = new Date().getUTCFullYear();
+  const pad = (n) => String(n).padStart(4, '0');
+
+  // ---- Leads (12) & clients (8)
+  const LEADS = [
+    ['Aarav Mehta', 'website', 'new', 'Kashmir family trip for 4 adults in early summer.'],
+    ['Sara Thompson', 'referral', 'new', 'Wants to ski in Gulmarg this winter.'],
+    ['Rohan Kapoor', 'instagram', 'new', 'Kashmir honeymoon with a Dal Lake houseboat night.'],
+    ['Ananya Rao', 'website', 'contacted', 'Pahalgam & Sonamarg, 5 nights, family of 4.'],
+    ['Daniel Brooks', 'referral', 'contacted', 'Corporate offsite for 10 people in Srinagar.'],
+    ['Priya Nair', 'google', 'qualified', 'Gulmarg winter holiday, 2 adults + 1 child.'],
+    ['Liam OConnor', 'google', 'qualified', 'Kerala backwaters and Munnar, 6 days.'],
+    ['Neha Bansal', 'referral', 'qualified', 'Kashmir Great Lakes trek in August.'],
+    ['Zoya Khan', 'website', 'converted', 'Booked the Kashmir Paradise Tour.'],
+    ['Vikram Sethi', 'referral', 'converted', 'Booked the Dal Lake Houseboat Escape.'],
+    ['Rahul Desai', 'google', 'lost', 'Chose a cheaper option elsewhere.'],
+    ['Tanvi Joshi', 'website', 'lost', 'Postponed travel to next year.'],
+  ];
+  const leads = LEADS.map(([name, source, status, notes], i) => base(`demo-lead-${i + 1}`, -60 + i * 4, { name, email: mail(name), phone: phone(i + 1), source, status, notes: `${notes} (Demo record)`, convertedClientId: '' }));
+  leads[8].convertedClientId = 'demo-client-1'; leads[9].convertedClientId = 'demo-client-2';
+  const LD = (i) => leads[i - 1];
+  const CLIENTS = [['Zoya Khan', 8], ['Vikram Sethi', 9], ['Emily Carter'], ['Aditya Menon'], ['Sunita Agarwal'], ['Mark Wilson'], ['Pooja Reddy'], ['Harish Gupta']];
+  const clients = CLIENTS.map(([name, li], i) => base(`demo-client-${i + 1}`, -90 + i * 6, {
+    name, email: li !== undefined ? leads[li].email : mail(name), phone: li !== undefined ? leads[li].phone : phone(50 + i),
+    notes: 'Fictional demo customer.', status: 'active', ...(li !== undefined ? { fromLeadId: leads[li].id } : {}),
+  }));
+  const C = (i) => clients[i - 1];
+
+  // ---- Suppliers (8)
+  const SUP = [
+    ['Dal Lake Royal Houseboats', 'houseboat', 'Srinagar'], ['Snow Crest Resort Gulmarg', 'hotel', 'Gulmarg'],
+    ['River View Hotel Pahalgam', 'hotel', 'Pahalgam'], ['Valley Wheels Transport', 'transport', 'Srinagar'],
+    ['Gondola Adventures Gulmarg', 'activity', 'Gulmarg'], ['Himalayan Trail Guides', 'guide', 'Sonamarg'],
+    ['Wazwan House Kitchen', 'restaurant', 'Srinagar'], ['Leh Heights Hotel', 'hotel', 'Leh'],
+  ];
+  const suppliers = SUP.map(([name, type, city], i) => base(`demo-supplier-${i + 1}`, -120 + i, validateSupplierInput({
+    name, type, city, state: city === 'Leh' ? 'Ladakh' : 'Jammu & Kashmir', country: 'India',
+    email: `reservations@${slugify(name)}.example`, phone: phone(80 + i), contactPerson: 'Demo Contact',
+    description: `${name} — fictional demo supplier in ${city}.`, notes: 'Demo record',
+  }).value));
+  const SP = (i) => suppliers[i - 1];
+
+  // ---- Quotations (6) — server pricing via computeQuotation
+  const INC = 'Accommodation, daily breakfast & dinner, private transfers & sightseeing, driver allowances, toll & parking';
+  const EXC = 'Flights, lunches, pony rides, personal expenses, travel insurance, anything not listed in inclusions';
+  const QT = [
+    ['client', C(1), 'Srinagar · Gulmarg · Pahalgam, Kashmir', 20, 6, 2, 1, 'approved', 2000, [['Houseboat', 'Deluxe houseboat on Dal Lake – 2 nights', 2, 5500, 7500], ['Hotel', 'Snow Crest Resort Gulmarg – 2 nights', 2, 6500, 8500], ['Hotel', 'River View Hotel Pahalgam – 2 nights', 2, 4800, 6500], ['Transport', 'Private SUV with driver – 7 days', 7, 2800, 3800], ['Activity', 'Gulmarg Gondola Phase 1 & 2 tickets', 3, 1600, 2100], ['Activity', 'Sunset shikara ride on Dal Lake', 1, 1200, 1800]]],
+    ['client', C(4), 'Srinagar · Gulmarg · Pahalgam, Kashmir', 45, 5, 2, 0, 'sent', 3000, [['Houseboat', 'Premium honeymoon houseboat – 2 nights', 2, 8000, 10500], ['Hotel', 'Snow Crest Resort Gulmarg – 2 nights', 2, 7000, 9500], ['Hotel', 'River View Hotel Pahalgam – 1 night', 1, 5500, 7500], ['Transport', 'Private sedan with driver – 6 days', 6, 2600, 3500], ['Activity', 'Candle-light dinner & flower decoration', 1, 3000, 4500]]],
+    ['lead', LD(6), 'Gulmarg, Kashmir', 150, 4, 2, 1, 'draft', 0, [['Hotel', 'Ski-in family room, Gulmarg – 4 nights', 4, 6500, 8800], ['Transport', 'Airport transfers & local SUV – 5 days', 5, 2500, 3400], ['Activity', 'Beginner ski lessons – 2 days', 2, 3500, 5000], ['Activity', 'Gulmarg Gondola tickets', 3, 1600, 2100]]],
+    ['client', C(5), 'Leh · Nubra · Pangong, Ladakh', 30, 6, 2, 0, 'approved', 1500, [['Hotel', 'Leh Heights Hotel – 4 nights', 4, 5200, 7000], ['Hotel', 'Nubra desert camp – 1 night', 1, 6000, 8000], ['Hotel', 'Pangong lakeside camp – 1 night', 1, 6500, 8500], ['Transport', 'Private SUV with driver – 7 days', 7, 3200, 4300], ['Other', 'Inner-line permits & monument fees', 2, 900, 1200]]],
+    ['lead', LD(7), 'Munnar · Alleppey, Kerala', -20, 5, 2, 0, 'rejected', 0, [['Hotel', 'Munnar tea-estate resort – 3 nights', 3, 4500, 6000], ['Houseboat', 'Alleppey premium houseboat – 1 night', 1, 9000, 12000], ['Transport', 'Private sedan – 6 days', 6, 2400, 3200]]],
+    ['lead', LD(4), 'Pahalgam · Sonamarg, Kashmir', 60, 5, 2, 2, 'sent', 2500, [['Hotel', 'River View Hotel Pahalgam – 3 nights', 3, 4800, 6500], ['Hotel', 'Sonamarg glacier-view stay – 2 nights', 2, 5000, 6800], ['Transport', 'Private tempo traveller – 6 days', 6, 2800, 3800], ['Guide', 'Thajiwas glacier guide & ponies', 1, 2500, 3500]]],
+  ];
+  const quotations = QT.map(([type, rec, destination, start, nights, adults, children, status, disc, items], i) => {
+    const n = i + 1;
+    const body = { customerType: type, customerId: rec.id, destination, startDate: demoDay(start), endDate: demoDay(start + nights), adults, children, rooms: Math.max(1, Math.ceil(adults / 2)), nights,
+      items: items.map(([category, description, quantity, unitCost, sellingPrice], k) => ({ id: `demo-q${n}-item-${k + 1}`, category, description, quantity, unitCost, sellingPrice })),
+      discount: { type: 'fixed', value: disc }, tax: { percent: 5 } };
+    const { value } = validateQuotationInput(body); const calc = computeQuotation(body);
+    return base(`demo-quote-${n}`, Math.min(-3, start - 25), {
+      quotationNumber: `QT-${year}-${pad(n)}`, ...value, customerName: rec.name, customerEmail: rec.email,
+      items: calc.items, discount: calc.discount, tax: calc.tax, subtotal: calc.subtotal, discountAmount: calc.discountAmount, taxAmount: calc.taxAmount,
+      grandTotal: calc.grandTotal, internalCost: calc.internalCost, expectedProfit: calc.expectedProfit, status,
+      internalNotes: 'Demo quotation — fictional pricing.', customerNotes: `Inclusions: ${INC}\nExclusions: ${EXC}`,
+    });
+  });
+  const Q = (i) => quotations[i - 1];
+
+  // ---- Tour packages (9)
+  const PKG = [
+    ['Kashmir Paradise Tour (6N/7D)', 'client', C(1), 'Srinagar · Gulmarg · Pahalgam, Kashmir', 20, 6, 2, 1, 'active', Q(1), 32500, 'Houseboat stay on Dal Lake, Mughal Gardens, Gulmarg Gondola, Aru & Betaab valleys.'],
+    ['Dal Lake Houseboat Escape (3N/4D)', 'client', C(2), 'Srinagar, Kashmir', -40, 3, 2, 0, 'completed', null, 18900, 'Three nights on a heritage houseboat, shikara rides, old-city walk and a Wazwan dinner.'],
+    ['Gulmarg Winter Snow Holiday (4N/5D)', 'client', C(3), 'Gulmarg, Kashmir', -1, 4, 2, 0, 'active', null, 27500, 'Snow activities, gondola to Apharwat, beginner skiing and cosy resort evenings.'],
+    ['Kashmir Honeymoon Special (5N/6D)', 'client', C(4), 'Srinagar · Gulmarg · Pahalgam, Kashmir', 45, 5, 2, 0, 'active', Q(2), 41000, 'Flower-decorated houseboat, candle-light dinner, private sightseeing and valley picnics.'],
+    ['Pahalgam & Sonamarg Family Tour (5N/6D)', 'lead', LD(4), 'Pahalgam · Sonamarg, Kashmir', 60, 5, 2, 2, 'draft', Q(6), 24500, 'Riverside stays, Thajiwas glacier, Betaab valley and kid-friendly pony rides.'],
+    ['Ladakh High Passes Adventure (6N/7D)', 'client', C(5), 'Leh · Nubra · Pangong, Ladakh', 30, 6, 2, 0, 'active', Q(4), 38500, 'Khardung La, Nubra sand dunes, Pangong Tso sunrise and Leh monasteries.'],
+    ['Kerala Backwaters & Munnar (5N/6D)', 'client', C(6), 'Munnar · Alleppey, Kerala', -70, 5, 2, 0, 'completed', null, 29900, 'Tea estates of Munnar and an overnight Alleppey houseboat cruise.'],
+    ['Royal Rajasthan Heritage Trail (7N/8D)', 'client', C(7), 'Jaipur · Jodhpur · Udaipur, Rajasthan', 90, 7, 2, 0, 'draft', null, 45500, 'Palace hotels, Amber Fort, Mehrangarh, Lake Pichola boat ride and a desert camp.'],
+    ['Goa Beach Getaway (3N/4D)', 'client', C(8), 'North Goa', 15, 3, 2, 0, 'cancelled', null, 16500, 'Beach resort, Old Goa churches, sunset cruise and spice-plantation lunch.'],
+  ];
+  const packages = PKG.map(([name, type, rec, destination, start, nights, adults, children, status, q, from, hl], i) => base(`demo-package-${i + 1}`, -100 + i * 5, {
+    ...validatePackageInput({ name, customerType: type, customerId: rec.id, destination, startDate: demoDay(start), endDate: demoDay(start + nights), adults, children, nights, quotationId: q ? q.id : '',
+      description: `${hl}\n\nPrice from ₹${from.toLocaleString('en-IN')} per person (twin sharing).\nInclusions: ${INC}\nExclusions: ${EXC}` }).value,
+    quotationNumber: q ? q.quotationNumber : '', customerName: rec.name, customerEmail: rec.email, status, itineraryId: '',
+  }));
+  const P = (i) => packages[i - 1];
+
+  // ---- Itineraries (4), linked to packages
+  const mkItin = (n, pkg, status, airport, DAYS) => {
+    pkg.itineraryId = `demo-itin-${n}`;
+    const days = normalizeItineraryDays(DAYS.map(([title, location, hotel, description, act], k) => ({
+      id: `demo-i${n}-day-${k + 1}`, dayNumber: k + 1, date: pkg.startDate ? demoAddDays(pkg.startDate, k) : '', title, location, description,
+      accommodation: hotel ? { name: hotel, location } : {}, meals: { breakfast: k === 0 ? '' : 'Included at hotel', dinner: hotel ? 'Included at hotel' : '' },
+      transport: { type: 'Private vehicle with driver', pickupLocation: k === 0 ? airport : 'Hotel lobby', pickupTime: k === 0 ? '' : '09:00' },
+      activities: act ? [{ id: `demo-i${n}-day-${k + 1}-act`, name: act }] : [],
+    })));
+    return base(`demo-itin-${n}`, -30 + n, {
+      packageId: pkg.id, title: `${pkg.name} itinerary`, destination: pkg.destination, startDate: pkg.startDate, endDate: pkg.endDate, status,
+      customerType: pkg.customerType, customerId: pkg.customerId, customerName: pkg.customerName,
+      ...normalizeItineraryTravel({ adults: pkg.adults, children: pkg.children, pickupLocation: airport, dropLocation: airport, mealPlan: 'Breakfast & dinner (MAP)', contact: { name: 'Demo Trip Desk', phone: '+91 55500 00001', email: 'trips@safaros-demo.example' } }),
+      notes: 'Demo itinerary — fictional.', days, ...(status === 'shared' ? { sharedAt: demoTs(-50) } : {}),
+    });
+  };
+  const SXR = 'Srinagar International Airport';
+  const itineraries = [
+    mkItin(1, P(1), 'approved', SXR, [
+      ['Arrival in Srinagar & shikara ride', 'Srinagar', 'Dal Lake Royal Houseboats', 'Airport pickup, houseboat check-in and a sunset shikara ride on Dal Lake.', 'Shikara ride'],
+      ['Mughal Gardens of Srinagar', 'Srinagar', 'Dal Lake Royal Houseboats', 'Nishat Bagh, Shalimar Bagh and Chashme Shahi; evening at a local market.', 'Mughal Gardens tour'],
+      ['Transfer to Gulmarg', 'Gulmarg', 'Snow Crest Resort Gulmarg', 'Scenic drive to the meadow of flowers.', 'Gulmarg Gondola ride'],
+      ['Gulmarg at leisure', 'Gulmarg', 'Snow Crest Resort Gulmarg', 'Optional Phase 2 gondola to Apharwat peak.', 'Apharwat excursion'],
+      ['Transfer to Pahalgam', 'Pahalgam', 'River View Hotel Pahalgam', 'Drive via the saffron fields of Pampore.', 'Saffron fields stop'],
+      ['Aru & Betaab valleys', 'Pahalgam', 'River View Hotel Pahalgam', 'Day trip to Aru Valley, Betaab Valley and Chandanwari.', 'Valley sightseeing'],
+      ['Departure', 'Srinagar', '', 'Drive back to Srinagar airport for your onward flight.', ''],
+    ]),
+    mkItin(2, P(2), 'shared', SXR, [
+      ['Arrival & houseboat check-in', 'Srinagar', 'Dal Lake Royal Houseboats', 'Welcome kahwa and an evening shikara ride.', 'Shikara ride'],
+      ['Old city & Wazwan dinner', 'Srinagar', 'Dal Lake Royal Houseboats', 'Jamia Masjid, old-city lanes and a traditional Wazwan dinner.', 'Wazwan dinner'],
+      ['Sonamarg day trip', 'Sonamarg', 'Dal Lake Royal Houseboats', 'Day excursion to the meadow of gold and Thajiwas glacier.', 'Glacier walk'],
+      ['Departure', 'Srinagar', '', 'Floating market at dawn, then airport drop.', 'Floating market'],
+    ]),
+    mkItin(3, P(4), 'prepared', SXR, [
+      ['Arrival & candle-light dinner', 'Srinagar', 'Dal Lake Royal Houseboats', 'Flower-decorated houseboat and a private candle-light dinner.', 'Candle-light dinner'],
+      ['Srinagar gardens', 'Srinagar', 'Dal Lake Royal Houseboats', 'Mughal Gardens and Pari Mahal at sunset.', 'Gardens tour'],
+      ['Transfer to Gulmarg', 'Gulmarg', 'Snow Crest Resort Gulmarg', 'Drive to Gulmarg, afternoon at leisure.', ''],
+      ['Gulmarg Gondola', 'Gulmarg', 'Snow Crest Resort Gulmarg', 'Gondola to Kongdoori and Apharwat.', 'Gondola ride'],
+      ['Pahalgam valley picnic', 'Pahalgam', 'River View Hotel Pahalgam', 'Riverside picnic in Betaab Valley.', 'Valley picnic'],
+      ['Departure', 'Srinagar', '', 'Airport drop with a stop at the saffron fields.', ''],
+    ]),
+    mkItin(4, P(6), 'draft', 'Leh Kushok Bakula Rimpochee Airport', [
+      ['Arrival & acclimatisation', 'Leh', 'Leh Heights Hotel', 'Rest day to acclimatise; evening walk to Leh market.', ''],
+      ['Leh monasteries', 'Leh', 'Leh Heights Hotel', 'Thiksey, Shey and Hemis monasteries.', 'Monastery tour'],
+      ['Nubra via Khardung La', 'Nubra', 'Nubra desert camp', 'Cross Khardung La to the Nubra valley sand dunes.', 'Bactrian camel ride'],
+      ['Nubra to Pangong', 'Pangong', 'Pangong lakeside camp', 'Drive via Shyok to the blue waters of Pangong Tso.', 'Lakeside sunset'],
+      ['Pangong to Leh', 'Leh', 'Leh Heights Hotel', 'Return over Chang La pass.', ''],
+      ['Sham valley', 'Leh', 'Leh Heights Hotel', 'Magnetic Hill, Gurudwara Pathar Sahib and the Indus-Zanskar confluence.', 'Sham valley tour'],
+      ['Departure', 'Leh', '', 'Airport drop.', ''],
+    ]),
+  ];
+  const IT = (i) => itineraries[i - 1];
+
+  // ---- Bookings (7) in different statuses
+  const svcStatus = { draft: 'pending', confirmed: 'confirmed', in_progress: 'confirmed', completed: 'completed', cancelled: 'cancelled' };
+  const BK = [
+    [C(1), P(1), Q(1), IT(1), 'confirmed', 2000, [['houseboat', 'Deluxe houseboat – 2 nights', 1, 2, 7500], ['hotel', 'Snow Crest Resort – 2 nights', 2, 2, 8500], ['hotel', 'River View Hotel – 2 nights', 3, 2, 6500], ['transport', 'Private SUV – 7 days', 4, 7, 3800], ['activity', 'Gondola tickets', 5, 3, 2100]]],
+    [C(2), P(2), null, IT(2), 'completed', 0, [['houseboat', 'Heritage houseboat – 3 nights', 1, 3, 7200], ['restaurant', 'Wazwan dinner for 2', 7, 1, 3200], ['transport', 'Airport transfers & Sonamarg day trip', 4, 3, 3500]]],
+    [C(3), P(3), null, null, 'in_progress', 1000, [['hotel', 'Snow Crest Resort – 4 nights', 2, 4, 8800], ['activity', 'Ski lessons – 2 days', 5, 2, 5000], ['transport', 'Airport transfers', 4, 2, 3400]]],
+    [C(4), P(4), Q(2), IT(3), 'draft', 3000, [['houseboat', 'Honeymoon houseboat – 2 nights', 1, 2, 10500], ['hotel', 'Snow Crest Resort – 2 nights', 2, 2, 9500], ['hotel', 'River View Hotel – 1 night', 3, 1, 7500], ['transport', 'Private sedan – 6 days', 4, 6, 3500]]],
+    [C(5), P(6), Q(4), IT(4), 'confirmed', 1500, [['hotel', 'Leh Heights Hotel – 4 nights', 8, 4, 7000], ['hotel', 'Nubra & Pangong camps – 2 nights', 0, 2, 8250], ['transport', 'Private SUV – 7 days', 0, 7, 4300], ['other', 'Permits & monument fees', 0, 2, 1200]]],
+    [C(6), P(7), null, null, 'completed', 0, [['hotel', 'Munnar tea-estate resort – 3 nights', 0, 3, 6000], ['houseboat', 'Alleppey houseboat – 1 night', 0, 1, 12000], ['transport', 'Private sedan – 6 days', 0, 6, 3200]]],
+    [C(8), P(9), null, null, 'cancelled', 0, [['hotel', 'Beach resort – 3 nights', 0, 3, 7500], ['activity', 'Sunset cruise', 0, 2, 1500]]],
+  ];
+  const bookings = BK.map(([rec, pkg, q, itin, status, disc, svcs], i) => {
+    const n = i + 1;
+    const { value } = validateBookingCore({
+      customerType: 'client', customerId: rec.id, destination: pkg.destination, startDate: pkg.startDate, endDate: pkg.endDate,
+      adults: pkg.adults, children: pkg.children, nights: pkg.nights, quotationId: q ? q.id : '', packageId: pkg.id, itineraryId: itin ? itin.id : '',
+      notes: 'Demo booking — fictional.',
+      serviceItems: svcs.map(([type, description, si, quantity, unitPrice], k) => ({ id: `demo-b${n}-svc-${k + 1}`, type, description, quantity, unitPrice, status: svcStatus[status], supplierId: si ? SP(si).id : '', supplierName: si ? SP(si).name : 'Partner supplier (demo)' })),
+    });
+    const sub = round2(value.serviceItems.reduce((s, x) => s + x.total, 0));
+    const totals = computeBookingTotals({ discount: { type: 'fixed', value: disc }, tax: { percent: 5 }, internalCost: round2(sub * 0.74) }, value.serviceItems);
+    return base(`demo-booking-${n}`, -35 + n * 3, {
+      bookingNumber: `BK-${year}-${pad(n)}`, customerType: 'client', customerId: rec.id, customerName: rec.name, customerEmail: rec.email,
+      destination: value.destination, startDate: value.startDate, endDate: value.endDate, adults: value.adults, children: value.children, nights: value.nights,
+      quotationId: value.quotationId, quotationNumber: q ? q.quotationNumber : '', packageId: value.packageId, itineraryId: value.itineraryId,
+      serviceItems: value.serviceItems, ...totals, status, notes: value.notes,
+    });
+  });
+  const B = (i) => bookings[i - 1];
+
+  // ---- Fleet: vehicles (4) & drivers (4)
+  const VEH = [['JK-01-DM-0001', 'suv', 'Toyota', 'Innova Crysta', 2022, 7, 'Diesel', 'assigned', 200], ['JK-01-DM-0002', 'tempo_traveller', 'Force', 'Traveller 3350', 2021, 12, 'Diesel', 'available', 25], ['JK-01-DM-0003', 'car', 'Maruti Suzuki', 'Dzire', 2023, 4, 'CNG', 'available', 300], ['JK-01-DM-0004', 'bus', 'Tata', 'Starbus 35', 2019, 35, 'Diesel', 'maintenance', -10]];
+  const DRV = [['Imran Lone', 'assigned', 400], ['Gurpreet Singh', 'available', 20], ['Tashi Namgyal', 'available', 600], ['Rafiq Mir', 'leave', 150]];
+  const drivers = DRV.map(([name, status, exp], i) => base(`demo-driver-${i + 1}`, -110 + i, { ...validateDriverInput({ name, status, phone: phone(70 + i), email: mail(name), licenseNumber: `DEMO-DL-${pad(i + 1)}`, licenseExpiry: demoDay(exp), address: 'Srinagar (fictional)', emergencyContactName: 'Family contact (demo)', emergencyContactPhone: phone(90 + i), notes: 'Fictional demo driver.' }).value, assignedVehicleId: i < 2 ? `demo-vehicle-${i + 1}` : '' }));
+  const vehicles = VEH.map(([vn, vehicleType, make, model, yr, seatingCapacity, fuelType, status, ins], i) => base(`demo-vehicle-${i + 1}`, -115 + i, {
+    ...validateVehicleInput({ vehicleNumber: vn, registrationNumber: vn, vehicleType, make, model, year: yr, seatingCapacity, fuelType, status, color: 'White', registrationExpiry: demoDay(900), insuranceNumber: `DEMO-INS-${pad(i + 1)}`, insuranceExpiry: demoDay(ins), permitNumber: `DEMO-PRM-${pad(i + 1)}`, permitExpiry: demoDay(ins + 60), fitnessExpiry: demoDay(ins + 120), notes: 'Fictional demo vehicle.' }).value,
+    currentDriverId: i < 2 ? `demo-driver-${i + 1}` : '', latitude: null, longitude: null, lastLocationAt: '', locationSource: '',
+  }));
+
+  // ---- Finance: invoices, receivables, payables, expenses, transactions
+  const invoices = []; const customerReceivables = []; const supplierPayables = []; const expenses = []; const financialTransactions = [];
+  const txn = (k, n, type, category, amount, description, extra = {}) => financialTransactions.push(base(`demo-txn-${k}`, n, {
+    type, category, amount: round2(amount), currency: DEFAULT_CURRENCY, description, clientId: '', clientName: '', supplierId: '', supplierName: '', bookingId: '', bookingNumber: '', quotationId: '',
+    referenceType: '', referenceId: '', paymentMethod: 'bank_transfer', transactionDate: demoDay(n), status: 'completed', notes: 'Demo transaction — no real money moved.', ...extra,
+  }));
+  let tk = 0;
+  const payments = []; // recorded payments only — no gateway, no real money moved
+  const pay = (n, extra) => payments.push(base(`demo-payment-${payments.length + 1}`, n, {
+    paymentNumber: `PAY-${year}-${pad(payments.length + 1)}`, clientId: '', clientName: '', supplierId: '', supplierName: '', bookingId: '', bookingNumber: '', invoiceId: '', receivableId: '', payableId: '',
+    currency: DEFAULT_CURRENCY, paymentDate: demoDay(n), status: 'completed', refundedAmount: 0, transactionId: `demo-txn-${tk}`, notes: 'Demo payment record — no real money moved.', ...extra,
+  }));
+  [[1, 0.3, -10], [2, 1, -60], [3, 0.5, -25], [5, 0, -8], [6, 1, -90]].forEach(([bi, ratio, issued], i) => {
+    const b = B(bi); const n = i + 1; const paid = round2(b.grandTotal * ratio); const out = Math.max(0, round2(b.grandTotal - paid));
+    const status = paid >= b.grandTotal ? 'paid' : (paid > 0 ? 'partially_paid' : 'issued');
+    invoices.push(base(`demo-invoice-${n}`, issued, { invoiceNumber: `INV-${year}-${pad(n)}`, clientId: b.customerId, clientName: b.customerName, bookingId: b.id, bookingNumber: b.bookingNumber, quotationId: b.quotationId, issueDate: demoDay(issued), dueDate: demoDay(issued + 15), subtotal: b.subtotal, discount: b.discountAmount, taxPercent: 5, taxInclusive: false, tax: b.taxAmount, total: b.grandTotal, paidAmount: paid, outstandingAmount: out, currency: DEFAULT_CURRENCY, status, notes: 'Demo invoice — not sent to anyone.' }));
+    customerReceivables.push(base(`demo-receivable-${n}`, issued, { clientId: b.customerId, clientName: b.customerName, bookingId: b.id, bookingNumber: b.bookingNumber, quotationId: b.quotationId, invoiceId: `demo-invoice-${n}`, totalAmount: b.grandTotal, receivedAmount: paid, outstandingAmount: out, currency: DEFAULT_CURRENCY, dueDate: demoDay(issued + 15), status: settleStatus(b.grandTotal, paid, false), notes: 'Demo receivable.' }));
+    if (paid > 0) {
+      const pd = Math.min(-1, issued + 3); const pm = i % 2 ? 'upi' : 'bank_transfer';
+      txn(++tk, pd, 'income', 'customer_payment', paid, `Customer payment for ${b.bookingNumber}`, { clientId: b.customerId, clientName: b.customerName, bookingId: b.id, bookingNumber: b.bookingNumber, referenceType: 'payment', referenceId: `demo-payment-${payments.length + 1}`, paymentMethod: pm });
+      pay(pd, { type: 'customer', direction: 'incoming', clientId: b.customerId, clientName: b.customerName, bookingId: b.id, bookingNumber: b.bookingNumber, invoiceId: `demo-invoice-${n}`, receivableId: `demo-receivable-${n}`, amount: paid, paymentMethod: pm, transactionReference: `DEMO-UTR-${pad(n)}` });
+    }
+  });
+  [[1, 1, 0.3, 0, 12], [1, 4, 0.25, 0.4, 18], [2, 1, 0.9, 1, -45], [3, 2, 0.6, 0.5, 5], [5, 8, 0.55, 0, 25]].forEach(([bi, si, share, ratio, due], i) => {
+    const b = B(bi); const s = SP(si); const n = i + 1; const total = round2(b.internalCost * share); const paid = round2(total * ratio);
+    supplierPayables.push(base(`demo-payable-${n}`, due - 20, { supplierId: s.id, supplierName: s.name, bookingId: b.id, bookingNumber: b.bookingNumber, totalAmount: total, paidAmount: paid, outstandingAmount: Math.max(0, round2(total - paid)), currency: DEFAULT_CURRENCY, dueDate: demoDay(due), status: settleStatus(total, paid, false), notes: 'Demo payable.' }));
+    if (paid > 0) {
+      const pd = Math.min(-1, due - 10);
+      txn(++tk, pd, 'expense', 'supplier_payment', paid, `Supplier payment to ${s.name}`, { supplierId: s.id, supplierName: s.name, bookingId: b.id, bookingNumber: b.bookingNumber, referenceType: 'payment', referenceId: `demo-payment-${payments.length + 1}` });
+      pay(pd, { type: 'supplier', direction: 'outgoing', supplierId: s.id, supplierName: s.name, bookingId: b.id, bookingNumber: b.bookingNumber, payableId: `demo-payable-${n}`, amount: paid, paymentMethod: 'bank_transfer', transactionReference: `DEMO-SUP-${pad(n)}` });
+    }
+  });
+  [['fuel', 8500, 'Fleet diesel top-up', -12, 'paid', 'upi', null], ['office', 18000, 'Srinagar office rent', -5, 'paid', 'bank_transfer', null], ['marketing', 12000, 'Instagram ads — Kashmir summer campaign', -20, 'paid', 'card', null], ['staff', 45000, 'Field staff salaries', -3, 'pending', 'bank_transfer', null], ['transport', 6500, 'Airport parking & tolls', -40, 'paid', 'cash', 2], ['hotel', 9000, 'Staff familiarisation stay — Pahalgam', -65, 'paid', 'card', null]].forEach(([category, amount, description, n, status, paymentMethod, bi], i) => {
+    const b = bi ? B(bi) : null;
+    expenses.push(base(`demo-expense-${i + 1}`, n, { category, amount, currency: DEFAULT_CURRENCY, description: `${description} (demo)`, supplierId: '', supplierName: '', bookingId: b ? b.id : '', bookingNumber: b ? b.bookingNumber : '', expenseDate: demoDay(n), paymentMethod, status, notes: 'Demo expense.' }));
+    if (status === 'paid') txn(++tk, n, 'expense', category, amount, `${description} (demo)`, { paymentMethod, referenceType: 'expense', referenceId: `demo-expense-${i + 1}` });
+  });
+  [[-150, 'income', 185000, 'Srinagar group tour — final payment (closed trip)'], [-140, 'expense', 62000, 'Hotel block payment — group tour'], [-120, 'income', 142000, 'Gulmarg ski package (closed trip)'], [-112, 'expense', 48000, 'Transport partner settlement'], [-100, 'income', 98000, 'Pahalgam family tour (closed trip)']]
+    .forEach(([n, type, amount, description]) => txn(++tk, n, type, type === 'income' ? 'customer_payment' : 'supplier_payment', amount, `${description} (demo)`));
+
+  // ---- Simulated communications (never actually sent), follow-ups, tasks, activity feed
+  const comm = (n, d, channel, type, direction, status, subject, message, refs) => base(`demo-comm-${n}`, d, {
+    type, channel, direction, status, subject: `[Simulated] ${subject}`, message: `${message}\n\n(Demo record — this message was NOT actually sent.)`, simulated: true,
+    clientId: '', clientName: '', leadId: '', leadName: '', supplierId: '', supplierName: '', bookingId: '', bookingNumber: '', to: '', ...refs,
+  });
+  const communications = [
+    comm(1, -14, 'email', 'message', 'outgoing', 'sent', `Your quotation ${Q(1).quotationNumber}`, 'Dear Zoya, please find your Kashmir Paradise Tour quotation attached.', { clientId: C(1).id, clientName: C(1).name, to: C(1).email }),
+    comm(2, -9, 'whatsapp', 'message', 'outgoing', 'delivered', `Booking ${B(1).bookingNumber} confirmed`, 'Your Kashmir trip is confirmed! Houseboat, hotels and SUV are reserved.', { clientId: C(1).id, clientName: C(1).name, bookingId: B(1).id, bookingNumber: B(1).bookingNumber, to: C(1).phone }),
+    comm(3, -6, 'phone', 'call', 'incoming', 'read', 'Group offsite enquiry', 'Daniel called about dates for a 10-person Srinagar offsite.', { leadId: LD(5).id, leadName: LD(5).name }),
+    comm(4, -11, 'email', 'message', 'outgoing', 'read', `Room block request for ${B(1).bookingNumber}`, 'Please hold 1 deluxe houseboat room for 2 nights.', { supplierId: SP(1).id, supplierName: SP(1).name, bookingId: B(1).id, bookingNumber: B(1).bookingNumber, to: SP(1).email }),
+    comm(5, -2, 'whatsapp', 'message', 'incoming', 'read', 'Gondola timings question', 'Emily asked what time the Gulmarg Gondola opens tomorrow.', { clientId: C(3).id, clientName: C(3).name, bookingId: B(3).id, bookingNumber: B(3).bookingNumber }),
+    comm(6, -4, 'note', 'note', 'outgoing', 'archived', 'Lead preference', 'Priya prefers a ski-in hotel and a vegetarian meal plan.', { leadId: LD(6).id, leadName: LD(6).name }),
+  ];
+  const followUps = [
+    ['Call back about Gulmarg ski dates', 'lead', LD(6), 2, 'pending'], ['Send revised Kerala quote', 'lead', LD(7), -5, 'completed'],
+    ['Confirm honeymoon decoration preferences', 'client', C(4), 4, 'pending'], ['Share Ladakh packing list', 'client', C(5), 10, 'pending'],
+  ].map(([title, relatedType, rec, due, status], i) => base(`demo-followup-${i + 1}`, -7 + i, buildFollowUpFields({ title, relatedType, relatedId: rec.id, relatedName: rec.name, dueDate: demoDay(due), status, notes: 'Demo follow-up.' }).value));
+  const tasks = [
+    ['Reconfirm houseboat for BK-0001', 'client', C(1), 7, 'open'], ['Collect balance payment from Emily Carter', 'client', C(3), 1, 'open'],
+    ['Book Leh inner-line permits', 'client', C(5), 14, 'open'], ['Prepare offsite proposal for Daniel Brooks', 'lead', LD(5), 3, 'open'], ['Upload Kerala trip photos to gallery', 'client', C(6), -30, 'completed'],
+  ].map(([title, relatedType, rec, due, status], i) => base(`demo-task-${i + 1}`, -6 + i, buildTaskFields({ title, assigneeId: DEMO_USER_ID, assigneeName: 'Demo Manager', relatedType, relatedId: rec.id, relatedName: rec.name, dueDate: demoDay(due), status }).value));
+  const activities = [
+    ['lead_created', `Lead "${LD(1).name}" created`, 'lead', LD(1).id, -12], ['quotation_created', `Quotation ${Q(1).quotationNumber} created for ${C(1).name}`, 'quotation', Q(1).id, -15],
+    ['status_changed', `Lead "${LD(9).name}" converted to client`, 'lead', LD(9).id, -14], ['booking_created', `Booking ${B(1).bookingNumber} created from ${Q(1).quotationNumber}`, 'booking', B(1).id, -10],
+    ['invoice_created', `Invoice ${invoices[0].invoiceNumber} created`, 'invoice', invoices[0].id, -10], ['itinerary_shared', `Itinerary "${IT(2).title}" shared (simulated)`, 'itinerary', IT(2).id, -50],
+    ['booking_created', `Booking ${B(5).bookingNumber} created from ${Q(4).quotationNumber}`, 'booking', B(5).id, -8], ['supplier_created', `Supplier "${SP(8).name}" added`, 'supplier', SP(8).id, -20],
+    ['finance_transaction', 'Income transaction recorded', 'transaction', 'demo-txn-1', -7], ['lead_created', `Lead "${LD(5).name}" created`, 'lead', LD(5).id, -6],
+  ].map(([type, message, refType, refId, n], i) => withAgency(S, { id: `demo-activity-${i + 1}`, type, message, refType, refId, actorId: DEMO_USER_ID, actorName: 'Demo Manager', isDemo: true, createdAt: demoTs(n) }));
+
+  return { leads, clients, suppliers, quotations, packages, itineraries, bookings, vehicles, drivers, invoices, payments, customerReceivables, supplierPayables, expenses, financialTransactions, communications, followUps, tasks, activities };
+}
+
+async function ensureDemoAgency(db) {
+  const password = process.env.DEMO_USER_PASSWORD || '';
+  if (password.length < 12) return; // disabled unless a strong password is configured privately
+  try {
+    const users = db.collection('users');
+    if (await users.findOne({ email: DEMO_USER_EMAIL, agencyId: { $ne: DEMO_AGENCY_ID } })) return; // never touch a non-demo account
+    const now = new Date().toISOString();
+    await db.collection('agencies').updateOne({ id: DEMO_AGENCY_ID }, { $setOnInsert: { id: DEMO_AGENCY_ID, name: 'SafarOS Demo Agency', slug: 'safaros-demo-agency', plan: 'trial', status: 'active', isDemo: true, quotationSeq: 6, bookingSeq: 7, invoiceSeq: 5, paymentSeq: 10, createdAt: now } }, { upsert: true });
+    const u = await users.findOne({ id: DEMO_USER_ID, agencyId: DEMO_AGENCY_ID });
+    if (!u) {
+      await users.insertOne({ id: DEMO_USER_ID, agencyId: DEMO_AGENCY_ID, name: 'Demo Manager', email: DEMO_USER_EMAIL, passwordHash: await hashPassword(password), role: 'manager', status: 'active', isDemo: true, createdAt: now });
+    } else if (u.role !== 'manager' || !(await verifyPassword(password, u.passwordHash))) {
+      // env var is the source of truth for the demo password; role is pinned to least-privileged manager
+      await users.updateOne({ id: DEMO_USER_ID, agencyId: DEMO_AGENCY_ID }, { $set: { passwordHash: await hashPassword(password), role: 'manager', updatedAt: now } });
+    }
+    const ag = await db.collection('agencies').findOne({ id: DEMO_AGENCY_ID }, { projection: { _id: 0, demoSeedVersion: 1 } });
+    if (ag && ag.demoSeedVersion >= DEMO_SEED_VERSION) return;
+    for (const [col, docs] of Object.entries(buildDemoRecords())) {
+      if (!docs.length) continue;
+      await db.collection(col).bulkWrite(docs.map((d) => ({ updateOne: { filter: { agencyId: DEMO_AGENCY_ID, id: d.id }, update: { $setOnInsert: d }, upsert: true } })), { ordered: false });
+    }
+    await db.collection('agencies').updateOne({ id: DEMO_AGENCY_ID }, { $set: { demoSeedVersion: DEMO_SEED_VERSION, demoSeededAt: now } });
+  } catch (e) {
+    console.warn('[safaros] demo seed skipped:', e.message);
+  }
+}
+
 const agStatus = (s) => (s || 'active');
 
 function platformReadPerm(path) {
@@ -3753,6 +4050,7 @@ export async function POST(request, context) {
     if (path === '/auth/login') {
       const { email, password } = await readBody(request);
       if (!email || !password) return err('email and password required');
+      if (String(email).toLowerCase() === DEMO_USER_EMAIL) await ensureDemoAgency(db); // env-gated demo seed
       const user = await db.collection('users').findOne({ email: String(email).toLowerCase() });
       if (!user || !(await verifyPassword(password, user.passwordHash))) return err('invalid credentials', 401);
       // Platform-level suspension (set by Super Admin) locks a user/agency out. Absent/active status passes.
