@@ -11,6 +11,16 @@ Implement Phase 5.6 (Agency Website Builder Foundation), Phase 5.7 (SEO & Search
 - **NO verification agents allowed**
 - Manual testing only: bash, curl, python scripts, screenshot tool
 
+## New Simple Landing Page + Early Access (Oct 17, 2026)
+
+**Status:** ✅ COMPLETED. Manual checks only (curl + lint + screenshot) per Testing Protocol — no testing agents used.
+- `app/page.js` REPLACED with a simpler homepage: Hero (warm desert image) → **interactive auto-playing product demo** (6 steps: Leads, Quotations, Itineraries, Bookings, Fleet, AI Copilot; play/pause; sample data labelled) → 8 feature cards → Pricing (from `lib/plans.js` PLAN_CATALOG, monthly/yearly toggle) → Early-access form → Footer.
+- Backend: public `POST /api/early-access` (name+email required, honeypot `website`, same email within 24h updates the existing record) → `earlyAccessRequests` collection. Platform: `GET /api/platform/early-access?status=&search=` (agencies:read), `PUT /api/platform/early-access/:id {status: new|contacted|converted|archived}` (agencies:manage, audited).
+- Super Admin `/admin` → new "Early Access" section (counts, search, filter, status change, detail dialog).
+- Env: `.env` was missing again; restored MONGO_URL, DB_NAME=safaros, NEXT_PUBLIC_BASE_URL, JWT_SECRET, CREDENTIALS_ENCRYPTION_KEY, SUPER_ADMIN bootstrap. Creds in /app/memory/test_credentials.md.
+
+---
+
 ## SafarOS Combined Prompt 1 — Discovery & Data + Secure API Manager (Oct 5, 2026)
 
 **Status:** ✅ COMPLETED. No testing/QA/browser/autonomous/verification agents used — curl + lint + screenshot only. Existing auth/JWT/RBAC/tenant isolation, MongoDB structure, routes and UI preserved. Safar Curated (`/app/safar_intake`) NOT modified. No dependency upgrades (added one new lib `xlsx@0.18.5` for Excel parsing). No fake supplier/business data.

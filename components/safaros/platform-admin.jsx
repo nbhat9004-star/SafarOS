@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Inbox,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -41,6 +41,7 @@ const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'agencies', label: 'Agencies', icon: Building2 },
   { id: 'users', label: 'Users', icon: UsersIcon },
+  { id: 'early_access', label: 'Early Access', icon: Inbox },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
   { id: 'plans', label: 'Plans', icon: Layers },
   { id: 'ai', label: 'AI Platforms', icon: Bot },
@@ -170,6 +171,55 @@ function UsersView() {
       <TableHeader><TableRow><TableHead>User</TableHead><TableHead>Agency</TableHead><TableHead>Role</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
       <TableBody>{rows.map((u) => (<TableRow key={u.id}><TableCell><div className="font-medium">{u.name}</div><div className="text-xs text-muted-foreground">{u.email}</div></TableCell><TableCell className="text-sm">{u.agencyName}</TableCell><TableCell className="capitalize">{u.role}</TableCell><TableCell><StatusBadge status={u.status} /></TableCell><TableCell>{u.status === 'active' ? <Button size="sm" variant="ghost" className="text-amber-600" onClick={() => setUStatus(u.id, 'suspended')}>Suspend</Button> : <Button size="sm" variant="ghost" className="text-emerald-600" onClick={() => setUStatus(u.id, 'active')}>Activate</Button>}</TableCell></TableRow>))}</TableBody>
     </Table></CardContent></Card>)}
+  </div>);
+}
+
+// ---------- Early Access (landing page form submissions) ----------
+const EA_STATUSES = ['new', 'contacted', 'converted', 'archived'];
+const EA_CLS = { new: 'bg-amber-50 text-amber-700 border-amber-200', contacted: 'bg-blue-50 text-blue-700 border-blue-200', converted: 'bg-emerald-50 text-emerald-700 border-emerald-200', archived: 'bg-muted text-muted-foreground border-border' };
+function EarlyAccessView() {
+  const [data, setData] = useState(null);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('all');
+  const [detail, setDetail] = useState(null);
+  const load = useCallback(async () => {
+    try { const q = new URLSearchParams(); if (search) q.set('search', search); if (status !== 'all') q.set('status', status); const d = await api(`/early-access?${q}`); setData(d); }
+    catch (e) { toast.error(e.message); }
+  }, [search, status]);
+  useEffect(() => { load(); }, [load]);
+  const change = async (id, s) => { try { await api(`/early-access/${id}`, { method: 'PUT', body: JSON.stringify({ status: s }) }); toast.success(`Marked ${s}`); load(); } catch (e) { toast.error(e.message); } };
+  const c = data?.counts || {};
+  return (<div className="space-y-4">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <Stat label="Total requests" value={c.total ?? '—'} />
+      {EA_STATUSES.map((s) => <Stat key={s} label={s.charAt(0).toUpperCase() + s.slice(1)} value={c[s] ?? '—'} />)}
+    </div>
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="relative"><Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="w-64 pl-8" placeholder="Search name, email, agency…" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="ea-admin-search" /></div>
+      <Select value={status} onValueChange={setStatus}><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{EA_STATUSES.map((s) => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent></Select>
+    </div>
+    {data === null ? <div className="h-40 animate-pulse rounded-lg border bg-muted/30" /> : !data.requests?.length ? <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No early-access requests yet. Submissions from the homepage form will appear here.</CardContent></Card> : (<Card><CardContent className="p-0 overflow-x-auto"><Table>
+      <TableHeader><TableRow><TableHead>Contact</TableHead><TableHead>Agency</TableHead><TableHead>Team</TableHead><TableHead>Plan</TableHead><TableHead>Received</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
+      <TableBody>{data.requests.map((r) => (<TableRow key={r.id} data-testid={`ea-row-${r.id}`}>
+        <TableCell><div className="font-medium">{r.name}</div><div className="text-xs text-muted-foreground">{r.email}{r.phone ? ` · ${r.phone}` : ''}</div></TableCell>
+        <TableCell><div className="text-sm">{r.agencyName || '—'}</div><div className="text-xs text-muted-foreground">{r.city || ''}</div></TableCell>
+        <TableCell className="text-sm">{r.teamSize || '—'}</TableCell>
+        <TableCell className="capitalize text-sm">{String(r.interestedPlan || '').replace(/_/g, ' ')}</TableCell>
+        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fdt(r.createdAt)}</TableCell>
+        <TableCell><Select value={r.status} onValueChange={(v) => change(r.id, v)}><SelectTrigger className={`h-8 w-32 capitalize ${EA_CLS[r.status] || ''}`}><SelectValue /></SelectTrigger><SelectContent>{EA_STATUSES.map((s) => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent></Select></TableCell>
+        <TableCell><Button size="sm" variant="ghost" onClick={() => setDetail(r)}><Eye className="h-4 w-4" /></Button></TableCell>
+      </TableRow>))}</TableBody>
+    </Table></CardContent></Card>)}
+    <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}><DialogContent className="max-w-lg">
+      <DialogHeader><DialogTitle>{detail?.name}</DialogTitle></DialogHeader>
+      {detail && (<div className="space-y-3 text-sm">
+        <div className="grid grid-cols-2 gap-3">
+          {[['Email', detail.email], ['Phone', detail.phone], ['Agency', detail.agencyName], ['City', detail.city], ['Team size', detail.teamSize], ['Plan', String(detail.interestedPlan || '').replace(/_/g, ' ')], ['Received', fdt(detail.createdAt)], ['Status', detail.status]].map(([k, v]) => (<div key={k}><div className="text-xs text-muted-foreground">{k}</div><div className="font-medium capitalize-first break-words">{v || '—'}</div></div>))}
+        </div>
+        <div><div className="text-xs text-muted-foreground mb-1">Message</div><div className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3">{detail.message || '—'}</div></div>
+        {detail.email && <a href={`mailto:${detail.email}`} className="inline-flex text-sm font-medium text-violet-600 hover:underline">Reply by email →</a>}
+      </div>)}
+    </DialogContent></Dialog>
   </div>);
 }
 
@@ -512,6 +562,7 @@ export default function PlatformAdmin() {
         {section === 'dashboard' && <DashboardView />}
         {section === 'agencies' && <AgenciesView />}
         {section === 'users' && <UsersView />}
+        {section === 'early_access' && <EarlyAccessView />}
         {section === 'subscriptions' && <SubscriptionsView />}
         {section === 'plans' && <PlansView />}
         {section === 'ai' && <AiView />}
