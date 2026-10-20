@@ -2,8 +2,11 @@
 // Modules wired: auth (agency signup/login/me/logout), agency, members, clients(demo).
 // Every tenant query is scoped to session.agencyId (server-derived, never client-trusted).
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
+import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE } from '@/lib/email';
+import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
 import {
   COOKIE_NAME, PORTAL_COOKIE, PLATFORM_COOKIE, hashPassword, verifyPassword, signSession, getSession,
   signPortalSession, getPortalSession, signPlatformSession, getPlatformSession,
@@ -2149,6 +2152,14 @@ function platformAdminView(a) {
   return { id: a.id, email: a.email, name: a.name, role: a.role, status: a.status, mustChangePassword: !!a.mustChangePassword, createdAt: a.createdAt, lastLoginAt: a.lastLoginAt || null };
 }
 
+// SUPER_ADMIN_INITIAL_PASSWORD_HASH: a bcrypt hash, raw ("$2b$...") or base64-encoded (avoids "$"
+// expansion in some env tooling). Returns '' if missing/invalid.
+function envSuperAdminHash() {
+  let h = String(process.env.SUPER_ADMIN_INITIAL_PASSWORD_HASH || '').trim();
+  if (h && !h.startsWith('$2')) { try { h = Buffer.from(h, 'base64').toString('utf8').trim(); } catch { h = ''; } }
+  return /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(h) ? h : '';
+}
+
 async function ensureSuperAdmin(db, request = null) {
   // Production-safe, idempotent bootstrap. Runs on-demand (serverless friendly)
   // against the SAME production DB as the rest of SafarOS (MONGO_URL/DB_NAME).
@@ -2156,9 +2167,25 @@ async function ensureSuperAdmin(db, request = null) {
   // NEVER overwrites an existing admin's password.
   const email = String(process.env.SUPER_ADMIN_EMAIL || '').toLowerCase().trim();
   const password = process.env.SUPER_ADMIN_INITIAL_PASSWORD || '';
-  if (!email || !password) return;
+  const presetHash = envSuperAdminHash(); // preferred: bcrypt hash only, no plaintext in env
+  if (!email || (!password && !presetHash)) return;
+  const newHash = async () => presetHash || hashPassword(password);
+  const marker = presetHash ? crypto.createHash('sha256').update(presetHash).digest('hex') : undefined;
   const existing = await db.collection('platformAdmins').findOne({ email });
-  if (existing) return; // idempotent — do not duplicate or reset password
+  if (existing) {
+    // Opt-in recovery (SUPER_ADMIN_APPLY_RESET=true): apply the env-provided temporary hash to the
+    // SAME account exactly once per distinct hash (marker), forcing a password change. Never creates
+    // a duplicate; once the admin changes the password it is not re-applied while the env is unchanged.
+    if (presetHash && process.env.SUPER_ADMIN_APPLY_RESET === 'true' && existing.appliedResetMarker !== marker) {
+      const now = new Date().toISOString();
+      const r = await db.collection('platformAdmins').updateOne(
+        { id: existing.id, appliedResetMarker: { $ne: marker } },
+        { $set: { passwordHash: presetHash, mustChangePassword: true, role: 'super_admin', status: 'active', appliedResetMarker: marker, updatedAt: now } },
+      );
+      if (r.modifiedCount) await platformAudit(db, { adminId: existing.id, email }, request, { action: 'platform.admin_reset_applied', targetType: 'platform_admin', targetId: existing.id });
+    }
+    return; // otherwise idempotent — never duplicate or reset password
+  }
   // One-time, env-gated in-place recovery (no endpoint). If SUPER_ADMIN_RECOVER_FROM_EMAIL
   // matches an existing admin, move THAT record (same id/role/data) to SUPER_ADMIN_EMAIL with a
   // new bcrypt hash. Self-disables once applied (old email no longer exists). Nothing is logged.
@@ -2166,11 +2193,11 @@ async function ensureSuperAdmin(db, request = null) {
   if (recoverFrom && recoverFrom !== email) {
     const old = await db.collection('platformAdmins').findOne({ email: recoverFrom });
     if (old) {
-      if (password.length < 10) return; // refuse weak recovery password
+      if (!presetHash && password.length < 10) return; // refuse weak recovery password
       const now = new Date().toISOString();
       const r = await db.collection('platformAdmins').updateOne(
         { id: old.id, email: recoverFrom },
-        { $set: { email, passwordHash: await hashPassword(password), mustChangePassword: true, updatedAt: now, recoveredAt: now } },
+        { $set: { email, passwordHash: await newHash(), mustChangePassword: true, updatedAt: now, recoveredAt: now, ...(marker ? { appliedResetMarker: marker } : {}) } },
       );
       if (r.modifiedCount) await platformAudit(db, { adminId: old.id, email }, request, { action: 'platform.admin_recovered', targetType: 'platform_admin', targetId: old.id });
       return;
@@ -2180,8 +2207,8 @@ async function ensureSuperAdmin(db, request = null) {
     const now = new Date().toISOString();
     await db.collection('platformAdmins').insertOne({
       id: uuidv4(), email, name: 'SafarOS Super Admin',
-      passwordHash: await hashPassword(password), // bcrypt — plaintext never stored
-      role: 'super_admin', status: 'active', mustChangePassword: true,
+      passwordHash: await newHash(), // bcrypt — plaintext never stored
+      role: 'super_admin', status: 'active', mustChangePassword: true, ...(marker ? { appliedResetMarker: marker } : {}),
       createdAt: now, bootstrap: true,
     });
   } catch (e) {
@@ -2200,7 +2227,7 @@ async function platformLogin(db, body, request) {
   if (admin.status !== 'active') return err('account is not active', 403);
   await db.collection('platformAdmins').updateOne({ id: admin.id }, { $set: { lastLoginAt: new Date().toISOString() } });
   await platformAudit(db, { adminId: admin.id, email: admin.email }, request, { action: 'platform.login' });
-  const token = signPlatformSession({ adminId: admin.id, role: admin.role, email: admin.email });
+  const token = signPlatformSession({ adminId: admin.id, role: admin.role, email: admin.email, ...(admin.mustChangePassword ? { mcp: true } : {}) });
   const res = json({ admin: platformAdminView(admin) });
   return setPlatformCookie(res, token);
 }
@@ -2217,9 +2244,13 @@ async function platformChangePassword(db, session, body, request) {
   const cur = String(body.currentPassword || ''); const next = String(body.newPassword || '');
   if (!(await verifyPassword(cur, admin.passwordHash))) return err('current password is incorrect', 401);
   if (next.length < 10) return err('new password must be at least 10 characters');
-  await db.collection('platformAdmins').updateOne({ id: admin.id }, { $set: { passwordHash: await hashPassword(next), mustChangePassword: false, updatedAt: new Date().toISOString() } });
+  if (next === cur) return err('new password must be different from the current one');
+  const at = new Date().toISOString();
+  await db.collection('platformAdmins').updateOne({ id: admin.id }, { $set: { passwordHash: await hashPassword(next), mustChangePassword: false, updatedAt: at, passwordChangedAt: at } });
   await platformAudit(db, session, request, { action: 'platform.password_changed' });
-  return json({ ok: true });
+  await sendPasswordChangedNotice(db, admin.email); // best-effort; skipped if email not configured
+  // Re-issue the session without the "must change password" flag.
+  return setPlatformCookie(json({ ok: true }), signPlatformSession({ adminId: admin.id, role: admin.role, email: admin.email }));
 }
 
 // ============================================================ Demo agency (env-gated, idempotent)
@@ -2500,6 +2531,8 @@ async function ensureDemoAgency(db) {
     if (await users.findOne({ email: DEMO_USER_EMAIL, agencyId: { $ne: DEMO_AGENCY_ID } })) return; // never touch a non-demo account
     const now = new Date().toISOString();
     await db.collection('agencies').updateOne({ id: DEMO_AGENCY_ID }, { $setOnInsert: { id: DEMO_AGENCY_ID, name: 'SafarOS Demo Agency', slug: 'safaros-demo-agency', plan: 'trial', status: 'active', isDemo: true, quotationSeq: 6, bookingSeq: 7, invoiceSeq: 5, paymentSeq: 10, createdAt: now } }, { upsert: true });
+    // Demo workspace is pre-configured (the manager role cannot submit owner-only agency setup).
+    await db.collection('agencies').updateOne({ id: DEMO_AGENCY_ID, setupCompleted: { $ne: true } }, { $set: { setupCompleted: true, email: 'hello@safaros-demo.example', city: 'Srinagar', country: 'India', currency: 'INR', timezone: 'Asia/Kolkata' } });
     const u = await users.findOne({ id: DEMO_USER_ID, agencyId: DEMO_AGENCY_ID });
     if (!u) {
       await users.updateOne({ id: DEMO_USER_ID, agencyId: DEMO_AGENCY_ID }, { $setOnInsert: { name: 'Demo Manager', email: DEMO_USER_EMAIL, passwordHash: await hashPassword(password), role: 'manager', status: 'active', isDemo: true, createdAt: now } }, { upsert: true });
@@ -2748,6 +2781,10 @@ async function platformGet(db, session, path, sp) {
     return json({ logs });
   }
 
+  if (path === '/platform/settings/email') {
+    if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403); // Super Admin only
+    return json({ email: emailSettingsView(await loadEmailSettings(db)) });
+  }
   if (path === '/platform/settings') {
     let s = await db.collection('platformSettings').findOne({ id: 'platform' }, { projection: { _id: 0 } });
     if (!s) s = { id: 'platform', platformName: 'SafarOS', description: '', supportEmail: '', supportPhone: '', defaultCurrency: 'INR', defaultTimezone: 'Asia/Kolkata', defaultCountry: 'IN', status: 'active', maintenanceMode: false };
@@ -2759,6 +2796,17 @@ async function platformGet(db, session, path, sp) {
 
 async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
+  if (path === '/platform/settings/email/test') {
+    if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403); // Super Admin only
+    const to = String(body?.to || session.email || '').trim().toLowerCase();
+    if (!EMAIL_ADDR_RE.test(to)) return err('Enter a valid recipient email address');
+    const r = await sendEmail(db, { to, subject: 'SafarOS test email', html: emailLayout('Test email', '<p>Your SafarOS email settings are working.</p>'), text: 'Your SafarOS email settings are working.' });
+    if (r.skipped) return err('Email is not configured yet. Save a Resend API key and sender email first.', 400);
+    await db.collection('platformSettings').updateOne({ id: 'email' }, { $set: { status: r.ok ? 'configured' : 'error', lastError: r.ok ? '' : r.error, lastTestAt: now } }, { upsert: true });
+    await platformAudit(db, session, request, { action: 'settings.email_test', targetType: 'settings', targetId: 'email', metadata: { ok: r.ok } });
+    if (!r.ok) return err(`Test email failed: ${r.error}`, 502);
+    return json({ ok: true, email: emailSettingsView(await loadEmailSettings(db)) });
+  }
 
   if (path === '/platform/plans') {
     if (!canPlatform(session.role, 'plans:manage')) return err('forbidden', 403);
@@ -2967,6 +3015,20 @@ async function platformPut(db, session, path, body, request) {
     return json({ provider: buildProviderView(def, fresh) });
   }
 
+  if (path === '/platform/settings/email') {
+    if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403); // Super Admin only
+    const { out, errors } = validateEmailSettingsInput(body || {});
+    if (errors.length) return err(errors.join(' '), 400);
+    const set = { id: 'email', updatedAt: now, updatedBy: session.adminId, status: 'configured', lastError: '' };
+    if (out.apiKey) { set.apiKeyEnc = encryptSecret(out.apiKey); set.apiKeyLast4 = out.apiKey.slice(-4); }
+    for (const k of ['senderEmail', 'senderName', 'appBaseUrl']) if (out[k] !== undefined) set[k] = out[k];
+    const update = { $set: set };
+    const cleared = body?.clearApiKey === true && !out.apiKey;
+    if (cleared) update.$unset = { apiKeyEnc: '', apiKeyLast4: '' };
+    await db.collection('platformSettings').updateOne({ id: 'email' }, update, { upsert: true });
+    await platformAudit(db, session, request, { action: 'settings.email_updated', targetType: 'settings', targetId: 'email', metadata: { apiKeyChanged: !!out.apiKey, apiKeyCleared: cleared } });
+    return json({ email: emailSettingsView(await loadEmailSettings(db)) });
+  }
   if (path === '/platform/settings') {
     if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403);
     const set = { id: 'platform', updatedAt: now };
@@ -3024,6 +3086,7 @@ export async function GET(request, context) {
       if (!ps) return err('unauthenticated', 401);
       const pdb = await getDb();
       if (path === '/platform/auth/me') return platformMe(pdb, ps);
+      if (ps.mcp) return err('password change required', 403);
       return platformGet(pdb, ps, path, new URL(request.url).searchParams);
     }
     if (path === '/' || path === '') {
@@ -3797,9 +3860,18 @@ export async function POST(request, context) {
         res.cookies.set({ name: PLATFORM_COOKIE, value: '', httpOnly: true, path: '/', maxAge: 0 });
         return res;
       }
+      if (path === '/platform/auth/forgot-password') {
+        await requestPasswordReset(db, 'platform', (await readBody(request)).email, clientIp(request));
+        return json({ ok: true, message: GENERIC_RESET_MESSAGE });
+      }
+      if (path === '/platform/auth/reset-password') {
+        const b = await readBody(request); const r = await completePasswordReset(db, 'platform', b.token, b.password);
+        return r.ok ? json({ ok: true }) : err(r.error, 400);
+      }
       const ps = getPlatformSession(request);
       if (!ps) return err('unauthenticated', 401);
       if (path === '/platform/auth/change-password') return platformChangePassword(db, ps, await readBody(request), request);
+      if (ps.mcp) return err('password change required', 403);
       return platformPost(db, ps, path, await readBody(request), request);
     }
 
@@ -4051,6 +4123,15 @@ export async function POST(request, context) {
         agency: { id: agencyId, name: agencyName, slug, plan: 'trial' },
       }, 201);
       return setSessionCookie(res, token);
+    }
+
+    if (path === '/auth/forgot-password') {
+      await requestPasswordReset(db, 'agency', (await readBody(request)).email, clientIp(request));
+      return json({ ok: true, message: GENERIC_RESET_MESSAGE });
+    }
+    if (path === '/auth/reset-password') {
+      const b = await readBody(request); const r = await completePasswordReset(db, 'agency', b.token, b.password);
+      return r.ok ? json({ ok: true }) : err(r.error, 400);
     }
 
     if (path === '/auth/login') {
@@ -4573,6 +4654,7 @@ export async function PUT(request, context) {
     if (path.startsWith('/platform/')) {
       const ps = getPlatformSession(request);
       if (!ps) return err('unauthenticated', 401);
+      if (ps.mcp) return err('password change required', 403);
       const pdb = await getDb();
       return platformPut(pdb, ps, path, await readBody(request), request);
     }
@@ -5079,6 +5161,7 @@ export async function DELETE(request, context) {
     if (path.startsWith('/platform/')) {
       const ps = getPlatformSession(request);
       if (!ps) return err('unauthenticated', 401);
+      if (ps.mcp) return err('password change required', 403);
       const pdb = await getDb();
       return platformDelete(pdb, ps, path, request);
     }

@@ -434,6 +434,7 @@ function SettingsView({ admin, onPasswordChanged }) {
       <div className="flex items-center gap-2"><Label>Maintenance mode</Label><Button size="sm" variant={s.maintenanceMode ? 'default' : 'outline'} onClick={() => setS({ ...s, maintenanceMode: !s.maintenanceMode })}>{s.maintenanceMode ? 'On' : 'Off'}</Button></div>
       <div className="sm:col-span-2"><Button onClick={save}>Save settings</Button></div>
     </CardContent></Card>
+    {admin.role === 'super_admin' && <EmailSettingsCard adminEmail={admin.email} />}
     <Card><CardHeader><CardTitle className="text-base">Security</CardTitle></CardHeader><CardContent className="flex items-center justify-between">
       <div className="text-sm"><div className="font-medium">{admin.email}</div><div className="text-xs text-muted-foreground">Super Admin{admin.mustChangePassword ? ' · password change recommended' : ''}</div></div>
       <Button variant="outline" onClick={() => setPwOpen(true)}>Change password</Button>
@@ -442,6 +443,77 @@ function SettingsView({ admin, onPasswordChanged }) {
       <div className="space-y-1.5"><Label>Current password</Label><Input type="password" value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} /></div>
       <div className="space-y-1.5"><Label>New password (min 10 chars)</Label><Input type="password" value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} /></div>
     </div><DialogFooter><Button variant="outline" onClick={() => setPwOpen(false)}>Cancel</Button><Button onClick={changePw}>Update password</Button></DialogFooter></DialogContent></Dialog>
+  </div>);
+}
+
+// ---------- Email / Resend (Super Admin only; the API key never reaches the browser) ----------
+const EMAIL_STATUS = { not_configured: ['Not configured', 'bg-slate-100 text-slate-700 border-slate-200'], configured: ['Configured', 'bg-emerald-50 text-emerald-700 border-emerald-200'], error: ['Error', 'bg-red-50 text-red-700 border-red-200'] };
+function EmailSettingsCard({ adminEmail }) {
+  const [v, setV] = useState(null);
+  const [form, setForm] = useState({ apiKey: '', senderEmail: '', senderName: '', appBaseUrl: '' });
+  const [testTo, setTestTo] = useState(adminEmail || '');
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const apply = (e) => { setV(e); setForm({ apiKey: '', senderEmail: e.senderEmail || '', senderName: e.senderName || 'SafarOS', appBaseUrl: e.appBaseUrl || (typeof window !== 'undefined' ? window.location.origin : '') }); };
+  useEffect(() => { api('/settings/email').then((d) => apply(d.email)).catch((e) => setError(e.message)); }, []);
+  const save = async (extra = {}) => {
+    setBusy('save'); setError('');
+    try { const d = await api('/settings/email', { method: 'PUT', body: JSON.stringify({ ...form, ...extra }) }); apply(d.email); toast.success('Email settings saved'); }
+    catch (e) { setError(e.message); } finally { setBusy(''); }
+  };
+  const test = async () => {
+    setBusy('test'); setError('');
+    try { const d = await api('/settings/email/test', { method: 'POST', body: JSON.stringify({ to: testTo }) }); apply(d.email); toast.success(`Test email sent to ${testTo}`); }
+    catch (e) { setError(e.message); api('/settings/email').then((d) => setV(d.email)).catch(() => {}); } finally { setBusy(''); }
+  };
+  if (!v) return <Card><CardContent className="p-5 text-sm text-muted-foreground">{error || 'Loading email settings…'}</CardContent></Card>;
+  const [label, cls] = EMAIL_STATUS[v.status] || EMAIL_STATUS.not_configured;
+  const f = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  return (<Card><CardHeader className="flex flex-row items-center justify-between space-y-0"><CardTitle className="text-base">Email / Resend configuration</CardTitle><Badge variant="outline" className={cls}>{label}</Badge></CardHeader>
+    <CardContent className="space-y-4">
+      <div className="rounded-md border border-violet-200 bg-violet-50 p-3 text-xs text-violet-900 space-y-1">
+        <div className="font-medium">Optional. SafarOS works fully without email; only password-reset and notification emails need this.</div>
+        <ol className="list-decimal pl-4 space-y-0.5"><li>Create a free account at resend.com and add and verify your domain (Domains → Add domain, then add the DNS records it shows).</li><li>Create an API key (API Keys → Create) and paste it below. It is encrypted on the server and never shown again.</li><li>Use a sender address on your verified domain, e.g. no-reply@yourdomain.com. Until a domain is verified, Resend only delivers test emails to your own Resend account email.</li><li>Save, then press Send test email.</li></ol>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5 sm:col-span-2"><Label>Resend API key</Label><Input type="password" autoComplete="new-password" value={form.apiKey} onChange={f('apiKey')} placeholder={v.apiKeyConfigured ? `${v.apiKeyMasked} (leave blank to keep)` : 're_…'} />
+          <p className="text-xs text-muted-foreground">{v.apiKeyConfigured ? `A key is saved (${v.apiKeySource === 'environment' ? 'server environment' : 'encrypted in database'}). Enter a new one only to replace it.` : 'No key saved yet.'}</p></div>
+        <div className="space-y-1.5"><Label>Sender email address</Label><Input type="email" value={form.senderEmail} onChange={f('senderEmail')} placeholder="no-reply@yourdomain.com" /></div>
+        <div className="space-y-1.5"><Label>Sender display name</Label><Input value={form.senderName} onChange={f('senderName')} placeholder="SafarOS" /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Application base URL</Label><Input value={form.appBaseUrl} onChange={f('appBaseUrl')} placeholder="https://app.yourdomain.com" /><p className="text-xs text-muted-foreground">Used for links inside emails (e.g. password reset). Defaults to this site&apos;s current address. Change it when you connect your own domain.</p></div>
+      </div>
+      {v.status === 'error' && v.lastError && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">Last test failed: {v.lastError}</div>}
+      {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      <div className="flex flex-wrap items-end gap-2">
+        <Button onClick={() => save()} disabled={!!busy}>{busy === 'save' ? 'Saving…' : 'Save settings'}</Button>
+        {v.apiKeySource === 'database' && <Button variant="outline" onClick={() => save({ apiKey: '', clearApiKey: true })} disabled={!!busy}>Remove saved key</Button>}
+        <div className="ml-auto flex items-end gap-2"><div className="space-y-1.5"><Label className="text-xs">Test recipient</Label><Input type="email" value={testTo} onChange={(e) => setTestTo(e.target.value)} className="w-56" /></div>
+          <Button variant="outline" onClick={test} disabled={!!busy || v.status === 'not_configured'}>{busy === 'test' ? 'Sending…' : 'Send test email'}</Button></div>
+      </div>
+      {v.lastTestAt && <p className="text-xs text-muted-foreground">Last test: {fdt(v.lastTestAt)}</p>}
+    </CardContent></Card>);
+}
+
+// ---------- Forced password change (temporary password) ----------
+function ForcePasswordChange({ admin, onDone, onLogout }) {
+  const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (pw.newPassword !== pw.confirm) { toast.error('New passwords do not match'); return; }
+    setBusy(true);
+    try { await api('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword: pw.currentPassword, newPassword: pw.newPassword }) }); toast.success('Password changed'); await onDone(); }
+    catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  return (<div className="flex min-h-screen items-center justify-center bg-slate-950 p-6">
+    <Card className="w-full max-w-md"><CardContent className="p-8 space-y-3">
+      <div className="flex items-center gap-2"><KeyRound className="h-6 w-6 text-violet-600" /><div className="text-lg font-bold text-slate-900">Set a new password</div></div>
+      <p className="text-sm text-muted-foreground">You signed in with a temporary password for {admin.email}. Choose a new password (at least 10 characters) to continue.</p>
+      <div className="space-y-1.5"><Label>Temporary password</Label><Input type="password" value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} /></div>
+      <div className="space-y-1.5"><Label>New password</Label><Input type="password" autoComplete="new-password" value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} /></div>
+      <div className="space-y-1.5"><Label>Confirm new password</Label><Input type="password" autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && submit()} /></div>
+      <Button className="w-full" onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Change password and continue'}</Button>
+      <Button variant="ghost" className="w-full" onClick={onLogout}>Sign out</Button>
+    </CardContent></Card>
   </div>);
 }
 
@@ -455,9 +527,10 @@ function LoginScreen({ onLoggedIn }) {
     <Card className="w-full max-w-md"><CardContent className="p-8">
       <div className="mb-6 flex items-center gap-2"><Shield className="h-7 w-7 text-violet-600" /><div><div className="text-lg font-bold text-slate-900">SafarOS Platform</div><div className="text-xs text-muted-foreground">Super Admin control center</div></div></div>
       <div className="space-y-3">
-        <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@safaros.platform" onKeyDown={(e) => e.key === 'Enter' && submit()} /></div>
+        <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" onKeyDown={(e) => e.key === 'Enter' && submit()} /></div>
         <div className="space-y-1.5"><Label>Password</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} /></div>
         <Button className="w-full" onClick={submit} disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</Button>
+        <div className="text-center"><a href="/reset-password?type=platform" className="text-xs text-violet-700 hover:underline">Forgot password?</a></div>
       </div>
       <p className="mt-4 text-center text-xs text-muted-foreground">Platform administration only. Agency sign-in is at /login.</p>
     </CardContent></Card>
@@ -489,6 +562,7 @@ export default function PlatformAdmin() {
 
   if (admin === undefined) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white"><div className="animate-pulse">Loading SafarOS Platform…</div></div>;
   if (admin === null) return (<><LoginScreen onLoggedIn={setAdmin} /><Toaster richColors position="top-right" /></>);
+  if (admin.mustChangePassword) return (<><ForcePasswordChange admin={admin} onDone={reloadMe} onLogout={logout} /><Toaster richColors position="top-right" /></>);
 
   return (<div className="flex min-h-screen bg-slate-50">
     {/* Desktop / tablet sidebar */}

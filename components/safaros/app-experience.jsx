@@ -181,6 +181,7 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                   <Label>Password</Label>
                   <Input type="password" placeholder="........" value={login.password}
                     onChange={(e) => setLogin({ ...login, password: e.target.value })} />
+                  <div className="text-right"><a href="/reset-password?type=agency" className="text-xs text-violet-700 hover:underline">Forgot password?</a></div>
                 </div>
                 <Button className="w-full" onClick={doLogin} disabled={loading}>
                   {loading ? 'Signing in...' : 'Sign in'}
@@ -6423,7 +6424,7 @@ export function AppExperience({ initialTab = 'login' }) {
   return (
     <>
       {session
-        ? (session.agency?.setupCompleted
+        ? (session.agency?.setupCompleted || session.user?.role !== 'owner' // only owners can submit agency setup (agency:manage)
             ? <Dashboard session={session} onLogout={logout} />
             : <AgencySetup session={session} onDone={loadMe} onLogout={logout} />)
         : <AuthView onAuthed={onAuthed} initialTab={initialTab} />}
