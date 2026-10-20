@@ -2572,8 +2572,48 @@ function platformReadPerm(path) {
   if (path.startsWith('/platform/analytics')) return 'analytics:read';
   if (path.startsWith('/platform/audit')) return 'audit:read';
   if (path.startsWith('/platform/settings')) return 'settings:read';
+  if (path.startsWith('/platform/early-access')) return 'agencies:read';
   return 'platform:dashboard';
 }
+
+// ---- Landing page: early-access / contact requests (public submit, platform admin review) ----
+const EARLY_ACCESS_STATUSES = ['new', 'contacted', 'converted', 'archived'];
+const EARLY_ACCESS_PLANS = ['trial', 'starter', 'professional', 'enterprise', 'not_sure'];
+const EARLY_ACCESS_TEAM_SIZES = ['1', '2-5', '6-20', '21-50', '50+'];
+const EA_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+async function earlyAccessSubmit(db, body) {
+  // Honeypot: bots fill hidden "website" field. Pretend success, store nothing.
+  if (body.website) return json({ ok: true });
+  const name = str(body.name, 120).trim();
+  const email = str(body.email, 160).trim().toLowerCase();
+  if (!name) return err('Please enter your name');
+  if (!email || !EA_EMAIL_RE.test(email)) return err('Please enter a valid email address');
+  const plan = EARLY_ACCESS_PLANS.includes(String(body.interestedPlan || '')) ? String(body.interestedPlan) : 'not_sure';
+  const teamSize = EARLY_ACCESS_TEAM_SIZES.includes(String(body.teamSize || '')) ? String(body.teamSize) : '';
+  const now = new Date().toISOString();
+  // De-duplicate: same email within 24h updates the existing request instead of creating a new one.
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const existing = await db.collection('earlyAccessRequests').findOne({ email, createdAt: { $gte: since } });
+  const fields = {
+    name, email,
+    phone: str(body.phone, 40).trim(),
+    agencyName: str(body.agencyName, 160).trim(),
+    city: str(body.city, 120).trim(),
+    teamSize, interestedPlan: plan,
+    message: str(body.message, 2000).trim(),
+  };
+  if (existing) {
+    // Only overwrite with values the visitor actually filled in this time.
+    const changes = Object.fromEntries(Object.entries(fields).filter(([k, v]) => v && !(k === 'interestedPlan' && v === 'not_sure')));
+    await db.collection('earlyAccessRequests').updateOne({ id: existing.id }, { $set: { ...changes, updatedAt: now } });
+    return json({ ok: true, id: existing.id, updated: true });
+  }
+  const doc = { id: uuidv4(), ...fields, status: 'new', source: 'landing_page', createdAt: now, updatedAt: now };
+  await db.collection('earlyAccessRequests').insertOne(doc);
+  return json({ ok: true, id: doc.id }, 201);
+}
+
 
 // Test a provider's live connectivity using resolved (decrypted/env) values.
 // Returns { ok, message }. Secrets are NEVER included in the message.
@@ -2785,6 +2825,17 @@ async function platformGet(db, session, path, sp) {
     if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403); // Super Admin only
     return json({ email: emailSettingsView(await loadEmailSettings(db)) });
   }
+  if (path === '/platform/early-access') {
+    const status = sp.get('status') || '';
+    const search = (sp.get('search') || '').trim().toLowerCase();
+    const all = await db.collection('earlyAccessRequests').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(1000).toArray();
+    const counts = { total: all.length };
+    for (const st of EARLY_ACCESS_STATUSES) counts[st] = all.filter((r) => r.status === st).length;
+    let requests = status ? all.filter((r) => r.status === status) : all;
+    if (search) requests = requests.filter((r) => [r.name, r.email, r.agencyName, r.city, r.phone].some((v) => String(v || '').toLowerCase().includes(search)));
+    return json({ requests, counts, statuses: EARLY_ACCESS_STATUSES });
+  }
+
   if (path === '/platform/settings') {
     let s = await db.collection('platformSettings').findOne({ id: 'platform' }, { projection: { _id: 0 } });
     if (!s) s = { id: 'platform', platformName: 'SafarOS', description: '', supportEmail: '', supportPhone: '', defaultCurrency: 'INR', defaultTimezone: 'Asia/Kolkata', defaultCountry: 'IN', status: 'active', maintenanceMode: false };
@@ -2919,6 +2970,19 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
+
+  // Landing-page early-access request status update.
+  const eaM = path.match(/^\/platform\/early-access\/([^/]+)$/);
+  if (eaM) {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const status = String(body.status || '');
+    if (!EARLY_ACCESS_STATUSES.includes(status)) return err(`status must be one of ${EARLY_ACCESS_STATUSES.join(', ')}`);
+    const r = await db.collection('earlyAccessRequests').updateOne({ id: eaM[1] }, { $set: { status, updatedAt: now } });
+    if (r.matchedCount === 0) return err('Request not found', 404);
+    await platformAudit(db, session, request, { action: 'early_access.status_changed', targetType: 'early_access', targetId: eaM[1], metadata: { status } });
+    const request_ = await db.collection('earlyAccessRequests').findOne({ id: eaM[1] }, { projection: { _id: 0 } });
+    return json({ request: request_ });
+  }
 
   const agStatusM = path.match(/^\/platform\/agencies\/([^/]+)\/status$/);
   if (agStatusM) {
@@ -3874,6 +3938,9 @@ export async function POST(request, context) {
       if (ps.mcp) return err('password change required', 403);
       return platformPost(db, ps, path, await readBody(request), request);
     }
+
+    // ---- Landing page early-access / contact form (public, no auth) ----
+    if (path === '/early-access') return earlyAccessSubmit(db, await readBody(request));
 
     // ---- Supplier Discovery (K1): save a discovered business into the EXISTING suppliers collection ----
     if (path === '/discovery/save') {
