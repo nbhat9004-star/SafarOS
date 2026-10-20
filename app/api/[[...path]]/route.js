@@ -2502,18 +2502,24 @@ async function ensureDemoAgency(db) {
     await db.collection('agencies').updateOne({ id: DEMO_AGENCY_ID }, { $setOnInsert: { id: DEMO_AGENCY_ID, name: 'SafarOS Demo Agency', slug: 'safaros-demo-agency', plan: 'trial', status: 'active', isDemo: true, quotationSeq: 6, bookingSeq: 7, invoiceSeq: 5, paymentSeq: 10, createdAt: now } }, { upsert: true });
     const u = await users.findOne({ id: DEMO_USER_ID, agencyId: DEMO_AGENCY_ID });
     if (!u) {
-      await users.insertOne({ id: DEMO_USER_ID, agencyId: DEMO_AGENCY_ID, name: 'Demo Manager', email: DEMO_USER_EMAIL, passwordHash: await hashPassword(password), role: 'manager', status: 'active', isDemo: true, createdAt: now });
+      await users.updateOne({ id: DEMO_USER_ID, agencyId: DEMO_AGENCY_ID }, { $setOnInsert: { name: 'Demo Manager', email: DEMO_USER_EMAIL, passwordHash: await hashPassword(password), role: 'manager', status: 'active', isDemo: true, createdAt: now } }, { upsert: true });
     } else if (u.role !== 'manager' || !(await verifyPassword(password, u.passwordHash))) {
       // env var is the source of truth for the demo password; role is pinned to least-privileged manager
       await users.updateOne({ id: DEMO_USER_ID, agencyId: DEMO_AGENCY_ID }, { $set: { passwordHash: await hashPassword(password), role: 'manager', updatedAt: now } });
     }
-    const ag = await db.collection('agencies').findOne({ id: DEMO_AGENCY_ID }, { projection: { _id: 0, demoSeedVersion: 1 } });
-    if (ag && ag.demoSeedVersion >= DEMO_SEED_VERSION) return;
+    // Claim a one-time seed lock atomically so concurrent first logins (serverless) never double-seed.
+    // A stale lock (>5 min, e.g. a timed-out function) may be re-claimed; upserts keep re-runs duplicate-free.
+    const lockCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const claim = await db.collection('agencies').updateOne(
+      { id: DEMO_AGENCY_ID, demoSeedVersion: { $not: { $gte: DEMO_SEED_VERSION } }, $or: [{ demoSeedLock: { $exists: false } }, { demoSeedLock: { $lt: lockCutoff } }] },
+      { $set: { demoSeedLock: now } },
+    );
+    if (!claim.modifiedCount) return; // already seeded, or another request is seeding right now
     for (const [col, docs] of Object.entries(buildDemoRecords())) {
       if (!docs.length) continue;
       await db.collection(col).bulkWrite(docs.map((d) => ({ updateOne: { filter: { agencyId: DEMO_AGENCY_ID, id: d.id }, update: { $setOnInsert: d }, upsert: true } })), { ordered: false });
     }
-    await db.collection('agencies').updateOne({ id: DEMO_AGENCY_ID }, { $set: { demoSeedVersion: DEMO_SEED_VERSION, demoSeededAt: now } });
+    await db.collection('agencies').updateOne({ id: DEMO_AGENCY_ID }, { $set: { demoSeedVersion: DEMO_SEED_VERSION, demoSeededAt: now }, $unset: { demoSeedLock: '' } });
   } catch (e) {
     console.warn('[safaros] demo seed skipped:', e.message);
   }
