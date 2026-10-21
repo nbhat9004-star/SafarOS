@@ -5187,7 +5187,7 @@ function BookingDetail({ session, bookingId, onBack, onEdit }) {
                     <TableRow key={it.id}>
                       <TableCell><Badge variant="outline" className="font-normal">{BK_SERVICE_TYPE_LABEL[it.type] || 'Other'}</Badge></TableCell>
                       <TableCell>{it.description || '—'}</TableCell>
-                      <TableCell className="text-muted-foreground">{it.supplierName || '—'}</TableCell>
+                      <TableCell className="text-muted-foreground">{it.supplierId ? (it.supplierName || 'Linked supplier') : 'Unassigned'}</TableCell>
                       <TableCell className="text-right">{it.quantity}</TableCell>
                       <TableCell className="text-right">{money(it.unitPrice)}</TableCell>
                       <TableCell className="text-right font-medium">{money(it.total)}</TableCell>
@@ -5202,7 +5202,7 @@ function BookingDetail({ session, bookingId, onBack, onEdit }) {
                 <div key={it.id} className="rounded-lg border p-3 text-sm">
                   <div className="flex items-center justify-between"><Badge variant="outline" className="font-normal">{BK_SERVICE_TYPE_LABEL[it.type] || 'Other'}</Badge><MetaBadge meta={BK_SERVICE_STATUS_META[it.status] || BK_SERVICE_STATUS_META.pending} /></div>
                   <div className="mt-1 font-medium">{it.description || '—'}</div>
-                  {it.supplierName && <div className="text-muted-foreground">{it.supplierName}</div>}
+                  <div className="text-muted-foreground">{it.supplierId ? (it.supplierName || 'Linked supplier') : 'Unassigned'}</div>
                   <div className="mt-1 flex justify-between text-muted-foreground"><span>{it.quantity} × {money(it.unitPrice)}</span><span className="font-medium text-foreground">{money(it.total)}</span></div>
                 </div>
               ))}
