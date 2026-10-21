@@ -6330,6 +6330,8 @@ function Finance({ session, tab, onNav }) {
 
 function Settings({ session }) {
   const { agency, user } = session;
+  // Agency profile updates are owner-only in the API RBAC policy.
+  const canManageAgency = user?.role === 'owner';
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -6365,8 +6367,9 @@ function Settings({ session }) {
         <div>
           <h2 className="text-xl font-bold">Workspace settings</h2>
           <p className="text-sm text-muted-foreground mt-1">Manage your travel business profile and regional preferences.</p>
+          {!canManageAgency && <p className="text-xs text-muted-foreground mt-1">Only the agency owner can edit these settings.</p>}
         </div>
-        {!editing && <Button onClick={() => setEditing(true)}><Pencil className="h-4 w-4 mr-2" /> Edit agency profile</Button>}
+        {!editing && canManageAgency && <Button onClick={() => setEditing(true)}><Pencil className="h-4 w-4 mr-2" /> Edit agency profile</Button>}
       </div>
       <Card>
         <CardContent className="p-5">
