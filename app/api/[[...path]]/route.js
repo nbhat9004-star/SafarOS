@@ -1950,21 +1950,23 @@ function maskApiKey(k) {
     status: k.status, displayKey: `${k.prefix || 'sk_safaros_'}••••${k.last4 || ''}`, createdAt: k.createdAt, lastUsedAt: k.lastUsedAt || null };
 }
 
+const AGENCY_INTEGRATION_PROVIDERS = new Set(['razorpay', 'resend']);
+
 async function integrationsGet(db, session, path) {
   if (path === '/integrations') {
     const docs = await db.collection('integrations').find(tenantFilter(session), { projection: { _id: 0 } }).toArray();
     const byProvider = Object.fromEntries(docs.map((d) => [d.provider, d]));
-    const integrations = INTEGRATION_CATALOG.map((c) => integrationView(c, byProvider[c.provider]));
+    const integrations = INTEGRATION_CATALOG.filter((c) => AGENCY_INTEGRATION_PROVIDERS.has(c.provider)).map((c) => integrationView(c, byProvider[c.provider]));
     const [webhookCount, apiKeyCount] = await Promise.all([
       db.collection('webhooks').countDocuments(tenantFilter(session)),
       db.collection('apiKeys').countDocuments(tenantFilter(session)),
     ]);
-    return json({ categories: INTEGRATION_CATEGORIES, integrations, counts: { webhooks: webhookCount, apiKeys: apiKeyCount }, webhookEvents: WEBHOOK_EVENTS, apiScopes: API_SCOPES });
+    return json({ categories: INTEGRATION_CATEGORIES.filter((c) => ['payments', 'email'].includes(c.id)), integrations, counts: { webhooks: webhookCount, apiKeys: apiKeyCount }, webhookEvents: WEBHOOK_EVENTS, apiScopes: API_SCOPES });
   }
   if (path.startsWith('/integrations/')) {
     const provider = path.split('/')[2];
     const cat = CATALOG_BY_PROVIDER[provider];
-    if (!cat) return err('Unknown integration', 404);
+    if (!cat || !AGENCY_INTEGRATION_PROVIDERS.has(provider)) return err('Integration is not available in agency settings', 404);
     const doc = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
     return json({ integration: integrationView(cat, doc) });
   }
@@ -1987,7 +1989,7 @@ async function integrationsPost(db, session, path, body) {
   if (cfgMatch) {
     const provider = cfgMatch[1];
     const cat = CATALOG_BY_PROVIDER[provider];
-    if (!cat) return err('Unknown integration', 404);
+    if (!cat || !AGENCY_INTEGRATION_PROVIDERS.has(provider)) return err('Integration is not available in agency settings', 404);
     if (cat.managed === 'env') return err('This provider is managed via secure server environment and cannot be configured here');
     const input = (body && body.config) || {};
     const existing = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
