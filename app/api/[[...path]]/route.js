@@ -710,7 +710,7 @@ async function financeGet(db, session, path, sp) {
       db.collection('customerReceivables').find(tenantFilter(session), { projection: { _id: 0 } }).toArray(),
       db.collection('supplierPayables').find(tenantFilter(session), { projection: { _id: 0 } }).toArray(),
       db.collection('expenses').find(tenantFilter(session), { projection: { _id: 0 } }).toArray(),
-      db.collection('bookings').find(tenantFilter(session), { projection: { _id: 0, id: 1, bookingNumber: 1, customerName: 1, grandTotal: 1, internalCost: 1, startDate: 1 } }).toArray(),
+      db.collection('bookings').find(tenantFilter(session), { projection: { _id: 0, id: 1, bookingNumber: 1, customerName: 1, grandTotal: 1, internalCost: 1, startDate: 1, status: 1 } }).toArray(),
     ]);
     // Customer & supplier outstanding balances (grouped).
     const groupBal = (arr, idKey, nameKey, outKey) => {
@@ -723,7 +723,8 @@ async function financeGet(db, session, path, sp) {
     // Booking profitability: selling (grandTotal) - supplier cost (payables) - expenses tagged to booking.
     const payByBooking = {}; for (const p of pay) { if (!p.bookingId || p.status === 'cancelled') continue; payByBooking[p.bookingId] = round2((payByBooking[p.bookingId] || 0) + (Number(p.totalAmount) || 0)); }
     const expByBooking = {}; for (const e of exps) { if (!e.bookingId || e.status === 'cancelled') continue; expByBooking[e.bookingId] = round2((expByBooking[e.bookingId] || 0) + (Number(e.amount) || 0)); }
-    const bookingProfitability = bookings.filter((b) => inRange(b.startDate)).map((b) => {
+    // Keep draft and cancelled bookings out of the main profitability report; booking records remain untouched.
+    const bookingProfitability = bookings.filter((b) => inRange(b.startDate) && !['draft', 'cancelled'].includes(String(b.status || '').toLowerCase())).map((b) => {
       const revenue = Number(b.grandTotal) || 0;
       const supplierCost = payByBooking[b.id] || round2(Number(b.internalCost) || 0);
       const expenses = expByBooking[b.id] || 0;
