@@ -6330,21 +6330,85 @@ function Finance({ session, tab, onNav }) {
 
 function Settings({ session }) {
   const { agency, user } = session;
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    name: agency?.name || '',
+    email: agency?.email || user?.email || '',
+    phone: agency?.phone || '',
+    website: agency?.website || '',
+    address: agency?.address || '',
+    city: agency?.city || '',
+    country: agency?.country || 'India',
+    currency: agency?.currency || 'INR',
+    timezone: agency?.timezone || 'Asia/Kolkata',
+  });
+  const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const save = async () => {
+    setSaving(true);
+    try {
+      const result = await api('/agency', { method: 'PUT', body: JSON.stringify(form) });
+      const updated = result?.agency || form;
+      setForm((current) => ({ ...current, ...updated }));
+      toast.success('Agency profile updated');
+      setEditing(false);
+    } catch (error) {
+      toast.error(error?.message || 'Could not update agency profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="space-y-4 max-w-2xl">
-      <h2 className="text-xl font-bold">Workspace settings</h2>
+    <div className="space-y-4 max-w-3xl">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold">Workspace settings</h2>
+          <p className="text-sm text-muted-foreground mt-1">Manage your travel business profile and regional preferences.</p>
+        </div>
+        {!editing && <Button onClick={() => setEditing(true)}><Pencil className="h-4 w-4 mr-2" /> Edit agency profile</Button>}
+      </div>
       <Card>
-        <CardContent className="p-5 space-y-3">
-          <Row label="Agency name" value={agency?.name} />
-          <Row label="Workspace slug" value={agency?.slug} icon={Globe} />
-          <Row label="Plan" value={agency?.plan} />
-          <Separator />
-          <Row label="Your role" value={<RoleBadge role={user?.role} />} />
-          <Row label="Agency ID (tenant key)" value={<code className="text-xs">{agency?.id}</code>} icon={Lock} />
+        <CardContent className="p-5">
+          {editing ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5"><Label>Agency name</Label><Input value={form.name} onChange={update('name')} required /></div>
+              <div className="space-y-1.5"><Label>Business email</Label><Input type="email" value={form.email} onChange={update('email')} /></div>
+              <div className="space-y-1.5"><Label>Business phone</Label><Input value={form.phone} onChange={update('phone')} placeholder="+91 98765 43210" /></div>
+              <div className="space-y-1.5"><Label>Website</Label><Input value={form.website} onChange={update('website')} placeholder="https://" /></div>
+              <div className="space-y-1.5 sm:col-span-2"><Label>Business address</Label><Input value={form.address} onChange={update('address')} /></div>
+              <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={update('city')} /></div>
+              <div className="space-y-1.5"><Label>Country</Label><Input value={form.country} onChange={update('country')} /></div>
+              <div className="space-y-1.5"><Label>Currency</Label><Input value={form.currency} onChange={update('currency')} placeholder="INR" /></div>
+              <div className="space-y-1.5"><Label>Timezone</Label><Input value={form.timezone} onChange={update('timezone')} placeholder="Asia/Kolkata" /></div>
+              <div className="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => { setForm({ name: agency?.name || '', email: agency?.email || user?.email || '', phone: agency?.phone || '', website: agency?.website || '', address: agency?.address || '', city: agency?.city || '', country: agency?.country || 'India', currency: agency?.currency || 'INR', timezone: agency?.timezone || 'Asia/Kolkata' }); setEditing(false); }} disabled={saving}>Cancel</Button>
+                <Button onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : 'Save changes'}</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <Row label="Agency name" value={form.name || '—'} />
+              <Row label="Business email" value={form.email || '—'} />
+              <Row label="Business phone" value={form.phone || '—'} />
+              <Row label="Website" value={form.website || '—'} icon={Globe} />
+              <Row label="Business address" value={form.address || '—'} />
+              <Row label="City" value={form.city || '—'} />
+              <Row label="Country" value={form.country || '—'} />
+              <Row label="Currency" value={form.currency || 'INR'} />
+              <Row label="Timezone" value={form.timezone || 'Asia/Kolkata'} />
+              <Separator />
+              <Row label="Workspace slug" value={agency?.slug} icon={Globe} />
+              <Row label="Plan" value={agency?.plan} />
+              <Separator />
+              <Row label="Your role" value={<RoleBadge role={user?.role} />} />
+              <Row label="Agency ID (tenant key)" value={<code className="text-xs">{agency?.id}</code>} icon={Lock} />
+            </div>
+          )}
         </CardContent>
       </Card>
       <p className="text-xs text-muted-foreground flex items-center gap-1">
-        <Lock className="h-3 w-3" /> The agency ID is derived server-side from your session and scopes all your data.
+        <Lock className="h-3 w-3" /> Your agency ID, workspace slug, plan and role are read-only here. Changes apply only to this agency.
       </p>
     </div>
   );
