@@ -4594,7 +4594,17 @@ export async function POST(request, context) {
       if (body.quotationId) {
         fromQuotation = await db.collection('quotations').findOne(tenantFilter(session2, { id: String(body.quotationId).trim() }));
         if (!fromQuotation) return err('Source quotation not found', 404);
-        // Reuse quotation data as defaults; the original quotation is NOT modified.
+        // One booking per quotation: return the existing (non-cancelled) linked booking instead of creating another.
+        const linked = await db.collection('bookings').findOne(
+          tenantFilter(session2, { quotationId: fromQuotation.id, status: { $ne: 'cancelled' } }),
+          { projection: { _id: 0, id: 1, bookingNumber: 1 }, sort: { createdAt: 1 } });
+        if (linked) {
+          if (fromQuotation.convertedBookingId !== linked.id) { // backfill link for quotations converted before this fix
+            await db.collection('quotations').updateOne(tenantFilter(session2, { id: fromQuotation.id }), { $set: { convertedBookingId: linked.id, convertedBookingNumber: linked.bookingNumber } });
+          }
+          return json({ error: `This quotation was already converted to booking ${linked.bookingNumber}`, booking: linked, alreadyConverted: true }, 409);
+        }
+        // Reuse quotation data as defaults (quotation content/pricing is not modified; only its conversion link is recorded).
         body.customerType = body.customerType || fromQuotation.customerType;
         body.customerId = body.customerId || fromQuotation.customerId;
         body.destination = body.destination || fromQuotation.destination;
@@ -4621,10 +4631,18 @@ export async function POST(request, context) {
       if (!cust) return err('Selected client or lead was not found');
 
       const totals = computeBookingTotals(body, value.serviceItems);
-      const bookingNumber = await nextBookingNumber(db, session2);
       const now = new Date().toISOString();
+      const newBookingId = uuidv4();
+      if (fromQuotation) {
+        // Atomic compare-and-set claim on the quotation so concurrent/double-clicked conversions cannot both succeed.
+        const claim = await db.collection('quotations').updateOne(
+          tenantFilter(session2, { id: fromQuotation.id, convertedBookingId: fromQuotation.convertedBookingId || { $in: [null, ''] } }),
+          { $set: { convertedBookingId: newBookingId, convertedBookingNumber: '', convertedAt: now } });
+        if (!claim.modifiedCount) return err('This quotation is already being converted to a booking. Refresh to see the linked booking.', 409);
+      }
+      const bookingNumber = await nextBookingNumber(db, session2);
       const doc = withAgency(session2, {
-        id: uuidv4(), bookingNumber,
+        id: newBookingId, bookingNumber,
         customerType: value.customerType, customerId: value.customerId, customerName: cust.customerName, customerEmail: cust.customerEmail,
         destination: value.destination, startDate: value.startDate, endDate: value.endDate,
         adults: value.adults, children: value.children, nights: value.nights,
@@ -4637,7 +4655,11 @@ export async function POST(request, context) {
         status: 'draft', notes: value.notes,
         createdBy: session2.userId, createdAt: now, updatedAt: now,
       });
-      await db.collection('bookings').insertOne(doc);
+      try { await db.collection('bookings').insertOne(doc); } catch (e) {
+        if (fromQuotation) await db.collection('quotations').updateOne(tenantFilter(session2, { id: fromQuotation.id, convertedBookingId: newBookingId }), { $set: { convertedBookingId: fromQuotation.convertedBookingId || '' } });
+        throw e;
+      }
+      if (fromQuotation) await db.collection('quotations').updateOne(tenantFilter(session2, { id: fromQuotation.id, convertedBookingId: newBookingId }), { $set: { convertedBookingNumber: bookingNumber } });
       const { _id, ...safe } = doc;
       await logActivity(db, session2, { type: 'booking_created', message: fromQuotation ? `Booking ${bookingNumber} created from ${fromQuotation.quotationNumber}` : `Booking ${bookingNumber} created for ${cust.customerName}`, refType: 'booking', refId: safe.id });
       return json({ booking: safe }, 201);

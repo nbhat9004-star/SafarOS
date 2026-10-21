@@ -3146,7 +3146,8 @@ function QuotationDetail({ session, quotationId, onBack, onEdit, onChanged, onNa
           {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(q.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
           {canCreate && <Button variant="outline" size="sm" onClick={duplicate}><Copy className="h-4 w-4 mr-1" /> Duplicate</Button>}
           {canCreatePackage && onNavigate && <Button variant="outline" size="sm" onClick={() => onNavigate('packages', { createFromQuotation: q })}><Package className="h-4 w-4 mr-1" /> Create package</Button>}
-          {canCreateBooking && onNavigate && <Button variant="outline" size="sm" onClick={() => onNavigate('bookings', { convertToBooking: q })}><CheckCircle2 className="h-4 w-4 mr-1" /> Convert to Booking</Button>}
+          {q.convertedBookingId && onNavigate && <Button variant="outline" size="sm" onClick={() => onNavigate('bookings', { openBookingId: q.convertedBookingId })}><CheckCircle2 className="h-4 w-4 mr-1" /> View booking {q.convertedBookingNumber || ''}</Button>}
+          {!q.convertedBookingId && canCreateBooking && onNavigate && <Button variant="outline" size="sm" onClick={() => onNavigate('bookings', { convertToBooking: q })}><CheckCircle2 className="h-4 w-4 mr-1" /> Convert to Booking</Button>}
           <Button variant="outline" size="sm" disabled title="Available in a later phase"><FileDown className="h-4 w-4 mr-1" /> PDF (soon)</Button>
           {canDelete && q.status === 'draft' && <Button variant="outline" size="sm" onClick={remove}><Trash2 className="h-4 w-4 mr-1 text-destructive" /> Delete</Button>}
         </div>
@@ -5235,6 +5236,9 @@ function Bookings({ session, navPayload, onConsumePayload }) {
     if (navPayload && navPayload.convertToBooking) {
       setPrefill(navPayload.convertToBooking);
       setView('create');
+      onConsumePayload && onConsumePayload();
+    } else if (navPayload && navPayload.openBookingId) {
+      setSelectedId(navPayload.openBookingId); setView('detail');
       onConsumePayload && onConsumePayload();
     }
   }, [navPayload]);
