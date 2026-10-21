@@ -175,6 +175,16 @@ function UsersView() {
   }, [search, role, status]);
   useEffect(() => { load(); }, [load]);
   const setUStatus = async (id, s) => { try { await api(`/users/${id}/status`, { method: 'PUT', body: JSON.stringify({ status: s }) }); toast.success(`User ${s}`); load(); } catch (e) { toast.error(e.message); } };
+  // View uses the row already loaded; Edit uses existing PUT /platform/users/:id (users:manage) — name only.
+  const [viewU, setViewU] = useState(null);
+  const [editName, setEditName] = useState(null);
+  const saveName = async () => {
+    const name = String(editName || '').trim();
+    if (!name) { toast.error('Name is required'); return; }
+    try { const d = await api(`/users/${viewU.id}`, { method: 'PUT', body: JSON.stringify({ name }) }); setViewU({ ...viewU, name: d.user?.name ?? name }); setEditName(null); toast.success('User updated'); load(); }
+    catch (e) { toast.error(e.message); }
+  };
+  const openU = (u, edit = false) => { setViewU(u); setEditName(edit ? (u.name || '') : null); };
   return (<div className="space-y-4">
     <div className="flex flex-wrap items-center gap-2">
       <div className="relative"><Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="w-64 pl-8" placeholder="Search name or email…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
@@ -183,8 +193,31 @@ function UsersView() {
     </div>
     {rows === null ? <div className="h-40 animate-pulse rounded-lg border bg-muted/30" /> : !rows.length ? <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No users found.</CardContent></Card> : (<Card><CardContent className="p-0"><Table>
       <TableHeader><TableRow><TableHead>User</TableHead><TableHead>Agency</TableHead><TableHead>Role</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
-      <TableBody>{rows.map((u) => (<TableRow key={u.id}><TableCell><div className="font-medium">{u.name}</div><div className="text-xs text-muted-foreground">{u.email}</div></TableCell><TableCell className="text-sm">{u.agencyName}</TableCell><TableCell className="capitalize">{u.role}</TableCell><TableCell><StatusBadge status={u.status} /></TableCell><TableCell>{u.status === 'active' ? <Button size="sm" variant="ghost" className="text-amber-600" onClick={() => setUStatus(u.id, 'suspended')}>Suspend</Button> : <Button size="sm" variant="ghost" className="text-emerald-600" onClick={() => setUStatus(u.id, 'active')}>Activate</Button>}</TableCell></TableRow>))}</TableBody>
+      <TableBody>{rows.map((u) => (<TableRow key={u.id}><TableCell><div className="font-medium">{u.name}</div><div className="text-xs text-muted-foreground">{u.email}</div></TableCell><TableCell className="text-sm">{u.agencyName}</TableCell><TableCell className="capitalize">{u.role}</TableCell><TableCell><StatusBadge status={u.status} /></TableCell><TableCell><div className="flex gap-1">
+        <Button type="button" size="sm" variant="ghost" aria-label="View user" onClick={() => openU(u)}><Eye className="h-4 w-4" /></Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => openU(u, true)}>Edit</Button>
+        {u.status === 'active' ? <Button size="sm" variant="ghost" className="text-amber-600" onClick={() => setUStatus(u.id, 'suspended')}>Suspend</Button> : <Button size="sm" variant="ghost" className="text-emerald-600" onClick={() => setUStatus(u.id, 'active')}>Activate</Button>}
+      </div></TableCell></TableRow>))}</TableBody>
     </Table></CardContent></Card>)}
+
+    <Dialog open={!!viewU} onOpenChange={(o) => { if (!o) { setViewU(null); setEditName(null); } }}><DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogHeader><DialogTitle>{viewU ? (viewU.name || viewU.email) : ''}</DialogTitle></DialogHeader>
+      {viewU && (<div className="space-y-3 text-sm">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div><span className="text-muted-foreground">Name</span><div className="font-medium break-words">{viewU.name || '—'}</div></div>
+          <div><span className="text-muted-foreground">Email</span><div className="font-medium break-all">{viewU.email}</div></div>
+          <div><span className="text-muted-foreground">Agency</span><div className="font-medium">{viewU.agencyName || '—'}</div></div>
+          <div><span className="text-muted-foreground">Role</span><div className="font-medium capitalize">{viewU.role}</div></div>
+          <div><span className="text-muted-foreground">Status</span><div><StatusBadge status={viewU.status} /></div></div>
+          <div><span className="text-muted-foreground">Created</span><div className="font-medium">{fdate(viewU.createdAt)}</div></div>
+        </div>
+        {editName !== null ? (<div className="space-y-2 rounded-md border p-3">
+          <div className="space-y-1"><Label className="text-xs">Name</Label><Input value={editName} onChange={(e) => setEditName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && saveName()} /></div>
+          <p className="text-xs text-muted-foreground">Email, role and agency are not editable here.</p>
+          <div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => setEditName(null)}>Cancel</Button><Button size="sm" onClick={saveName}>Save</Button></div>
+        </div>) : <Button size="sm" variant="outline" onClick={() => setEditName(viewU.name || '')}>Edit name</Button>}
+      </div>)}
+    </DialogContent></Dialog>
   </div>);
 }
 
