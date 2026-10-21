@@ -7055,9 +7055,9 @@ function IntOverview({ canManage }) {
   const load = async () => { try { const d = await api('/integrations'); setData(d); } catch (e) { toast.error(friendlyError(e)); } };
   useEffect(() => { load(); }, []);
   if (!data) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
-  const cats = data.categories.filter((c) => c.id !== 'webhooks' && c.id !== 'api');
+  const cats = data.categories.filter((c) => ['payments', 'email'].includes(c.id));
   return (<div className="space-y-6">
-    <p className="text-sm text-muted-foreground">Connect SafarOS to external services. Disconnected providers show their real state — no fake connections. Secrets are never shown to the browser.</p>
+    <p className="text-sm text-muted-foreground">Connect your agency's own payment gateway or email provider. Only optional agency-level services are shown here; platform-wide services are managed by SafarOS.</p>
     {cats.map((cat) => {
       const items = data.integrations.filter((i) => i.category === cat.id);
       if (!items.length) return null;
