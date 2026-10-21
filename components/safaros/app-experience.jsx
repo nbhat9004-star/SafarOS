@@ -6067,7 +6067,7 @@ function ExpensesPane({ session }) {
 
 function InvoicesPane({ session }) {
   const canCreate = can(session.user.role, 'finance:create'); const canUpdate = can(session.user.role, 'finance:update');
-  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [query, setQuery] = useState(''); const [show, setShow] = useState(false);
+  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [query, setQuery] = useState(''); const [show, setShow] = useState(false); const [selectedInvoice, setSelectedInvoice] = useState(null);
   const blank = { clientId: '', bookingId: '', subtotal: 0, discount: 0, taxPercent: 0, taxInclusive: false, tax: 0, dueDate: '', status: 'draft', notes: '' };
   const [f, setF] = useState(blank);
   const load = async () => { setLoading(true); try { const d = await api('/finance/invoices'); setRows(d.invoices || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
@@ -6104,7 +6104,29 @@ function InvoicesPane({ session }) {
       {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
       {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No invoices yet.</CardContent></Card>}
       {!loading && rr.length > 0 && (<Card className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Invoice</TableHead><TableHead>Client</TableHead><TableHead>Issued</TableHead><TableHead>Due</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Paid</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-        <TableBody>{rr.map((r) => { const ov = finOverdue(r); const meta = ov ? INV_STATUS_META.overdue : (INV_STATUS_META[r.status] || INV_STATUS_META.draft); return (<TableRow key={r.id}><TableCell className="font-medium">{r.invoiceNumber}</TableCell><TableCell>{r.clientName || '—'}</TableCell><TableCell className="text-muted-foreground">{r.issueDate || '—'}</TableCell><TableCell className="text-muted-foreground">{r.dueDate || '—'}</TableCell><TableCell className="text-right font-medium">{money(r.total)}</TableCell><TableCell className="text-right text-muted-foreground">{money(r.paidAmount)}</TableCell><TableCell>{canUpdate ? <Select value={r.status} onValueChange={(v) => setStatus(r.id, v)}><SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger><SelectContent>{Object.keys(INV_STATUS_META).map((s) => <SelectItem key={s} value={s}>{INV_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select> : <MetaBadge meta={meta} />}</TableCell></TableRow>); })}</TableBody></Table></Card>)}
+        <TableBody>{rr.map((r) => { const ov = finOverdue(r); const meta = ov ? INV_STATUS_META.overdue : (INV_STATUS_META[r.status] || INV_STATUS_META.draft); return (<TableRow key={r.id}><TableCell className="font-medium"><Button variant="link" className="h-auto p-0 font-medium" onClick={() => setSelectedInvoice(r)}>{r.invoiceNumber}</Button></TableCell><TableCell>{r.clientName || '—'}</TableCell><TableCell className="text-muted-foreground">{r.issueDate || '—'}</TableCell><TableCell className="text-muted-foreground">{r.dueDate || '—'}</TableCell><TableCell className="text-right font-medium">{money(r.total)}</TableCell><TableCell className="text-right text-muted-foreground">{money(r.paidAmount)}</TableCell><TableCell>{canUpdate ? <Select value={r.status} onValueChange={(v) => setStatus(r.id, v)}><SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger><SelectContent>{Object.keys(INV_STATUS_META).map((s) => <SelectItem key={s} value={s}>{INV_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select> : <MetaBadge meta={meta} />}</TableCell></TableRow>); })}</TableBody></Table></Card>)}
+      <Dialog open={!!selectedInvoice} onOpenChange={(open) => { if (!open) setSelectedInvoice(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>{selectedInvoice ? selectedInvoice.invoiceNumber : 'Invoice details'}</DialogTitle></DialogHeader>
+          {selectedInvoice && <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <KV k="Client" v={selectedInvoice.clientName || '—'} />
+              <KV k="Booking" v={selectedInvoice.bookingNumber || '—'} />
+              <KV k="Issue date" v={selectedInvoice.issueDate || '—'} />
+              <KV k="Due date" v={selectedInvoice.dueDate || '—'} />
+              <KV k="Status" v={(INV_STATUS_META[selectedInvoice.status] || INV_STATUS_META.draft).label} />
+              <KV k="Subtotal" v={money(selectedInvoice.subtotal)} />
+              <KV k="Discount" v={money(selectedInvoice.discount)} />
+              <KV k="Tax" v={money(selectedInvoice.tax)} />
+              <KV k="Total" v={money(selectedInvoice.total)} />
+              <KV k="Paid" v={money(selectedInvoice.paidAmount)} />
+              <KV k="Outstanding" v={money(Math.max(0, Number(selectedInvoice.total || 0) - Number(selectedInvoice.paidAmount || 0)))} />
+            </div>
+            {selectedInvoice.notes && <div><div className="text-xs text-muted-foreground">Notes</div><p className="whitespace-pre-wrap">{selectedInvoice.notes}</p></div>}
+          </div>}
+          <DialogFooter><Button variant="outline" onClick={() => setSelectedInvoice(null)}>Close</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </FinListShell>
   );
 }
