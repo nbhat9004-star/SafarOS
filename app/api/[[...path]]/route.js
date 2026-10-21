@@ -2711,7 +2711,9 @@ async function platformGet(db, session, path, sp) {
       db.collection('integrations').find(f, { projection: { _id: 0, provider: 1, category: 1, status: 1 } }).toArray(),
       db.collection('agencySubscriptions').findOne(f, { projection: { _id: 0 } }),
     ]);
-    return json({ agency: { ...agency, status: agStatus(agency.status) }, metrics: { userCount, clientCount, leadCount, bookingCount, quotationCount, websitePages }, websiteStatus: websitePages > 0 ? 'active' : 'none', integrations, subscription });
+    // Associated users (safe fields only — never password hashes)
+    const users = await db.collection('users').find(f, { projection: { _id: 0, id: 1, name: 1, email: 1, role: 1, status: 1, createdAt: 1 } }).sort({ createdAt: 1 }).limit(100).toArray();
+    return json({ agency: { ...agency, status: agStatus(agency.status) }, metrics: { userCount, clientCount, leadCount, bookingCount, quotationCount, websitePages }, websiteStatus: websitePages > 0 ? 'active' : 'none', integrations, subscription, users });
   }
 
   if (path === '/platform/agencies') {

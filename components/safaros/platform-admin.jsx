@@ -107,7 +107,15 @@ function AgenciesView() {
   useEffect(() => { load(); }, [load]);
   const setAgStatus = async (id, s) => { try { await api(`/agencies/${id}/status`, { method: 'PUT', body: JSON.stringify({ status: s }) }); toast.success(`Agency ${s}`); load(); } catch (e) { toast.error(e.message); } };
   const del = async (id) => { try { await api(`/agencies/${id}`, { method: 'DELETE' }); toast.success('Agency archived'); setConfirmDel(null); load(); } catch (e) { toast.error(e.message); } };
-  const openDetail = async (id) => { try { const d = await api(`/agencies/${id}`); setDetail(d); } catch (e) { toast.error(e.message); } };
+  const openDetail = async (id) => { try { const d = await api(`/agencies/${id}`); setDetail(d); setEditing(null); } catch (e) { toast.error(e.message || 'Could not load agency details'); } };
+  // Safe profile fields only (existing PUT /platform/agencies/:id, agencies:manage). Slug/plan are intentionally not editable here.
+  const [editing, setEditing] = useState(null);
+  const EDIT_FIELDS = ['name', 'phone', 'website', 'city', 'country'];
+  const saveEdit = async () => {
+    if (!String(editing.name || '').trim()) { toast.error('Name is required'); return; }
+    try { const d = await api(`/agencies/${detail.agency.id}`, { method: 'PUT', body: JSON.stringify(editing) }); setDetail({ ...detail, agency: d.agency }); setEditing(null); toast.success('Agency updated'); load(); }
+    catch (e) { toast.error(e.message); }
+  };
   return (<div className="space-y-4">
     <div className="flex flex-wrap items-center gap-2">
       <div className="relative"><Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="w-64 pl-8" placeholder="Search name or slug…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
@@ -115,14 +123,14 @@ function AgenciesView() {
     </div>
     {rows === null ? <div className="h-40 animate-pulse rounded-lg border bg-muted/30" /> : !rows.length ? <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">No agencies found.</CardContent></Card> : (<Card><CardContent className="p-0"><Table>
       <TableHeader><TableRow><TableHead>Agency</TableHead><TableHead>Plan</TableHead><TableHead>Subscription</TableHead><TableHead>Users</TableHead><TableHead>Status</TableHead><TableHead>Created</TableHead><TableHead></TableHead></TableRow></TableHeader>
-      <TableBody>{rows.map((a) => (<TableRow key={a.id}><TableCell><div className="font-medium">{a.name}</div><div className="text-xs text-muted-foreground">{a.slug}</div></TableCell><TableCell className="capitalize">{a.plan || 'trial'}</TableCell><TableCell>{a.subscription ? <StatusBadge status={a.subscription.status} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell><TableCell>{a.userCount}</TableCell><TableCell><StatusBadge status={a.status} /></TableCell><TableCell className="text-xs text-muted-foreground">{fdate(a.createdAt)}</TableCell><TableCell><div className="flex gap-1">
-        <Button size="sm" variant="ghost" onClick={() => openDetail(a.id)}><Eye className="h-4 w-4" /></Button>
+      <TableBody>{rows.map((a) => (<TableRow key={a.id} className="cursor-pointer" onClick={() => openDetail(a.id)}><TableCell><div className="font-medium">{a.name}</div><div className="text-xs text-muted-foreground">{a.slug}</div></TableCell><TableCell className="capitalize">{a.plan || 'trial'}</TableCell><TableCell>{a.subscription ? <StatusBadge status={a.subscription.status} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell><TableCell>{a.userCount}</TableCell><TableCell><StatusBadge status={a.status} /></TableCell><TableCell className="text-xs text-muted-foreground">{fdate(a.createdAt)}</TableCell><TableCell><div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+        <Button type="button" size="sm" variant="ghost" aria-label="View agency details" onClick={() => openDetail(a.id)}><Eye className="h-4 w-4" /></Button>
         {a.status === 'active' ? <Button size="sm" variant="ghost" className="text-amber-600" onClick={() => setAgStatus(a.id, 'suspended')}>Suspend</Button> : a.status === 'suspended' ? <Button size="sm" variant="ghost" className="text-emerald-600" onClick={() => setAgStatus(a.id, 'active')}>Activate</Button> : null}
         {a.status !== 'deleted' && <Button size="sm" variant="ghost" className="text-rose-600" onClick={() => setConfirmDel(a)}><Trash2 className="h-4 w-4" /></Button>}
       </div></TableCell></TableRow>))}</TableBody>
     </Table></CardContent></Card>)}
 
-    <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}><DialogContent className="max-w-lg">
+    <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}><DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
       <DialogHeader><DialogTitle>{detail ? detail.agency.name : ''}</DialogTitle></DialogHeader>
       {detail && (<div className="space-y-3 text-sm">
         <div className="grid grid-cols-2 gap-2">
@@ -136,6 +144,13 @@ function AgenciesView() {
         <div className="grid grid-cols-3 gap-2 rounded-md border bg-muted/30 p-3">
           {Object.entries(detail.metrics).map(([k, v]) => (<div key={k}><div className="text-xs text-muted-foreground">{humanize(k)}</div><div className="font-semibold">{v}</div></div>))}
         </div>
+        <div><div className="text-xs text-muted-foreground mb-1">Users ({(detail.users || []).length})</div>
+          {(detail.users || []).length ? <div className="divide-y rounded-md border">{detail.users.map((u) => (<div key={u.id} className="flex items-center justify-between gap-2 px-3 py-2"><div className="min-w-0"><div className="truncate font-medium">{u.name || '—'}</div><div className="truncate text-xs text-muted-foreground">{u.email}</div></div><div className="flex shrink-0 items-center gap-1"><Badge variant="outline" className="text-xs capitalize">{u.role}</Badge><StatusBadge status={u.status || 'active'} /></div></div>))}</div> : <span className="text-xs text-muted-foreground">No users</span>}
+        </div>
+        {editing ? (<div className="space-y-2 rounded-md border p-3">
+          {EDIT_FIELDS.map((k) => (<div key={k} className="space-y-1"><Label className="text-xs">{humanize(k)}</Label><Input value={editing[k] || ''} onChange={(e) => setEditing({ ...editing, [k]: e.target.value })} /></div>))}
+          <div className="flex justify-end gap-2 pt-1"><Button size="sm" variant="outline" onClick={() => setEditing(null)}>Cancel</Button><Button size="sm" onClick={saveEdit}>Save</Button></div>
+        </div>) : (detail.agency.status !== 'deleted' && <Button size="sm" variant="outline" onClick={() => setEditing(Object.fromEntries(EDIT_FIELDS.map((k) => [k, detail.agency[k] || ''])))}>Edit details</Button>)}
         <div><div className="text-xs text-muted-foreground mb-1">Integrations configured</div>{detail.integrations.length ? <div className="flex flex-wrap gap-1">{detail.integrations.map((i) => <Badge key={i.provider} variant="outline" className="text-xs">{i.provider}</Badge>)}</div> : <span className="text-xs text-muted-foreground">None</span>}</div>
       </div>)}
     </DialogContent></Dialog>
