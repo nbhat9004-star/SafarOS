@@ -2157,8 +2157,12 @@ function platformAdminView(a) {
 function envSuperAdminHash() {
   let h = String(process.env.SUPER_ADMIN_INITIAL_PASSWORD_HASH || '').trim();
   if (h && !h.startsWith('$2')) { try { h = Buffer.from(h, 'base64').toString('utf8').trim(); } catch { h = ''; } }
-  return /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(h) ? h : '';
+  if (!/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(h)) return '';
+  // Refuse hashes whose password was publicly disclosed (never usable, even if configured).
+  if (EXPOSED_SUPER_ADMIN_HASHES.includes(crypto.createHash('sha256').update(h).digest('hex'))) return '';
+  return h;
 }
+const EXPOSED_SUPER_ADMIN_HASHES = ['6e40148dcc93d7299d3949188b337daffd2e070d56a6498eb3d3673febbfb93c'];
 
 async function ensureSuperAdmin(db, request = null) {
   // Production-safe, idempotent bootstrap. Runs on-demand (serverless friendly)
@@ -2170,17 +2174,19 @@ async function ensureSuperAdmin(db, request = null) {
   const presetHash = envSuperAdminHash(); // preferred: bcrypt hash only, no plaintext in env
   if (!email || (!password && !presetHash)) return;
   const newHash = async () => presetHash || hashPassword(password);
-  const marker = presetHash ? crypto.createHash('sha256').update(presetHash).digest('hex') : undefined;
+  // One-time marker for the configured credential (keyed HMAC for plaintext, so no password-derived hash leaks).
+  const marker = presetHash ? crypto.createHash('sha256').update(presetHash).digest('hex')
+    : crypto.createHmac('sha256', String(process.env.JWT_SECRET || 'safaros-bootstrap')).update(password).digest('hex');
   const existing = await db.collection('platformAdmins').findOne({ email });
   if (existing) {
     // Opt-in recovery (SUPER_ADMIN_APPLY_RESET=true): apply the env-provided temporary hash to the
     // SAME account exactly once per distinct hash (marker), forcing a password change. Never creates
     // a duplicate; once the admin changes the password it is not re-applied while the env is unchanged.
-    if (presetHash && process.env.SUPER_ADMIN_APPLY_RESET === 'true' && existing.appliedResetMarker !== marker) {
+    if ((presetHash || password.length >= 10) && process.env.SUPER_ADMIN_APPLY_RESET === 'true' && existing.appliedResetMarker !== marker) {
       const now = new Date().toISOString();
       const r = await db.collection('platformAdmins').updateOne(
         { id: existing.id, appliedResetMarker: { $ne: marker } },
-        { $set: { passwordHash: presetHash, mustChangePassword: true, role: 'super_admin', status: 'active', appliedResetMarker: marker, updatedAt: now } },
+        { $set: { passwordHash: await newHash(), mustChangePassword: true, role: 'super_admin', status: 'active', appliedResetMarker: marker, updatedAt: now } },
       );
       if (r.modifiedCount) await platformAudit(db, { adminId: existing.id, email }, request, { action: 'platform.admin_reset_applied', targetType: 'platform_admin', targetId: existing.id });
     }
