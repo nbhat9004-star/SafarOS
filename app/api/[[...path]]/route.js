@@ -3502,6 +3502,31 @@ export async function GET(request, context) {
       const quotations = await db.collection('quotations')
         .find(tenantFilter(session), { projection: { _id: 0 } })
         .sort({ createdAt: -1 }).toArray();
+      // Repair missing quotation links from existing non-cancelled bookings, so the UI
+      // shows "View Booking" for quotations that were converted before link backfilling.
+      const quotationIds = quotations.map((q) => q.id).filter(Boolean);
+      if (quotationIds.length) {
+        const linkedBookings = await db.collection('bookings')
+          .find(tenantFilter(session, { quotationId: { $in: quotationIds }, status: { $ne: 'cancelled' } }),
+            { projection: { _id: 0, id: 1, bookingNumber: 1, quotationId: 1, createdAt: 1 } })
+          .sort({ createdAt: 1 }).toArray();
+        const firstBookingByQuotation = new Map();
+        for (const booking of linkedBookings) {
+          if (booking.quotationId && !firstBookingByQuotation.has(booking.quotationId)) {
+            firstBookingByQuotation.set(booking.quotationId, booking);
+          }
+        }
+        for (const quotation of quotations) {
+          if (quotation.convertedBookingId) continue;
+          const linked = firstBookingByQuotation.get(quotation.id);
+          if (!linked) continue;
+          await db.collection('quotations').updateOne(
+            tenantFilter(session, { id: quotation.id, convertedBookingId: { $in: [null, ''] } }),
+            { $set: { convertedBookingId: linked.id, convertedBookingNumber: linked.bookingNumber || '' } });
+          quotation.convertedBookingId = linked.id;
+          quotation.convertedBookingNumber = linked.bookingNumber || '';
+        }
+      }
       return json({ quotations });
     }
 
@@ -3513,6 +3538,18 @@ export async function GET(request, context) {
       const quotation = await db.collection('quotations')
         .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
       if (!quotation) return err('Quotation not found', 404);
+      if (!quotation.convertedBookingId) {
+        const linked = await db.collection('bookings').findOne(
+          tenantFilter(session, { quotationId: quotation.id, status: { $ne: 'cancelled' } }),
+          { projection: { _id: 0, id: 1, bookingNumber: 1 }, sort: { createdAt: 1 } });
+        if (linked) {
+          await db.collection('quotations').updateOne(
+            tenantFilter(session, { id: quotation.id, convertedBookingId: { $in: [null, ''] } }),
+            { $set: { convertedBookingId: linked.id, convertedBookingNumber: linked.bookingNumber || '' } });
+          quotation.convertedBookingId = linked.id;
+          quotation.convertedBookingNumber = linked.bookingNumber || '';
+        }
+      }
       return json({ quotation });
     }
 
