@@ -1919,7 +1919,7 @@ function Clients({ session }) {
 
 const EMPTY_FORM = { name: '', email: '', password: '', role: 'agent' };
 
-function AddMemberForm({ open, setOpen, onAdded }) {
+function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -2011,7 +2011,7 @@ function AddMemberForm({ open, setOpen, onAdded }) {
             <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="manager">Manager</SelectItem>
+                {actorRole === 'owner' && <SelectItem value="manager">Manager</SelectItem>}
                 <SelectItem value="agent">Agent</SelectItem>
                 <SelectItem value="finance">Finance</SelectItem>
               </SelectContent>
@@ -2054,7 +2054,7 @@ function Team({ session }) {
           </p>
         </div>
         {canInvite && !isEmpty && (
-          <AddMemberForm open={open} setOpen={setOpen} onAdded={load} />
+          <AddMemberForm open={open} setOpen={setOpen} onAdded={load} actorRole={session.user.role} />
         )}
       </div>
 
@@ -2078,7 +2078,7 @@ function Team({ session }) {
                 Add employees to your SafarOS workspace so your team can work together.
               </p>
             </div>
-            {canInvite && <AddMemberForm open={open} setOpen={setOpen} onAdded={load} />}
+            {canInvite && <AddMemberForm open={open} setOpen={setOpen} onAdded={load} actorRole={session.user.role} />}
           </CardContent>
         </Card>
       )}
