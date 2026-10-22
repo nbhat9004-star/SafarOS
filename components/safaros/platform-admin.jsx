@@ -428,6 +428,7 @@ const EMPTY_THEME = { name: '', category: 'Custom', description: '', primaryColo
 function WebsiteThemesView() {
   const [themes, setThemes] = useState(null);
   const [editing, setEditing] = useState(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_THEME);
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
@@ -435,7 +436,7 @@ function WebsiteThemesView() {
     catch (e) { toast.error(e.message); setThemes([]); }
   }, []);
   useEffect(() => { load(); }, [load]);
-  const startEdit = (theme) => { setEditing(theme || null); setForm(theme ? { ...theme } : { ...EMPTY_THEME }); };
+  const startEdit = (theme) => { setEditing(theme || null); setForm(theme ? { ...theme } : { ...EMPTY_THEME }); setDialogOpen(true); };
   const save = async () => {
     if (!form.name.trim()) { toast.error('Enter a theme name'); return; }
     setBusy(true);
@@ -443,7 +444,7 @@ function WebsiteThemesView() {
       if (editing) await api(`/themes/${editing.id}`, { method: 'PUT', body: JSON.stringify(form) });
       else await api('/themes', { method: 'POST', body: JSON.stringify(form) });
       toast.success(editing ? 'Theme updated' : 'Theme added');
-      setEditing(null); await load();
+      setEditing(null); setDialogOpen(false); setForm(EMPTY_THEME); await load();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   };
   const toggle = async (theme) => {
@@ -474,7 +475,7 @@ function WebsiteThemesView() {
         </CardContent>
       </Card>)}
     </div>
-    <Dialog open={editing !== null || form.name !== ''} onOpenChange={open => { if (!open) { setEditing(null); setForm(EMPTY_THEME); } }}>
+    <Dialog open={dialogOpen} onOpenChange={open => { setDialogOpen(open); if (!open) { setEditing(null); setForm(EMPTY_THEME); } }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader><DialogTitle>{editing ? `Edit ${editing.name}` : 'Add custom theme'}</DialogTitle></DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -485,7 +486,7 @@ function WebsiteThemesView() {
           <div className="space-y-1"><Label>Secondary colour</Label><div className="flex gap-2"><input aria-label="Secondary colour picker" type="color" className="h-9 w-12 rounded border" value={form.secondaryColor || '#0ea5e9'} onChange={e => setForm({ ...form, secondaryColor: e.target.value })} /><Input value={form.secondaryColor || ''} onChange={e => setForm({ ...form, secondaryColor: e.target.value })} /></div></div>
           <div className="space-y-1 sm:col-span-2"><Label>Description</Label><Textarea rows={3} value={form.description || ''} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
         </div>
-        <DialogFooter><Button variant="outline" onClick={() => { setEditing(null); setForm(EMPTY_THEME); }}>Cancel</Button><Button onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save theme'}</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={() => { setDialogOpen(false); setEditing(null); setForm(EMPTY_THEME); }}>Cancel</Button><Button onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save theme'}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   </div>;
