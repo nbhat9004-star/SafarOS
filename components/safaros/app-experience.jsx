@@ -6765,7 +6765,7 @@ function WebsiteSettings({ data, canManage, onSaved }) {
 
 function WebsiteAppearance({ data, canManage, onSaved }) {
   const s = data.settings;
-  const [f, setF] = useState({ primaryColor: s.primaryColor || '#7c3aed', secondaryColor: s.secondaryColor || '#0ea5e9', font: s.font || 'Inter', theme: s.theme || 'classic', logo: s.logo || '' });
+  const [f, setF] = useState({ primaryColor: s.primaryColor || '#7c3aed', secondaryColor: s.secondaryColor || '#0ea5e9', font: s.font || 'Inter', theme: ['luxe-voyage','wildtrail','atlas-journeys','coastline','roots-routes','happy-trails','meridian'].includes(s.theme) ? s.theme : 'atlas-journeys', logo: s.logo || '' });
   const [saving, setSaving] = useState(false);
   const save = async () => { setSaving(true); try { await api('/website/settings', { method: 'PUT', body: JSON.stringify(f) }); toast.success('Appearance saved'); onSaved(); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
   return (<Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
