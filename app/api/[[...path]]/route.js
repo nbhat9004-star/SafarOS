@@ -1611,7 +1611,7 @@ function publicSettings(s) {
   return { siteTitle: s.siteTitle, tagline: s.tagline, logo: s.logo, favicon: s.favicon, contactEmail: s.contactEmail, phone: s.phone, address: s.address, social: s.social, primaryColor: s.primaryColor, secondaryColor: s.secondaryColor, font: s.font, theme: s.theme, seo: s.seo };
 }
 function publicPage(p) {
-  return { title: p.title, slug: p.slug, pageType: p.pageType, content: p.content, seoTitle: p.seoTitle, seoDescription: p.seoDescription, canonicalUrl: p.canonicalUrl, noindex: p.noindex, ogTitle: p.ogTitle, ogDescription: p.ogDescription, ogImage: p.ogImage };
+  return { id: p.id, status: p.status, title: p.title, slug: p.slug, pageType: p.pageType, content: p.content, seoTitle: p.seoTitle, seoDescription: p.seoDescription, canonicalUrl: p.canonicalUrl, noindex: p.noindex, ogTitle: p.ogTitle, ogDescription: p.ogDescription, ogImage: p.ogImage };
 }
 
 async function publicGet(db, path) {
