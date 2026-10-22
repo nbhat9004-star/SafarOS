@@ -1,16 +1,38 @@
 import { notFound } from 'next/navigation';
+import { headers } from 'next/headers';
 
 async function getWebsiteData(slug) {
+  const path = `/api/public/site/${encodeURIComponent(slug)}`;
+  const candidates = [];
+
+  // Prefer the current request host so production previews/custom domains do not
+  // accidentally fetch a different deployment because of a stale env URL.
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-    const res = await fetch(`${baseUrl}/api/public/site/${encodeURIComponent(slug)}`, {
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-    return await res.json();
+    const h = await headers();
+    const host = h.get('x-forwarded-host') || h.get('host');
+    if (host && /^[a-zA-Z0-9.-]+(?::\\d+)?$/.test(host)) {
+      const proto = h.get('x-forwarded-proto') === 'http' || host.startsWith('localhost') ? 'http' : 'https';
+      candidates.push(`${proto}://${host}`);
+    }
   } catch {
-    return null;
+    // Header access may be unavailable during static analysis; use environment fallbacks.
   }
+
+  if (process.env.NEXT_PUBLIC_BASE_URL) candidates.push(process.env.NEXT_PUBLIC_BASE_URL.replace(/\\/$/, ''));
+  if (process.env.VERCEL_URL) candidates.push(`https://${process.env.VERCEL_URL}`);
+  candidates.push('http://localhost:3000');
+
+  for (const baseUrl of [...new Set(candidates)]) {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, { cache: 'no-store' });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data && typeof data === 'object') return data;
+    } catch {
+      // Try the next origin instead of turning a single misconfigured URL into a 404.
+    }
+  }
+  return null;
 }
 
 export default async function PublicSitePage({ params }) {
