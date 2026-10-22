@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
-import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE } from '@/lib/email';
+import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured } from '@/lib/email';
 import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
 import {
   COOKIE_NAME, PORTAL_COOKIE, PLATFORM_COOKIE, hashPassword, verifyPassword, signSession, getSession,
@@ -4303,20 +4303,26 @@ export async function POST(request, context) {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'members:invite')) return err('forbidden', 403);
-      const { name, email, password, role } = await readBody(request);
-      if (!name || !email || !password || !role) return err('name, email, password, role required');
+      const { name, email, role } = await readBody(request);
+      const cleanName = String(name || '').trim().slice(0, 120);
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      if (!cleanName || !EMAIL_ADDR_RE.test(cleanEmail) || cleanEmail.length > 200 || !role) return err('valid name, email and role required');
       // Managers may add operational staff only; only the agency owner can grant manager access.
       if (!isValidRole(role) || role === 'owner' || (session.role === 'manager' && !['agent', 'finance'].includes(role))) return err('invalid role');
-      const existing = await db.collection('users').findOne({ email: String(email).toLowerCase() });
+      if (!(await isEmailConfigured(db))) return err('Email delivery is not configured. Connect the agency email provider before inviting staff.', 503);
+      const existing = await db.collection('users').findOne({ email: cleanEmail });
       if (existing) return err('email already registered', 409);
+      const now = new Date().toISOString();
+      const temporaryPassword = crypto.randomBytes(32).toString('base64url');
       const doc = withAgency(session, {
-        id: uuidv4(), name, email: String(email).toLowerCase(),
-        passwordHash: await hashPassword(password), role, status: 'active',
-        createdAt: new Date().toISOString(),
+        id: uuidv4(), name: cleanName, email: cleanEmail,
+        passwordHash: await hashPassword(temporaryPassword), role, status: 'active',
+        createdAt: now, invitedAt: now, invitedBy: session.userId,
       });
       await db.collection('users').insertOne(doc);
+      await requestPasswordReset(db, 'agency', cleanEmail, clientIp(request), 'invite');
       const { passwordHash, _id, ...safe } = doc;
-      return json({ member: safe }, 201);
+      return json({ member: safe, invitationSent: true }, 201);
     }
 
     // Demo tenant-scoped resource proving isolation.
