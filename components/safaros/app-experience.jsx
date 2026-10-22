@@ -1917,7 +1917,7 @@ function Clients({ session }) {
   );
 }
 
-const EMPTY_FORM = { name: '', email: '', password: '', role: 'agent' };
+const EMPTY_FORM = { name: '', email: '', role: 'agent' };
 
 function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
   const [form, setForm] = useState(EMPTY_FORM);
@@ -1931,13 +1931,12 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
   };
 
   const emailValid = EMAIL_RE.test(form.email.trim());
-  const canSubmit = !!form.name.trim() && emailValid && form.password.length >= 6 && !!form.role;
+  const canSubmit = !!form.name.trim() && emailValid && !!form.role;
 
   const submit = async () => {
     setError('');
     if (!form.name.trim()) return setError('Full name is required.');
     if (!emailValid) return setError('Enter a valid business email address.');
-    if (form.password.length < 6) return setError('Password must be at least 6 characters.');
     setSubmitting(true);
     try {
       await api('/members', {
@@ -1945,11 +1944,10 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
         body: JSON.stringify({
           name: form.name.trim(),
           email: form.email.trim().toLowerCase(),
-          password: form.password,
           role: form.role,
         }),
       });
-      toast.success('Team member added');
+      toast.success('Invitation email sent');
       setForm(EMPTY_FORM);
       setOpen(false);
       onAdded();
@@ -1958,7 +1956,8 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
       if (/already registered|duplicate|E11000/i.test(msg)) setError('A member with this email already exists.');
       else if (/forbidden/i.test(msg)) setError('You do not have permission to add team members.');
       else if (/invalid role/i.test(msg)) setError('Please select a valid role.');
-      else if (/required/i.test(msg)) setError('Please fill in all required fields.');
+      else if (/email delivery is not configured/i.test(msg)) setError('Connect the agency email provider in Integrations before inviting staff.');
+      else if (/required|valid name, email and role/i.test(msg)) setError('Please enter a name, valid email and role.');
       else if (/unauthenticated/i.test(msg)) setError('Your session has expired. Please sign in again.');
       else setError('Something went wrong while adding the member. Please try again.');
     } finally {
@@ -1996,15 +1995,8 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Password</Label>
-            <Input
-              type="password"
-              value={form.password}
-              placeholder="At least 6 characters"
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
-            <p className="text-xs text-muted-foreground">Share this with the employee so they can sign in.</p>
+          <div className="rounded-md border bg-muted/30 px-3 py-3 text-sm text-muted-foreground">
+            SafarOS will email this employee a secure, single-use password setup link. They choose their own password; you never need to create or share one.
           </div>
           <div className="space-y-1.5">
             <Label>Role</Label>
