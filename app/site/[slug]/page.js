@@ -20,7 +20,7 @@ export default async function PublicSitePage({ params }) {
   if (!data || !data.published) notFound();
 
   const { settings, pages, agency } = data;
-  const publishedPages = pages.filter(p => p.status === 'published');
+  // The public API already returns published pages only and omits internal IDs/status fields.\n  const publishedPages = Array.isArray(pages) ? pages : [];
   const homePage = publishedPages.find(p => p.pageType === 'home') || publishedPages[0];
   const primaryColor = settings.primaryColor || '#6366f1';
   const siteTitle = settings.siteTitle || agency.name;
@@ -77,7 +77,7 @@ export default async function PublicSitePage({ params }) {
               <h1 style={{ fontFamily: settings.font || 'inherit' }}>{siteTitle}</h1>
             </div>
             <nav className="site-nav" aria-label="Main navigation">
-              <ul>{publishedPages.map(p => <li key={p.id}><a href={`#${p.slug}`}>{p.title}</a></li>)}</ul>
+              <ul>{publishedPages.map(p => <li key={p.slug}><a href={`#${p.slug}`}>{p.title}</a></li>)}</ul>
             </nav>
             <details className="site-mobile-nav">
               <summary>Menu</summary>
