@@ -2593,7 +2593,18 @@ async function ensureDemoAgency(db) {
 
 const agStatus = (s) => (s || 'active');
 
+const WEBSITE_THEME_DEFAULTS = [
+  { id: 'luxe-voyage', themeKey: 'luxe-voyage', name: 'Luxe Voyage', category: 'Luxury', description: 'Elegant, premium travel experiences with editorial typography.', primaryColor: '#172554', secondaryColor: '#c9a96e', font: 'Montserrat', builtIn: true, active: true },
+  { id: 'wildtrail', themeKey: 'wildtrail', name: 'WildTrail', category: 'Adventure', description: 'Bold outdoor trips, trekking, wildlife and expedition packages.', primaryColor: '#234b36', secondaryColor: '#d5a84f', font: 'Inter', builtIn: true, active: true },
+  { id: 'atlas-journeys', themeKey: 'atlas-journeys', name: 'Atlas Journeys', category: 'Contemporary', description: 'Clean, modern layouts for curated multi-destination journeys.', primaryColor: '#334155', secondaryColor: '#0ea5e9', font: 'Inter', builtIn: true, active: true },
+  { id: 'coastline', themeKey: 'coastline', name: 'Coastline', category: 'Beach & Island', description: 'Airy coastal styling for beach holidays and island escapes.', primaryColor: '#075985', secondaryColor: '#2dd4bf', font: 'Lato', builtIn: true, active: true },
+  { id: 'roots-routes', themeKey: 'roots-routes', name: 'Roots & Routes', category: 'Culture', description: 'Warm, story-led presentation for heritage and local experiences.', primaryColor: '#78350f', secondaryColor: '#d97706', font: 'Poppins', builtIn: true, active: true },
+  { id: 'happy-trails', themeKey: 'happy-trails', name: 'Happy Trails', category: 'Family', description: 'Friendly, colourful package presentation for families and groups.', primaryColor: '#166534', secondaryColor: '#f59e0b', font: 'Poppins', builtIn: true, active: true },
+  { id: 'meridian', themeKey: 'meridian', name: 'Meridian', category: 'Corporate', description: 'Professional, restrained design for business and managed travel.', primaryColor: '#1e3a8a', secondaryColor: '#64748b', font: 'Roboto', builtIn: true, active: true },
+];
+
 function platformReadPerm(path) {
+  if (path.startsWith('/platform/themes')) return 'themes:manage';
   if (path === '/platform/dashboard') return 'platform:dashboard';
   if (path.startsWith('/platform/agencies')) return 'agencies:read';
   if (path.startsWith('/platform/users')) return 'users:read';
@@ -2698,6 +2709,14 @@ async function testProviderConnection(provider, values = {}) {
 
 async function platformGet(db, session, path, sp) {
   if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
+
+  if (path === '/platform/themes') {
+    for (const theme of WEBSITE_THEME_DEFAULTS) {
+      await db.collection('websiteThemes').updateOne({ id: theme.id }, { $setOnInsert: { ...theme, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }, { upsert: true });
+    }
+    const themes = await db.collection('websiteThemes').find({}, { projection: { _id: 0 } }).sort({ builtIn: -1, name: 1 }).toArray();
+    return json({ themes });
+  }
 
   if (path === '/platform/dashboard') {
     const agencies = await db.collection('agencies').find({}, { projection: { _id: 0, id: 1, status: 1, plan: 1 } }).toArray();
@@ -2882,6 +2901,26 @@ async function platformGet(db, session, path, sp) {
 
 async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
+  if (path === '/platform/themes') {
+    if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
+    const name = str(body.name, 80);
+    if (!name) return err('Theme name is required');
+    const themeKey = slugify(str(body.themeKey || name, 80));
+    const id = `custom-${themeKey}-${uuidv4().slice(0, 8)}`;
+    const theme = {
+      id, themeKey, name, category: str(body.category, 60) || 'Custom',
+      description: str(body.description, 500),
+      primaryColor: /^#[0-9a-fA-F]{6}$/.test(body.primaryColor || '') ? body.primaryColor : '#334155',
+      secondaryColor: /^#[0-9a-fA-F]{6}$/.test(body.secondaryColor || '') ? body.secondaryColor : '#0ea5e9',
+      font: ['Inter','Poppins','Roboto','Lato','Montserrat'].includes(body.font) ? body.font : 'Inter',
+      builtIn: false, active: body.active !== false, createdAt: now, updatedAt: now,
+    };
+    await db.collection('websiteThemes').insertOne(theme);
+    await platformAudit(db, session, request, { action: 'website_theme.created', targetType: 'website_theme', targetId: id, metadata: { name } });
+    const { _id, ...safe } = theme;
+    return json({ theme: safe }, 201);
+  }
+
   if (path === '/platform/settings/email/test') {
     if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403); // Super Admin only
     const to = String(body?.to || session.email || '').trim().toLowerCase();
@@ -3005,6 +3044,26 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
+  const themeEdit = path.match(/^\/platform\/themes\/([^/]+)$/);
+  if (themeEdit) {
+    if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
+    const id = themeEdit[1];
+    const existing = await db.collection('websiteThemes').findOne({ id });
+    if (!existing) return err('Theme not found', 404);
+    const set = { updatedAt: now };
+    if (body.name !== undefined) { const name = str(body.name, 80); if (!name) return err('Theme name is required'); set.name = name; }
+    if (body.category !== undefined) set.category = str(body.category, 60);
+    if (body.description !== undefined) set.description = str(body.description, 500);
+    if (body.primaryColor !== undefined) { if (!/^#[0-9a-fA-F]{6}$/.test(body.primaryColor)) return err('Primary color must be a 6-digit hex color'); set.primaryColor = body.primaryColor; }
+    if (body.secondaryColor !== undefined) { if (!/^#[0-9a-fA-F]{6}$/.test(body.secondaryColor)) return err('Secondary color must be a 6-digit hex color'); set.secondaryColor = body.secondaryColor; }
+    if (body.font !== undefined) { if (!['Inter','Poppins','Roboto','Lato','Montserrat'].includes(body.font)) return err('Invalid font'); set.font = body.font; }
+    if (body.active !== undefined) set.active = Boolean(body.active);
+    await db.collection('websiteThemes').updateOne({ id }, { $set: set });
+    await platformAudit(db, session, request, { action: 'website_theme.updated', targetType: 'website_theme', targetId: id, metadata: { fields: Object.keys(set).filter(k => k !== 'updatedAt') } });
+    const theme = await db.collection('websiteThemes').findOne({ id }, { projection: { _id: 0 } });
+    return json({ theme });
+  }
+
 
   // Landing-page early-access request status update.
   const eaM = path.match(/^\/platform\/early-access\/([^/]+)$/);
@@ -3143,6 +3202,18 @@ async function platformPut(db, session, path, body, request) {
 }
 
 async function platformDelete(db, session, path, request) {
+  const themeDel = path.match(/^\/platform\/themes\/([^/]+)$/);
+  if (themeDel) {
+    if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
+    const id = themeDel[1];
+    const existing = await db.collection('websiteThemes').findOne({ id });
+    if (!existing) return err('Theme not found', 404);
+    if (existing.builtIn) return err('Built-in themes cannot be deleted; deactivate them instead');
+    await db.collection('websiteThemes').deleteOne({ id });
+    await platformAudit(db, session, request, { action: 'website_theme.deleted', targetType: 'website_theme', targetId: id, metadata: { name: existing.name } });
+    return json({ ok: true });
+  }
+
   const agDel = path.match(/^\/platform\/agencies\/([^/]+)$/);
   if (agDel) {
     if (!canPlatform(session.role, 'agencies:delete')) return err('forbidden', 403);
