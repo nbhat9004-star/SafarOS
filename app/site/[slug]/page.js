@@ -24,6 +24,7 @@ export default async function PublicSitePage({ params }) {
   const publishedPages = Array.isArray(pages) ? pages : [];
   const homePage = publishedPages.find(p => p.pageType === 'home') || publishedPages[0];
   const primaryColor = settings.primaryColor || '#6366f1';
+  const themeKey = ['luxe-voyage','wildtrail','atlas-journeys','coastline','roots-routes','happy-trails','meridian'].includes(settings.theme) ? settings.theme : 'atlas-journeys';
   const siteTitle = settings.siteTitle || agency.name;
 
   return (
@@ -54,6 +55,20 @@ export default async function PublicSitePage({ params }) {
           .site-main img { height: auto; }
           .site-main pre, .site-main table { max-width: 100%; overflow-x: auto; }
           .site-footer-inner { max-width: 1200px; margin: 0 auto; text-align: center; }
+          body.theme-luxe-voyage { background: #faf8f2 !important; }
+          body.theme-luxe-voyage .site-brand h1, body.theme-luxe-voyage .site-main h2 { font-family: Georgia, 'Times New Roman', serif !important; letter-spacing: -.02em; }
+          body.theme-luxe-voyage .site-header { border-bottom: 3px solid #c9a96e; }
+          body.theme-wildtrail .site-header { background-image: linear-gradient(115deg, rgba(0,0,0,.18), transparent) !important; }
+          body.theme-wildtrail .site-main section { border-left: 3px solid #d5a84f; padding-left: 1rem; }
+          body.theme-atlas-journeys .site-main { max-width: 1120px; }
+          body.theme-coastline { background: #f0fdfa !important; }
+          body.theme-coastline .site-header { border-bottom: 4px solid #2dd4bf; }
+          body.theme-roots-routes { background: #fffaf0 !important; }
+          body.theme-roots-routes .site-main section { background: rgba(217,119,6,.045); padding: 1.25rem; border-radius: .75rem; }
+          body.theme-happy-trails .site-main section { background: #f0fdf4; padding: 1.25rem; border-radius: 1rem; }
+          body.theme-happy-trails .site-header { border-bottom: 4px solid #f59e0b; }
+          body.theme-meridian .site-header { border-bottom: 3px solid #64748b; }
+          body.theme-meridian .site-main { max-width: 1080px; }
           @media (max-width: 700px) {
             .site-header { padding: 1rem !important; }
             .site-header-inner { align-items: flex-start; flex-direction: column; gap: 1rem; }
@@ -70,7 +85,7 @@ export default async function PublicSitePage({ params }) {
           }
         `}</style>
       </head>
-      <body style={{ margin: 0, fontFamily: settings.font || 'system-ui, sans-serif', backgroundColor: '#fff', color: '#000' }}>
+      <body className={`theme-${themeKey}`} style={{ margin: 0, fontFamily: settings.font || 'system-ui, sans-serif', backgroundColor: '#fff', color: '#000' }}>
         <header className="site-header" style={{ backgroundColor: primaryColor, color: '#fff', padding: '1rem 2rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
           <div className="site-header-inner">
             <div className="site-brand">
