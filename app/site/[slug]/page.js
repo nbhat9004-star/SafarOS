@@ -2,10 +2,8 @@ import { notFound } from 'next/navigation';
 
 async function getWebsiteData(slug) {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
-    const url = baseUrl
-      ? `${baseUrl.replace(/\/$/, '')}/api/public/site/${encodeURIComponent(slug)}`
-      : `/api/public/site/${encodeURIComponent(slug)}`;
+    const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')).replace(/\/$/, '');
+    const url = `${baseUrl}/api/public/site/${encodeURIComponent(slug)}`;
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return null;
     return await res.json();
