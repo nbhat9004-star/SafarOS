@@ -10,7 +10,7 @@ async function getWebsiteData(slug) {
   try {
     const h = await headers();
     const host = h.get('x-forwarded-host') || h.get('host');
-    if (host && /^[a-zA-Z0-9.-]+(?::\\d+)?$/.test(host)) {
+    if (host && /^[a-zA-Z0-9.-]+(?:\d+)?$/.test(host)) {
       const proto = h.get('x-forwarded-proto') === 'http' || host.startsWith('localhost') ? 'http' : 'https';
       candidates.push(`${proto}://${host}`);
     }
@@ -18,7 +18,7 @@ async function getWebsiteData(slug) {
     // Header access may be unavailable during static analysis; use environment fallbacks.
   }
 
-  if (process.env.NEXT_PUBLIC_BASE_URL) candidates.push(process.env.NEXT_PUBLIC_BASE_URL.replace(/\\/$/, ''));
+  if (process.env.NEXT_PUBLIC_BASE_URL) candidates.push(process.env.NEXT_PUBLIC_BASE_URL.replace(/\/$/, ''));
   if (process.env.VERCEL_URL) candidates.push(`https://${process.env.VERCEL_URL}`);
   candidates.push('http://localhost:3000');
 
