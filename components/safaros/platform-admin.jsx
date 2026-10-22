@@ -429,6 +429,7 @@ function WebsiteThemesView() {
   const [themes, setThemes] = useState(null);
   const [editing, setEditing] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [previewTheme, setPreviewTheme] = useState(null);
   const [form, setForm] = useState(EMPTY_THEME);
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
@@ -471,10 +472,32 @@ function WebsiteThemesView() {
             <div className="space-y-2 p-3"><div className="h-2 w-2/3 rounded" style={{ backgroundColor: theme.primaryColor }} /><div className="h-2 w-full rounded bg-slate-100" /><div className="flex gap-2"><div className="h-6 flex-1 rounded" style={{ backgroundColor: theme.secondaryColor }} /><div className="h-6 flex-1 rounded bg-slate-100" /></div></div>
           </div>
           <p className="min-h-10 text-sm text-muted-foreground">{theme.description || 'No description yet.'}</p>
-          <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => startEdit(theme)}>Edit</Button><Button size="sm" variant="outline" onClick={() => toggle(theme)}>{theme.active ? 'Deactivate' : 'Activate'}</Button>{!theme.builtIn && <Button size="sm" variant="ghost" className="text-rose-600" onClick={() => remove(theme)}>Delete</Button>}</div>
+          <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => setPreviewTheme(theme)}><Eye className="mr-1 h-3.5 w-3.5" /> Preview demo</Button><Button size="sm" variant="outline" onClick={() => startEdit(theme)}>Edit</Button><Button size="sm" variant="outline" onClick={() => toggle(theme)}>{theme.active ? 'Deactivate' : 'Activate'}</Button>{!theme.builtIn && <Button size="sm" variant="ghost" className="text-rose-600" onClick={() => remove(theme)}>Delete</Button>}</div>
         </CardContent>
       </Card>)}
     </div>
+    <Dialog open={!!previewTheme} onOpenChange={open => !open && setPreviewTheme(null)}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader><DialogTitle>{previewTheme ? `${previewTheme.name} — demo preview` : 'Theme demo'}</DialogTitle></DialogHeader>
+        {previewTheme && <div className="overflow-hidden rounded-xl border bg-white" style={{ fontFamily: previewTheme.font || 'Inter, sans-serif' }}>
+          <div className="p-5 text-white sm:p-8" style={{ background: `linear-gradient(120deg, ${previewTheme.primaryColor}, ${previewTheme.secondaryColor})` }}>
+            <div className="text-xs font-semibold uppercase tracking-[.2em] opacity-80">Discover your next journey</div>
+            <h2 className="mt-3 text-2xl font-bold sm:text-4xl">Travel beyond the ordinary.</h2>
+            <p className="mt-2 max-w-xl text-sm text-white/90">Thoughtfully curated holidays, local experiences and unforgettable places.</p>
+            <div className="mt-5 inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold" style={{ color: previewTheme.primaryColor }}>Explore trips</div>
+          </div>
+          <div className="grid gap-3 p-4 sm:grid-cols-3 sm:p-6">
+            {[['Kashmir escapes','Lakes, valleys and mountain stays'],['Cultural journeys','Local food, heritage and people'],['Adventure trails','Outdoor experiences and discovery']].map((item, i) => <div key={item[0]} className="rounded-lg border p-4">
+              <div className="mb-3 h-16 rounded-md" style={{ background: i === 0 ? `linear-gradient(135deg, ${previewTheme.primaryColor}, ${previewTheme.secondaryColor})` : i === 1 ? `linear-gradient(135deg, ${previewTheme.secondaryColor}, #f8fafc)` : `linear-gradient(135deg, #e2e8f0, ${previewTheme.primaryColor})` }} />
+              <div className="font-semibold">{item[0]}</div><p className="mt-1 text-xs text-slate-500">{item[1]}</p>
+              <div className="mt-3 h-1.5 w-20 rounded" style={{ backgroundColor: previewTheme.secondaryColor }} />
+            </div>)}
+          </div>
+          <div className="border-t px-4 py-3 text-xs text-slate-500 sm:px-6">Responsive demo preview · {previewTheme.category} · {previewTheme.font}</div>
+        </div>}
+        <DialogFooter><Button variant="outline" onClick={() => setPreviewTheme(null)}>Close preview</Button>{previewTheme && <Button onClick={() => { setPreviewTheme(null); startEdit(previewTheme); }}>Customize theme</Button>}</DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Dialog open={dialogOpen} onOpenChange={open => { setDialogOpen(open); if (!open) { setEditing(null); setForm(EMPTY_THEME); } }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader><DialogTitle>{editing ? `Edit ${editing.name}` : 'Add custom theme'}</DialogTitle></DialogHeader>
