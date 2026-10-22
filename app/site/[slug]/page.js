@@ -97,8 +97,8 @@ export default async function PublicSitePage({ params }) {
             </section>
           ) : null}
 
-          {publishedPages.filter(p => p.pageType !== 'home' && p.id !== homePage?.id).map(page => (
-            <section key={page.id} id={page.slug} style={{ marginBottom: '3rem', paddingTop: '2rem', scrollMarginTop: '1rem' }}>
+          {publishedPages.filter(p => p.pageType !== 'home' && p.slug !== homePage?.slug).map(page => (
+            <section key={page.slug} id={page.slug} style={{ marginBottom: '3rem', paddingTop: '2rem', scrollMarginTop: '1rem' }}>
               <h2 style={{ fontSize: '2rem', marginBottom: '1rem', fontFamily: settings.font || 'inherit', color: primaryColor }}>{page.title}</h2>
               <div style={{ fontSize: '1.125rem', lineHeight: '1.75' }} dangerouslySetInnerHTML={{ __html: page.content || '' }} />
             </section>
