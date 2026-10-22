@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
-import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured } from '@/lib/email';
+import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured, isAgencyEmailConfigured } from '@/lib/email';
 import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
 import {
   COOKIE_NAME, PORTAL_COOKIE, PLATFORM_COOKIE, hashPassword, verifyPassword, signSession, getSession,
@@ -4331,7 +4331,7 @@ export async function POST(request, context) {
       if (!cleanName || !EMAIL_ADDR_RE.test(cleanEmail) || cleanEmail.length > 200 || !role) return err('valid name, email and role required');
       // Managers may add operational staff only; only the agency owner can grant manager access.
       if (!isValidRole(role) || role === 'owner' || (session.role === 'manager' && !['agent', 'finance'].includes(role))) return err('invalid role');
-      if (!(await isEmailConfigured(db, session.agencyId))) return err('Email delivery is not configured. Connect the agency email provider before inviting staff.', 503);
+      if (!(await isAgencyEmailConfigured(db, session.agencyId))) return err('Agency email is not configured. Connect Resend with a verified sender email before inviting staff.', 503);
       const existing = await db.collection('users').findOne({ email: cleanEmail });
       if (existing) return err('email already registered', 409);
       const now = new Date().toISOString();
