@@ -1995,15 +1995,34 @@ async function integrationsPost(db, session, path, body) {
     const existing = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
     const metadata = { ...((existing && existing.configurationMetadata) || {}) };
     const secretHints = { ...((existing && existing.secretHints) || {}) };
+    const agencyId = String(session.agencyId || '');
+    if (provider === 'resend' && !agencyId) return err('Agency context is missing; please sign in again.', 401);
+    const secretDoc = provider === 'resend'
+      ? await db.collection('agencyIntegrationSecrets').findOne({ agencyId, provider }, { projection: { _id: 0, secrets: 1 } })
+      : null;
+    const encryptedSecrets = { ...(secretDoc?.secrets || {}) };
     for (const f of cat.fields) {
       const val = input[f.key];
       if (val === undefined || val === '') continue;
       if (f.type === 'secret') {
-        // Never persist the secret itself — only a masked hint.
-        secretHints[f.key] = last4(val);
+        const secret = String(val).trim();
+        if (provider === 'resend' && f.key === 'apiKey') {
+          if (!/^re_[A-Za-z0-9_-]{8,200}$/.test(secret)) return err('Enter a valid Resend API key beginning with re_.');
+          encryptedSecrets[f.key] = { enc: encryptSecret(secret), last4: last4(secret), updatedAt: now };
+        }
+        secretHints[f.key] = last4(secret);
       } else {
-        metadata[f.key] = str(val, 500);
+        const clean = str(val, 500);
+        if (provider === 'resend' && f.key === 'fromEmail' && !EMAIL_ADDR_RE.test(clean.toLowerCase())) return err('Enter a valid sender email address.');
+        metadata[f.key] = provider === 'resend' && f.key === 'fromEmail' ? clean.toLowerCase() : clean;
       }
+    }
+    if (provider === 'resend' && Object.keys(encryptedSecrets).length) {
+      await db.collection('agencyIntegrationSecrets').updateOne(
+        { agencyId, provider },
+        { $set: { agencyId, provider, secrets: encryptedSecrets, updatedAt: now }, $setOnInsert: { id: uuidv4(), createdAt: now } },
+        { upsert: true },
+      );
     }
     // Determine completeness from safe signals (non-secret present, or secret hint on record).
     const missing = cat.fields.filter((f) => f.required && (f.type === 'secret' ? !secretHints[f.key] : (metadata[f.key] === undefined || metadata[f.key] === '')));
@@ -2031,6 +2050,9 @@ async function integrationsPost(db, session, path, body) {
     if (!cat) return err('Unknown integration', 404);
     if (cat.managed === 'env') return err('This provider is managed via server environment');
     await db.collection('integrations').deleteOne(tenantFilter(session, { provider }));
+    if (provider === 'resend' && session.agencyId) {
+      await db.collection('agencyIntegrationSecrets').deleteOne({ agencyId: String(session.agencyId), provider: 'resend' });
+    }
     return json({ integration: integrationView(cat, null) });
   }
 
@@ -4309,7 +4331,7 @@ export async function POST(request, context) {
       if (!cleanName || !EMAIL_ADDR_RE.test(cleanEmail) || cleanEmail.length > 200 || !role) return err('valid name, email and role required');
       // Managers may add operational staff only; only the agency owner can grant manager access.
       if (!isValidRole(role) || role === 'owner' || (session.role === 'manager' && !['agent', 'finance'].includes(role))) return err('invalid role');
-      if (!(await isEmailConfigured(db))) return err('Email delivery is not configured. Connect the agency email provider before inviting staff.', 503);
+      if (!(await isEmailConfigured(db, session.agencyId))) return err('Email delivery is not configured. Connect the agency email provider before inviting staff.', 503);
       const existing = await db.collection('users').findOne({ email: cleanEmail });
       if (existing) return err('email already registered', 409);
       const now = new Date().toISOString();
