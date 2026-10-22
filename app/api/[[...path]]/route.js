@@ -2025,7 +2025,9 @@ async function integrationsPost(db, session, path, body) {
       );
     }
     // Determine completeness from safe signals (non-secret present, or secret hint on record).
-    const missing = cat.fields.filter((f) => f.required && (f.type === 'secret' ? !secretHints[f.key] : (metadata[f.key] === undefined || metadata[f.key] === '')));
+    const missing = cat.fields.filter((f) => f.required && (f.type === 'secret'
+      ? (provider === 'resend' ? !encryptedSecrets[f.key]?.enc : !secretHints[f.key])
+      : (metadata[f.key] === undefined || metadata[f.key] === '')));
     const status = missing.length ? 'configuration_required' : 'connected';
     const enabled = body && body.enabled === false ? false : true;
     const finalStatus = enabled ? status : 'disabled';
@@ -4342,7 +4344,11 @@ export async function POST(request, context) {
         createdAt: now, invitedAt: now, invitedBy: session.userId,
       });
       await db.collection('users').insertOne(doc);
-      await requestPasswordReset(db, 'agency', cleanEmail, clientIp(request), 'invite');
+      const invitation = await requestPasswordReset(db, 'agency', cleanEmail, clientIp(request), 'invite');
+      if (!invitation?.ok) {
+        await db.collection('users').deleteOne({ id: doc.id, agencyId: session.agencyId });
+        return err('The invitation email could not be sent. Check the agency Resend key, verified sender address, and application base URL, then try again.', 502);
+      }
       const { passwordHash, _id, ...safe } = doc;
       return json({ member: safe, invitationSent: true }, 201);
     }
