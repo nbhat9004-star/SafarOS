@@ -10,7 +10,7 @@ async function getWebsiteData(slug) {
   try {
     const h = await headers();
     const host = h.get('x-forwarded-host') || h.get('host');
-    if (host && /^[a-zA-Z0-9.-]+(?:\d+)?$/.test(host)) {
+    if (host && /^[a-zA-Z0-9.-]+(?::\d+)?$/.test(host)) {
       const proto = h.get('x-forwarded-proto') === 'http' || host.startsWith('localhost') ? 'http' : 'https';
       candidates.push(`${proto}://${host}`);
     }
