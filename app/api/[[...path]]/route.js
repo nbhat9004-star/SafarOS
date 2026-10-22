@@ -54,7 +54,7 @@ function pathOf(params) {
 
 function setSessionCookie(res, token) {
   res.cookies.set({
-    name: COOKIE_NAME, value: token, httpOnly: true, sameSite: 'lax',
+    name: COOKIE_NAME, value: token, httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax',
     path: '/', maxAge: 60 * 60 * 24 * 7,
   });
   return res;
@@ -62,7 +62,7 @@ function setSessionCookie(res, token) {
 
 function setPlatformCookie(res, token) {
   res.cookies.set({
-    name: PLATFORM_COOKIE, value: token, httpOnly: true, sameSite: 'lax',
+    name: PLATFORM_COOKIE, value: token, httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax',
     path: '/', maxAge: 60 * 60 * 24 * 7,
   });
   return res;
@@ -1343,13 +1343,13 @@ async function portalLogin(db, body) {
   const token = signPortalSession({ portalUserId: pu.id, clientId: pu.clientId, agencyId: pu.agencyId });
   await db.collection('portalUsers').updateOne({ id: pu.id }, { $set: { lastLoginAt: new Date().toISOString() } });
   const res = json({ ok: true, customer: safeCustomer(client, pu) });
-  res.cookies.set({ name: PORTAL_COOKIE, value: token, httpOnly: true, sameSite: 'lax', path: '/', maxAge: PORTAL_MAX_AGE });
+  res.cookies.set({ name: PORTAL_COOKIE, value: token, httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: PORTAL_MAX_AGE });
   return res;
 }
 
 function portalLogout() {
   const res = json({ ok: true });
-  res.cookies.set({ name: PORTAL_COOKIE, value: '', httpOnly: true, sameSite: 'lax', path: '/', maxAge: 0 });
+  res.cookies.set({ name: PORTAL_COOKIE, value: '', httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 0 });
   return res;
 }
 
@@ -3993,7 +3993,7 @@ export async function POST(request, context) {
       if (path === '/platform/auth/login') return platformLogin(db, await readBody(request), request);
       if (path === '/platform/auth/logout') {
         const res = json({ ok: true });
-        res.cookies.set({ name: PLATFORM_COOKIE, value: '', httpOnly: true, path: '/', maxAge: 0 });
+        res.cookies.set({ name: PLATFORM_COOKIE, value: '', httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 0 });
         return res;
       }
       if (path === '/platform/auth/forgot-password') {
@@ -4290,7 +4290,7 @@ export async function POST(request, context) {
 
     if (path === '/auth/logout') {
       const res = json({ ok: true });
-      res.cookies.set({ name: COOKIE_NAME, value: '', httpOnly: true, path: '/', maxAge: 0 });
+      res.cookies.set({ name: COOKIE_NAME, value: '', httpOnly: true, secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 0 });
       return res;
     }
 
