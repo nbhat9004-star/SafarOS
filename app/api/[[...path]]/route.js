@@ -2595,6 +2595,7 @@ const agStatus = (s) => (s || 'active');
 
 function platformReadPerm(path) {
   if (path === '/platform/dashboard') return 'platform:dashboard';
+  if (path.startsWith('/platform/themes')) return 'themes:read';
   if (path.startsWith('/platform/agencies')) return 'agencies:read';
   if (path.startsWith('/platform/users')) return 'users:read';
   if (path.startsWith('/platform/subscriptions') || path === '/platform/billing') return 'subscriptions:read';
@@ -2698,6 +2699,17 @@ async function testProviderConnection(provider, values = {}) {
 
 async function platformGet(db, session, path, sp) {
   if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
+
+  if (path === '/platform/themes') {
+    const themes = await db.collection('websiteThemes').find({}, { projection: { _id: 0 } }).sort({ updatedAt: -1, name: 1 }).limit(500).toArray();
+    return json({ themes });
+  }
+  const themeDetail = path.match(/^\/platform\/themes\/([^/]+)$/);
+  if (themeDetail) {
+    const theme = await db.collection('websiteThemes').findOne({ id: themeDetail[1] }, { projection: { _id: 0 } });
+    if (!theme) return err('Theme not found', 404);
+    return json({ theme });
+  }
 
   if (path === '/platform/dashboard') {
     const agencies = await db.collection('agencies').find({}, { projection: { _id: 0, id: 1, status: 1, plan: 1 } }).toArray();
@@ -3000,6 +3012,30 @@ async function platformPost(db, session, path, body, request) {
     return json({ ok: true, mode: 'super_admin_access', agency: { id: agency.id, name: agency.name, slug: agency.slug }, note: 'Super Admin access is attributable and recorded in audit logs. No hidden impersonation is performed.' });
   }
 
+  if (path === '/platform/themes') {
+    if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
+    const name = str(body.name, 100).trim();
+    const slug = slugify(body.slug || name);
+    const category = str(body.category, 60).trim() || 'general';
+    const description = str(body.description, 500).trim();
+    if (!name) return err('Theme name is required');
+    if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return err('Use a valid theme slug');
+    const exists = await db.collection('websiteThemes').findOne({ slug });
+    if (exists) return err('A theme with this slug already exists', 409);
+    const now = new Date().toISOString();
+    const theme = {
+      id: uuidv4(), slug, name, category, description,
+      thumbnailUrl: str(body.thumbnailUrl, 600),
+      config: body.config && typeof body.config === 'object' && !Array.isArray(body.config) ? body.config : {},
+      status: 'draft', version: 1, createdAt: now, updatedAt: now,
+      createdBy: session.adminId, updatedBy: session.adminId,
+    };
+    await db.collection('websiteThemes').insertOne(theme);
+    await platformAudit(db, session, request, { action: 'website_theme.created', targetType: 'website_theme', targetId: theme.id, metadata: { slug, status: theme.status } });
+    const { _id, ...safe } = theme;
+    return json({ theme: safe }, 201);
+  }
+
   return err('not found', 404);
 }
 
@@ -3137,6 +3173,43 @@ async function platformPut(db, session, path, body, request) {
     await platformAudit(db, session, request, { action: 'settings.updated', targetType: 'settings', targetId: 'platform' });
     const settings = await db.collection('platformSettings').findOne({ id: 'platform' }, { projection: { _id: 0 } });
     return json({ settings });
+  }
+
+  const themeMatch = path.match(/^\/platform\/themes\/([^/]+)$/);
+  if (themeMatch) {
+    if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
+    const id = themeMatch[1];
+    const current = await db.collection('websiteThemes').findOne({ id });
+    if (!current) return err('Theme not found', 404);
+    const next = { updatedAt: now, updatedBy: session.adminId };
+    if (body.name !== undefined) {
+      const name = str(body.name, 100).trim();
+      if (!name) return err('Theme name is required');
+      next.name = name;
+    }
+    if (body.category !== undefined) next.category = str(body.category, 60).trim() || 'general';
+    if (body.description !== undefined) next.description = str(body.description, 500).trim();
+    if (body.thumbnailUrl !== undefined) next.thumbnailUrl = str(body.thumbnailUrl, 600);
+    if (body.config !== undefined) {
+      if (!body.config || typeof body.config !== 'object' || Array.isArray(body.config)) return err('Theme config must be an object');
+      next.config = body.config;
+    }
+    if (body.status !== undefined) {
+      if (!['draft', 'published', 'archived'].includes(body.status)) return err('Status must be draft, published, or archived');
+      next.status = body.status;
+    }
+    if (body.slug !== undefined) {
+      const slug = slugify(body.slug);
+      if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return err('Use a valid theme slug');
+      const clash = await db.collection('websiteThemes').findOne({ slug, id: { $ne: id } });
+      if (clash) return err('A theme with this slug already exists', 409);
+      next.slug = slug;
+    }
+    if (Object.keys(next).some((k) => !['updatedAt', 'updatedBy'].includes(k))) next.version = Number(current.version || 1) + 1;
+    await db.collection('websiteThemes').updateOne({ id }, { $set: next });
+    await platformAudit(db, session, request, { action: 'website_theme.updated', targetType: 'website_theme', targetId: id, metadata: { changedFields: Object.keys(next), status: next.status || current.status } });
+    const theme = await db.collection('websiteThemes').findOne({ id }, { projection: { _id: 0 } });
+    return json({ theme });
   }
 
   return err('not found', 404);
@@ -5473,7 +5546,18 @@ export async function DELETE(request, context) {
       return json({ ok: true });
     }
 
-    return err('not found', 404);
+    const themeDel = path.match(/^\/platform\/themes\/([^/]+)$/);
+  if (themeDel) {
+    if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
+    const id = themeDel[1];
+    const theme = await db.collection('websiteThemes').findOne({ id });
+    if (!theme) return err('Theme not found', 404);
+    // Archive rather than delete so agency assignments and audit history are not orphaned.
+    await db.collection('websiteThemes').updateOne({ id }, { $set: { status: 'archived', updatedAt: new Date().toISOString(), updatedBy: session.adminId } });
+    await platformAudit(db, session, request, { action: 'website_theme.archived', targetType: 'website_theme', targetId: id, metadata: { slug: theme.slug } });
+    return json({ ok: true, archived: true });
+  }
+  return err('not found', 404);
   } catch (e) {
     return err(e.message || 'server error', 500);
   }
