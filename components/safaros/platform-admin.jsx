@@ -18,7 +18,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
-  BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
+  BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck, Palette,
   Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle,
 } from 'lucide-react';
 
@@ -43,6 +43,7 @@ const NAV = [
   { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
   { id: 'plans', label: 'Plans', icon: Layers },
+  { id: 'themes', label: 'Website Themes', icon: Palette },
   { id: 'ai', label: 'AI Platforms', icon: Bot },
   { id: 'api_integrations', label: 'API & Integrations', icon: KeyRound },
   { id: 'integrations', label: 'Integrations', icon: Plug },
@@ -585,6 +586,99 @@ function LoginScreen({ onLoggedIn }) {
   </div>);
 }
 
+
+function ThemeLibraryView() {
+  const blank = { name: '', slug: '', category: 'general', description: '', thumbnailUrl: '', configJson: '{\n  "layout": "responsive",\n  "sections": []\n}' };
+  const [themes, setThemes] = useState(null);
+  const [form, setForm] = useState(blank);
+  const [editingId, setEditingId] = useState('');
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState('');
+  const load = useCallback(async () => {
+    try { const d = await api('/themes'); setThemes(d.themes || []); }
+    catch (e) { toast.error(e.message); setThemes([]); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const startNew = () => { setEditingId(''); setForm(blank); setOpen(true); };
+  const startEdit = (t) => {
+    setEditingId(t.id);
+    setForm({ name: t.name || '', slug: t.slug || '', category: t.category || 'general', description: t.description || '', thumbnailUrl: t.thumbnailUrl || '', configJson: JSON.stringify(t.config || {}, null, 2) });
+    setOpen(true);
+  };
+  const save = async () => {
+    let config;
+    try { config = JSON.parse(form.configJson || '{}'); }
+    catch { toast.error('Theme configuration must be valid JSON'); return; }
+    if (!config || typeof config !== 'object' || Array.isArray(config)) { toast.error('Theme configuration must be a JSON object'); return; }
+    if (!form.name.trim()) { toast.error('Theme name is required'); return; }
+    setBusy(true);
+    try {
+      const payload = { name: form.name, slug: form.slug, category: form.category, description: form.description, thumbnailUrl: form.thumbnailUrl, config };
+      if (editingId) await api(`/themes/${editingId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      else await api('/themes', { method: 'POST', body: JSON.stringify(payload) });
+      toast.success(editingId ? 'Theme updated' : 'Theme created as draft');
+      setOpen(false); await load();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  const setStatus = async (t, status) => {
+    try { await api(`/themes/${t.id}`, { method: 'PUT', body: JSON.stringify({ status }) }); toast.success(`Theme ${status}`); await load(); }
+    catch (e) { toast.error(e.message); }
+  };
+  const duplicate = async (t) => {
+    const suffix = `-copy-${Date.now().toString().slice(-5)}`;
+    try {
+      await api('/themes', { method: 'POST', body: JSON.stringify({ name: `${t.name} Copy`, slug: `${t.slug}${suffix}`, category: t.category, description: t.description, thumbnailUrl: t.thumbnailUrl, config: t.config || {} }) });
+      toast.success('Theme duplicated as a draft'); await load();
+    } catch (e) { toast.error(e.message); }
+  };
+  const visible = (themes || []).filter((t) => [t.name, t.slug, t.category, t.description].join(' ').toLowerCase().includes(search.toLowerCase()));
+  return (<div className="space-y-5">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div><h2 className="text-lg font-semibold text-slate-900">Website Theme Library</h2><p className="mt-1 text-sm text-slate-600">Manage shared themes and their configuration. New themes start as drafts and are not shown to agencies until published.</p></div>
+      <Button onClick={startNew}><Palette className="mr-2 h-4 w-4" /> Add theme</Button>
+    </div>
+    <div className="flex flex-col gap-2 sm:flex-row">
+      <Input className="w-full sm:max-w-sm" placeholder="Search themes…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="text-xs text-muted-foreground self-center">{themes ? `${themes.length} total themes` : 'Loading themes…'}</div>
+    </div>
+    {themes === null ? <div className="h-40 animate-pulse rounded-lg border bg-muted/30" /> : visible.length === 0 ? <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">{themes.length ? 'No themes match your search.' : 'No themes yet. Add the first theme to begin the library.'}</CardContent></Card> : (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {visible.map((t) => <Card key={t.id} className="overflow-hidden">
+          <div className="flex h-28 items-center justify-center border-b bg-gradient-to-br from-violet-100 via-white to-sky-100">
+            {t.thumbnailUrl ? <img src={t.thumbnailUrl} alt="" className="h-full w-full object-cover" /> : <Palette className="h-10 w-10 text-violet-400" />}
+          </div>
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate font-semibold text-slate-900">{t.name}</h3><p className="truncate text-xs text-slate-500">{t.slug}</p></div><Badge variant="outline" className={t.status === 'published' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : t.status === 'archived' ? 'border-slate-200 bg-slate-100 text-slate-600' : 'border-amber-200 bg-amber-50 text-amber-700'}>{t.status || 'draft'}</Badge></div>
+            <p className="text-sm text-slate-600 line-clamp-2">{t.description || 'No description added.'}</p>
+            <div className="flex flex-wrap gap-2 text-xs text-slate-500"><span className="rounded-full bg-slate-100 px-2 py-1">{t.category || 'general'}</span><span className="rounded-full bg-slate-100 px-2 py-1">v{t.version || 1}</span></div>
+            <div className="flex flex-wrap gap-2 border-t pt-3">
+              <Button size="sm" variant="outline" onClick={() => startEdit(t)}>Edit</Button>
+              <Button size="sm" variant="outline" onClick={() => duplicate(t)}>Duplicate</Button>
+              {t.status === 'published' ? <Button size="sm" variant="outline" onClick={() => setStatus(t, 'draft')}>Unpublish</Button> : t.status === 'archived' ? <Button size="sm" variant="outline" onClick={() => setStatus(t, 'draft')}>Restore draft</Button> : <Button size="sm" onClick={() => setStatus(t, 'published')}>Publish</Button>}
+              {t.status !== 'archived' && <Button size="sm" variant="ghost" className="text-rose-700" onClick={() => setStatus(t, 'archived')}>Archive</Button>}
+            </div>
+          </CardContent>
+        </Card>)}
+      </div>
+    )}
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader><DialogTitle>{editingId ? 'Edit theme' : 'Add website theme'}</DialogTitle></DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5"><Label>Theme name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Luxe Voyage" /></div>
+          <div className="space-y-1.5"><Label>Slug</Label><Input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} placeholder="luxe-voyage" /></div>
+          <div className="space-y-1.5"><Label>Category</Label><Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="luxury" /></div>
+          <div className="space-y-1.5"><Label>Preview image URL (optional)</Label><Input value={form.thumbnailUrl} onChange={(e) => setForm({ ...form, thumbnailUrl: e.target.value })} placeholder="https://…" /></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} placeholder="Describe the theme and intended travel niche." /></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label>Theme configuration (JSON)</Label><Textarea className="font-mono text-xs" value={form.configJson} onChange={(e) => setForm({ ...form, configJson: e.target.value })} rows={9} /><p className="text-xs text-muted-foreground">This stores reusable theme configuration. Visual page editing and live website rendering are a separate next phase; publishing here only publishes the catalog record.</p></div>
+        </div>
+        <DialogFooter><Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button><Button onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save theme'}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </div>);
+}
+
 const TITLES = Object.fromEntries(NAV.map((n) => [n.id, n.label]));
 
 function PlatformNavLinks({ section, onSelect }) {
@@ -636,6 +730,7 @@ export default function PlatformAdmin() {
         {section === 'users' && <UsersView />}
         {section === 'subscriptions' && <SubscriptionsView />}
         {section === 'plans' && <PlansView />}
+        {section === 'themes' && <ThemeLibraryView />}
         {section === 'ai' && <AiView />}
         {section === 'api_integrations' && <ProviderCredentialsView />}
         {section === 'integrations' && <IntegrationsView />}
