@@ -1480,7 +1480,11 @@ async function websiteGet(db, session, path) {
   if (path === '/website/settings') {
     let s = await db.collection('websiteSettings').findOne(tenantFilter(session), { projection: { _id: 0 } });
     if (!s) s = defaultWebsiteSettings(session, agency);
-    return json({ settings: s, agency: { name: (agency && agency.name) || '', slug: (agency && agency.slug) || '' } });
+    for (const theme of WEBSITE_THEME_DEFAULTS) {
+      await db.collection('websiteThemes').updateOne({ id: theme.id }, { $setOnInsert: { ...theme, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }, { upsert: true });
+    }
+    const themes = await db.collection('websiteThemes').find({ active: true }, { projection: { _id: 0, id: 1, themeKey: 1, name: 1, category: 1, description: 1, primaryColor: 1, secondaryColor: 1, font: 1 } }).sort({ name: 1 }).toArray();
+    return json({ settings: s, themes, agency: { name: (agency && agency.name) || '', slug: (agency && agency.slug) || '' } });
   }
   if (path === '/website/pages') {
     const pages = await db.collection('websitePages').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ sortOrder: 1, createdAt: 1 }).toArray();
