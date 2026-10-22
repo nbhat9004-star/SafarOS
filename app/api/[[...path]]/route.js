@@ -4305,7 +4305,8 @@ export async function POST(request, context) {
       if (!can(session.role, 'members:invite')) return err('forbidden', 403);
       const { name, email, password, role } = await readBody(request);
       if (!name || !email || !password || !role) return err('name, email, password, role required');
-      if (!isValidRole(role) || role === 'owner') return err('invalid role');
+      // Managers may add operational staff only; only the agency owner can grant manager access.
+      if (!isValidRole(role) || role === 'owner' || (session.role === 'manager' && !['agent', 'finance'].includes(role))) return err('invalid role');
       const existing = await db.collection('users').findOne({ email: String(email).toLowerCase() });
       if (existing) return err('email already registered', 409);
       const doc = withAgency(session, {
