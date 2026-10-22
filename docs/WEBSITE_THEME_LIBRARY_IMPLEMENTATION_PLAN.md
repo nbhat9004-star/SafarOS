@@ -111,3 +111,21 @@ Further source inspection confirms these details on `main`:
 ### Next implementation task
 
 Implement the first vertical slice only: explicit theme permissions, platform-owned theme CRUD with validated fields and audit events, and a Super Admin library view wired to those endpoints. Keep the public renderer and agency editor changes for the next slice, so no incomplete theme can accidentally appear on a published agency site. Do not deploy until focused checks are complete.
+
+
+## First implementation slice added on this branch
+
+The current branch now includes an initial Super Admin theme-catalog management slice:
+
+- Added explicit `themes:read` and `themes:manage` platform permissions restricted to `super_admin`.
+- Added platform API endpoints for listing/reading themes and creating/updating/archiving theme records in the platform-owned `websiteThemes` collection.
+- Theme create/update/archive operations write platform audit events.
+- Added a responsive Super Admin “Website Themes” navigation view with search, create, edit, duplicate, publish/unpublish, and archive/restore-draft controls.
+- The editor stores a JSON configuration object and theme metadata. It is an initial catalog/configuration manager, **not yet a visual page builder**.
+- Publishing currently changes the catalog record status only. It does **not** automatically add themes to the agency builder or change public website rendering; those are intentionally separate follow-up tasks.
+
+## Verification status after this slice
+
+- Source-level inspection confirmed the new route handlers, permission keys, navigation item, and view are present on this branch.
+- No dependency install, build, lint, browser session, database operation, or end-to-end verification has been run. Do not treat the feature as production-ready until these checks are completed.
+- Next: run a focused build/lint check, then implement agency theme gallery/assignment and responsive public-site rendering with an actual preview path. Populate the seven initial themes only once the schema and render contract are defined; do not seed records into production without an explicit controlled migration/seed step.
