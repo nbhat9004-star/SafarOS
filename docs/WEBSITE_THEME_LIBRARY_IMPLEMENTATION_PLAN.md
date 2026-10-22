@@ -94,3 +94,20 @@ Add indexes for stable IDs/slugs and tenant lookup only after reviewing existing
 ## Important caveats
 
 This is an implementation plan, not a claim that the feature is already built or verified. The first coding step must resolve the API dispatch/public-site wiring and active-vs-legacy builder question. Do not merge or deploy until the changed code has been reviewed and the appropriate focused checks pass.
+
+
+## Follow-up audit: active API and permission wiring
+
+Further source inspection confirms these details on `main`:
+
+- `GET /api/platform/*` is intercepted first and requires a platform session; the API then calls `platformGet`, which checks `canPlatform(session.role, platformReadPerm(path))`. Unknown paths currently fall back to the dashboard-read permission, so the new theme endpoints must be explicitly mapped to a dedicated permission instead of relying on the fallback.
+- `POST /api/platform/*` requires a platform session (apart from the explicit auth endpoints) and dispatches to `platformPost`; `PUT /api/platform/*` similarly dispatches to `platformPut`. Each theme mutation should also enforce a specific `themes:manage` permission in its handler, and each read should require `themes:read`.
+- Agency website GET routes are protected by an agency session and `website:read`; writes use `website:manage`. Existing handlers use `tenantFilter(session)` and `withAgency(session, ...)` for agency-scoped records.
+- The public endpoint is implemented by `publicGet(db, path)` and serves `/api/public/site/:slug`, with sitemap and robots endpoints. It resolves the agency from its slug and only returns website pages when `websiteSettings.status === 'published'`. The route is real; the earlier audit note should be read as “no theme-catalog API exists yet,” not “the public site API is missing.”
+- `app/site/[slug]/page.js` fetches that public endpoint and renders a simple single-page presentation. Its header navigation is a horizontal flex list with fixed padding and no visible mobile menu breakpoint in the inspected source, so responsive redesign is required.
+- The current Super Admin navigation in `components/safaros/platform-admin.jsx` does not include a theme-library section. Add it to `NAV`, `TITLES`, and the section-rendering switch/condition only after implementing the matching protected API.
+- The active API dispatch already separates platform and agency sessions, which is the right base for shared platform-owned themes plus tenant-scoped agency assignments. Keep the two ownership domains separate.
+
+### Next implementation task
+
+Implement the first vertical slice only: explicit theme permissions, platform-owned theme CRUD with validated fields and audit events, and a Super Admin library view wired to those endpoints. Keep the public renderer and agency editor changes for the next slice, so no incomplete theme can accidentally appear on a published agency site. Do not deploy until focused checks are complete.
