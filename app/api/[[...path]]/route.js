@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
+import { publicSettings, publicPage } from '@/lib/public-site';
 import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE } from '@/lib/email';
 import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
 import {
@@ -1605,13 +1606,6 @@ async function websiteDelete(db, session, path) {
 }
 
 // ---- Public website (no auth; agency resolved by slug; published content only) ----
-function publicSettings(s) {
-  if (!s) return null;
-  return { siteTitle: s.siteTitle, tagline: s.tagline, logo: s.logo, favicon: s.favicon, contactEmail: s.contactEmail, phone: s.phone, address: s.address, social: s.social, primaryColor: s.primaryColor, secondaryColor: s.secondaryColor, font: s.font, theme: s.theme, seo: s.seo };
-}
-function publicPage(p) {
-  return { title: p.title, slug: p.slug, pageType: p.pageType, content: p.content, seoTitle: p.seoTitle, seoDescription: p.seoDescription, canonicalUrl: p.canonicalUrl, noindex: p.noindex, ogTitle: p.ogTitle, ogDescription: p.ogDescription, ogImage: p.ogImage };
-}
 
 async function publicGet(db, path) {
   const parts = path.split('/'); // ['', 'public', 'site', slug, ...]
