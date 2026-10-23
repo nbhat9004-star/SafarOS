@@ -7101,22 +7101,70 @@ function WebsitePages({ canManage }) {
 
 function WebsiteSeo({ data, canManage, onSaved }) {
   const s = data.settings.seo || {};
-  const [f, setF] = useState({ metaTitle: s.metaTitle || '', metaDescription: s.metaDescription || '', keywords: s.keywords || '', canonicalUrl: s.canonicalUrl || '', robots: s.robots || 'index', ogTitle: s.ogTitle || '', ogDescription: s.ogDescription || '', ogImage: s.ogImage || '' });
+  const b = data.settings.builder || {};
+  const [f, setF] = useState({ 
+    metaTitle: s.metaTitle || '', 
+    metaDescription: s.metaDescription || '', 
+    keywords: s.keywords || '', 
+    canonicalUrl: s.canonicalUrl || '', 
+    robots: s.robots || 'index', 
+    ogTitle: s.ogTitle || '', 
+    ogDescription: s.ogDescription || '', 
+    ogImage: s.ogImage || '',
+    // Header/Footer
+    businessName: b.header?.businessName || data.agency?.name || '',
+    tagline: b.header?.tagline || '',
+    // Social links
+    instagram: b.social?.instagram || '',
+    facebook: b.social?.facebook || '',
+    youtube: b.social?.youtube || '',
+    linkedin: b.social?.linkedin || '',
+    x: b.social?.x || '',
+  });
   const [saving, setSaving] = useState(false); const [overview, setOverview] = useState(null);
   useEffect(() => { (async () => { try { const d = await api('/website/seo/overview'); setOverview(d); } catch { /* */ } })(); }, []);
-  const save = async () => { setSaving(true); try { await api('/website/settings', { method: 'PUT', body: JSON.stringify({ seo: f }) }); toast.success('SEO saved'); onSaved(); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
+  const save = async () => { 
+    setSaving(true); 
+    try { 
+      // Update SEO
+      await api('/website/settings', { method: 'PUT', body: JSON.stringify({ seo: { metaTitle: f.metaTitle, metaDescription: f.metaDescription, keywords: f.keywords, canonicalUrl: f.canonicalUrl, robots: f.robots, ogTitle: f.ogTitle, ogDescription: f.ogDescription, ogImage: f.ogImage } }) }); 
+      // Update builder header/social if exists
+      if (b.header || b.social) {
+        const updatedBuilder = { ...b, header: { ...(b.header || {}), businessName: f.businessName, tagline: f.tagline }, social: { instagram: f.instagram, facebook: f.facebook, youtube: f.youtube, linkedin: f.linkedin, x: f.x } };
+        await api('/website/builder', { method: 'PUT', body: JSON.stringify(updatedBuilder) });
+      }
+      toast.success('SEO & branding saved'); 
+      onSaved(); 
+    } catch (e) { 
+      toast.error(friendlyError(e)); 
+    } finally { 
+      setSaving(false); 
+    } 
+  };
   const Check = ({ ok, label }) => (<span className={`inline-flex items-center gap-1 text-xs ${ok ? 'text-emerald-600' : 'text-muted-foreground'}`}>{ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}{label}</span>);
   return (<div className="space-y-4">
     <Card><CardContent className="grid gap-3 p-5 sm:grid-cols-2">
-      <div className="sm:col-span-2 text-sm font-medium">Site SEO defaults</div>
-      <div className="space-y-1 sm:col-span-2"><Label>Meta title</Label><Input value={f.metaTitle} onChange={(e) => setF({ ...f, metaTitle: e.target.value })} disabled={!canManage} /></div>
-      <div className="space-y-1 sm:col-span-2"><Label>Meta description</Label><Textarea rows={2} value={f.metaDescription} onChange={(e) => setF({ ...f, metaDescription: e.target.value })} disabled={!canManage} /></div>
-      <div className="space-y-1"><Label>Default keywords</Label><Input value={f.keywords} onChange={(e) => setF({ ...f, keywords: e.target.value })} disabled={!canManage} /></div>
-      <div className="space-y-1"><Label>Canonical URL</Label><Input value={f.canonicalUrl} onChange={(e) => setF({ ...f, canonicalUrl: e.target.value })} disabled={!canManage} /></div>
-      <div className="space-y-1"><Label>Indexing</Label><Select value={f.robots} onValueChange={(v) => setF({ ...f, robots: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="index">Allow indexing</SelectItem><SelectItem value="noindex">No-index</SelectItem></SelectContent></Select></div>
-      <div className="space-y-1"><Label>OG image URL</Label><Input value={f.ogImage} onChange={(e) => setF({ ...f, ogImage: e.target.value })} disabled={!canManage} /></div>
-      {canManage && <div className="sm:col-span-2"><Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save SEO defaults'}</Button></div>}
+      <div className="sm:col-span-2 text-sm font-medium">Site SEO & Meta</div>
+      <div className="space-y-1 sm:col-span-2"><Label>Meta title</Label><Input value={f.metaTitle} onChange={(e) => setF({ ...f, metaTitle: e.target.value })} disabled={!canManage} placeholder="Your site title" /></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Meta description</Label><Textarea rows={2} value={f.metaDescription} onChange={(e) => setF({ ...f, metaDescription: e.target.value })} disabled={!canManage} placeholder="Brief description of your travel agency" /></div>
+      <div className="space-y-1"><Label>Default keywords</Label><Input value={f.keywords} onChange={(e) => setF({ ...f, keywords: e.target.value })} disabled={!canManage} placeholder="travel, tours, packages" /></div>
+      <div className="space-y-1"><Label>Canonical URL</Label><Input value={f.canonicalUrl} onChange={(e) => setF({ ...f, canonicalUrl: e.target.value })} disabled={!canManage} placeholder="https://yoursite.com" /></div>
+      <div className="space-y-1"><Label>Indexing</Label><Select value={f.robots} onValueChange={(v) => setF({ ...f, robots: v })} disabled={!canManage}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="index">Allow indexing</SelectItem><SelectItem value="noindex">No-index</SelectItem></SelectContent></Select></div>
+      <div className="space-y-1"><Label>OG image URL</Label><Input value={f.ogImage} onChange={(e) => setF({ ...f, ogImage: e.target.value })} disabled={!canManage} placeholder="https://..." /></div>
     </CardContent></Card>
+    
+    <Card><CardContent className="grid gap-3 p-5 sm:grid-cols-2">
+      <div className="sm:col-span-2 text-sm font-medium">Branding & Social Media</div>
+      <div className="space-y-1"><Label>Business Name</Label><Input value={f.businessName} onChange={(e) => setF({ ...f, businessName: e.target.value })} disabled={!canManage} placeholder="Your Travel Agency" /></div>
+      <div className="space-y-1"><Label>Tagline</Label><Input value={f.tagline} onChange={(e) => setF({ ...f, tagline: e.target.value })} disabled={!canManage} placeholder="Your travel tagline" /></div>
+      <div className="space-y-1"><Label>Instagram URL</Label><Input value={f.instagram} onChange={(e) => setF({ ...f, instagram: e.target.value })} disabled={!canManage} placeholder="https://instagram.com/..." /></div>
+      <div className="space-y-1"><Label>Facebook URL</Label><Input value={f.facebook} onChange={(e) => setF({ ...f, facebook: e.target.value })} disabled={!canManage} placeholder="https://facebook.com/..." /></div>
+      <div className="space-y-1"><Label>YouTube URL</Label><Input value={f.youtube} onChange={(e) => setF({ ...f, youtube: e.target.value })} disabled={!canManage} placeholder="https://youtube.com/..." /></div>
+      <div className="space-y-1"><Label>LinkedIn URL</Label><Input value={f.linkedin} onChange={(e) => setF({ ...f, linkedin: e.target.value })} disabled={!canManage} placeholder="https://linkedin.com/..." /></div>
+      <div className="space-y-1 sm:col-span-2"><Label>X (Twitter) URL</Label><Input value={f.x} onChange={(e) => setF({ ...f, x: e.target.value })} disabled={!canManage} placeholder="https://x.com/..." /></div>
+      {canManage && <div className="sm:col-span-2"><Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save all'}</Button></div>}
+    </CardContent></Card>
+    
     <Card><CardContent className="space-y-3 p-5">
       <div className="flex items-center justify-between"><span className="font-medium">Page SEO checklist</span><span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Search Console not connected</span></div>
       {!overview ? <div className="h-16 animate-pulse rounded bg-muted/30" /> : (overview.pages.length === 0 ? <div className="text-sm text-muted-foreground">No pages to analyze yet.</div> : <div className="space-y-2">{overview.pages.map((p) => (<div key={p.id} className="rounded-lg border p-3"><div className="flex items-center justify-between"><span className="font-medium">{p.title}</span><span className="text-xs text-muted-foreground">/{p.slug}</span></div><div className="mt-2 flex flex-wrap gap-3"><Check ok={p.checks.seoTitle} label="SEO title" /><Check ok={p.checks.metaDescription} label="Meta description" /><Check ok={p.checks.slugValid} label="Valid slug" /><Check ok={p.checks.canonical} label="Canonical" /><span className="text-xs text-muted-foreground">{p.checks.indexing}</span></div></div>))}</div>)}
