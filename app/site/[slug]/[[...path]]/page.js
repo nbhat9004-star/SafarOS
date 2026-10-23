@@ -89,14 +89,15 @@ async function getWebsiteData(slug) {
 }
 
 export async function generateMetadata({ params }) {
-  const { slug } = await params;
+  const { slug, path: catchAll } = await params;
   const data = await getWebsiteData(slug);
   
   if (!data?.published) return { title: 'Website unavailable | SafarOS' };
   
   // Use premium builder metadata if available
   if (data.useBuilder) {
-    const path = []; // Homepage for metadata
+    const pathSegments = catchAll ? (Array.isArray(catchAll) ? catchAll : [catchAll]) : [];
+    const path = pathSegments.filter(Boolean);
     return builderMetadata(data, path);
   }
   
@@ -118,14 +119,16 @@ export async function generateMetadata({ params }) {
 }
 
 export default async function PublicSitePage({ params, searchParams }) {
-  const { slug } = await params;
+  const { slug, path: catchAll } = await params;
   const data = await getWebsiteData(slug);
   
   if (!data || !data.published) notFound();
 
   // Premium builder rendering
   if (data.useBuilder) {
-    const path = []; // Homepage - we'll add routing later
+    // Parse the route: /site/:slug/tours/:tourSlug or /site/:slug/destinations/:destSlug
+    const pathSegments = catchAll ? (Array.isArray(catchAll) ? catchAll : [catchAll]) : [];
+    const path = pathSegments.filter(Boolean);
     return <BuilderSite data={data} path={path} searchParams={searchParams || {}} />;
   }
 

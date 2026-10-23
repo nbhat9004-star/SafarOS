@@ -29,7 +29,7 @@ import { can } from '@/lib/rbac';
 import { useSync } from '@/lib/offline/useSync';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
-  Trash2, Lock, Globe, Layers, ArrowLeft, Menu, X, Search, Pencil, Eye,
+  Trash2, Lock, Globe, Layers, ArrowLeft, Menu, X, Search, Pencil, Eye, EyeOff,
   UserPlus, BookUser, CalendarClock, ListTodo, Activity, Filter, ArrowRight, CheckCircle2,
   FileText, FilePlus, Copy, FileDown, MapPin,
   Package, Map, Clock, Utensils, Car, BedDouble,
@@ -6739,11 +6739,234 @@ function PortalAdmin({ session }) {
 // ======================= WEBSITE BUILDER + SEO UI (5.6/5.7) =======================
 function WebsiteDashboard({ data, siteUrl, canManage, onChanged }) {
   const s = data.settings; const published = s.status === 'published';
+  const b = s.builder || {};
+  const tourCount = (b.tours || []).length;
+  const destCount = (b.destinations || []).length;
   const toggle = async () => { try { await api('/website/settings', { method: 'PUT', body: JSON.stringify({ status: published ? 'draft' : 'published' }) }); toast.success(published ? 'Website unpublished' : 'Website published'); onChanged(); } catch (e) { toast.error(friendlyError(e)); } };
-  return (<div className="grid gap-4 md:grid-cols-2">
-    <Card><CardContent className="space-y-3 p-5"><div className="flex items-center justify-between"><span className="font-semibold">Status</span><MetaBadge meta={published ? { label: 'Published', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' } : { label: 'Draft', cls: 'bg-amber-50 text-amber-700 border-amber-200' }} /></div><div className="text-sm text-muted-foreground">{published ? 'Your website is publicly visible.' : 'Your website is private until you publish it.'}</div>{canManage && <Button size="sm" onClick={toggle}>{published ? 'Unpublish' : 'Publish website'}</Button>}</CardContent></Card>
-    <Card><CardContent className="space-y-2 p-5"><span className="font-semibold">Public address</span><div className="break-all text-sm text-violet-600">{siteUrl}</div><a href={siteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-violet-600 hover:underline"><ExternalLink className="h-4 w-4" /> Open website</a></CardContent></Card>
+  return (<div className="space-y-4">
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card><CardContent className="space-y-3 p-5"><div className="flex items-center justify-between"><span className="font-semibold">Status</span><MetaBadge meta={published ? { label: 'Published', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' } : { label: 'Draft', cls: 'bg-amber-50 text-amber-700 border-amber-200' }} /></div><div className="text-sm text-muted-foreground">{published ? 'Your website is publicly visible.' : 'Your website is private until you publish it.'}</div>{canManage && <Button size="sm" onClick={toggle}>{published ? 'Unpublish' : 'Publish website'}</Button>}</CardContent></Card>
+      <Card><CardContent className="space-y-2 p-5"><span className="font-semibold">Public address</span><div className="break-all text-sm text-violet-600">{siteUrl}</div><a href={siteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-violet-600 hover:underline"><ExternalLink className="h-4 w-4" /> Open website</a></CardContent></Card>
+    </div>
+    <div className="grid gap-4 sm:grid-cols-3">
+      <Card><CardContent className="p-5"><div className="text-2xl font-bold">{tourCount}</div><div className="text-sm text-muted-foreground">Published tours</div></CardContent></Card>
+      <Card><CardContent className="p-5"><div className="text-2xl font-bold">{destCount}</div><div className="text-sm text-muted-foreground">Destinations</div></CardContent></Card>
+      <Card><CardContent className="p-5"><div className="text-2xl font-bold">{s.theme || 'None'}</div><div className="text-sm text-muted-foreground">Active template</div></CardContent></Card>
+    </div>
   </div>);
+}
+
+function WebsiteContentEditor({ data, canManage, onSaved }) {
+  const [builder, setBuilder] = useState(data.settings?.builder || null);
+  const [saving, setSaving] = useState(false);
+  const [editSection, setEditSection] = useState(null);
+  
+  if (!builder || !builder.sections) {
+    return (<Card><CardContent className="p-8 text-center"><h3 className="font-semibold">No template applied</h3><p className="mt-2 text-sm text-muted-foreground">Go to Appearance tab and apply a template to get started</p></CardContent></Card>);
+  }
+  
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api('/website/builder', { method: 'PUT', body: JSON.stringify(builder) });
+      toast.success('Content saved');
+      onSaved();
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  
+  const moveSection = (idx, dir) => {
+    const secs = [...builder.sections];
+    const newIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= secs.length) return;
+    [secs[idx], secs[newIdx]] = [secs[newIdx], secs[idx]];
+    setBuilder({ ...builder, sections: secs });
+  };
+  
+  const toggleHidden = (idx) => {
+    const secs = [...builder.sections];
+    secs[idx] = { ...secs[idx], hidden: !secs[idx].hidden };
+    setBuilder({ ...builder, sections: secs });
+  };
+  
+  const updateSection = (idx, updates) => {
+    const secs = [...builder.sections];
+    secs[idx] = { ...secs[idx], ...updates };
+    setBuilder({ ...builder, sections: secs });
+    setEditSection(null);
+  };
+  
+  return (<div className="space-y-4">
+    <Card><CardContent className="p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="font-semibold">Website Sections</h3>
+        {canManage && <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save all changes'}</Button>}
+      </div>
+      <div className="space-y-2">
+        {builder.sections.map((sec, i) => (<div key={sec.id || i} className={`rounded-lg border p-3 ${sec.hidden ? 'bg-muted/30' : 'bg-background'}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="font-medium capitalize">{sec.type}</span>
+              {sec.hidden && <Badge variant="outline">Hidden</Badge>}
+            </div>
+            <div className="flex gap-1">
+              {canManage && <><Button size="sm" variant="ghost" onClick={() => moveSection(i, 'up')} disabled={i === 0}><ChevronUp className="h-4 w-4" /></Button>
+              <Button size="sm" variant="ghost" onClick={() => moveSection(i, 'down')} disabled={i === builder.sections.length - 1}><ChevronDown className="h-4 w-4" /></Button>
+              <Button size="sm" variant="ghost" onClick={() => toggleHidden(i)}>{sec.hidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}</Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditSection(i)}><Pencil className="h-4 w-4" /></Button></>}
+            </div>
+          </div>
+          {sec.heading && <p className="mt-1 text-sm text-muted-foreground">{sec.heading}</p>}
+        </div>))}
+      </div>
+    </CardContent></Card>
+    
+    {editSection !== null && (<Dialog open onOpenChange={() => setEditSection(null)}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogHeader><DialogTitle>Edit {builder.sections[editSection].type} Section</DialogTitle></DialogHeader>
+      <div className="space-y-3">
+        <div className="space-y-1"><Label>Heading</Label><Input value={builder.sections[editSection].heading || ''} onChange={(e) => { const s = [...builder.sections]; s[editSection] = { ...s[editSection], heading: e.target.value }; setBuilder({ ...builder, sections: s }); }} /></div>
+        <div className="space-y-1"><Label>Subheading</Label><Textarea rows={2} value={builder.sections[editSection].subheading || ''} onChange={(e) => { const s = [...builder.sections]; s[editSection] = { ...s[editSection], subheading: e.target.value }; setBuilder({ ...builder, sections: s }); }} /></div>
+        <div className="space-y-1"><Label>Button Label</Label><Input value={builder.sections[editSection].buttonLabel || ''} onChange={(e) => { const s = [...builder.sections]; s[editSection] = { ...s[editSection], buttonLabel: e.target.value }; setBuilder({ ...builder, sections: s }); }} /></div>
+        <div className="space-y-1"><Label>Button Link</Label><Input value={builder.sections[editSection].buttonHref || ''} onChange={(e) => { const s = [...builder.sections]; s[editSection] = { ...s[editSection], buttonHref: e.target.value }; setBuilder({ ...builder, sections: s }); }} /></div>
+      </div>
+      <DialogFooter><Button variant="ghost" onClick={() => setEditSection(null)}>Close</Button><Button onClick={() => { setEditSection(null); }}>Done</Button></DialogFooter>
+    </DialogContent></Dialog>)}
+  </div>);
+}
+
+function WebsiteTours({ data, canManage, onSaved }) {
+  const [tours, setTours] = useState((data.settings?.builder?.tours || []).map(t => ({ ...t, demo: t.demo !== false })));
+  const [editTour, setEditTour] = useState(null);
+  const [saving, setSaving] = useState(false);
+  
+  const save = async () => {
+    setSaving(true);
+    try {
+      const builder = data.settings?.builder || {};
+      await api('/website/builder', { method: 'PUT', body: JSON.stringify({ ...builder, tours }) });
+      toast.success('Tours saved');
+      onSaved();
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  
+  const togglePublish = (idx) => {
+    const t = [...tours];
+    t[idx] = { ...t[idx], published: !t[idx].published };
+    setTours(t);
+  };
+  
+  const deleteTour = (idx) => {
+    if (!window.confirm('Delete this tour? This cannot be undone.')) return;
+    setTours(tours.filter((_, i) => i !== idx));
+  };
+  
+  return (<div className="space-y-4">
+    <Card><CardHeader className="flex flex-row items-center justify-between">
+      <CardTitle>Website Tours</CardTitle>
+      {canManage && <div className="flex gap-2"><Button size="sm" onClick={() => setEditTour({})}>Add tour</Button><Button size="sm" variant="outline" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button></div>}
+    </CardHeader><CardContent className="space-y-2">
+      {tours.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No tours yet. Add your first tour.</p>}
+      {tours.map((t, i) => (<Card key={t.id || i}><CardContent className="p-4"><div className="flex items-start justify-between gap-4">
+        <div className="flex-1"><div className="flex items-center gap-2"><h4 className="font-semibold">{t.name}</h4>{t.demo && <Badge variant="outline" className="text-xs">Demo</Badge>}{!t.published && <Badge variant="outline">Draft</Badge>}</div><p className="mt-1 text-sm text-muted-foreground">{t.destination} · {t.duration} · from {t.currency} {Number(t.price).toLocaleString()}</p>{t.summary && <p className="mt-2 text-sm">{t.summary}</p>}</div>
+        {canManage && <div className="flex gap-1"><Button size="sm" variant="ghost" onClick={() => togglePublish(i)}>{t.published ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</Button><Button size="sm" variant="ghost" onClick={() => setEditTour({ ...t, _idx: i })}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => deleteTour(i)}><Trash2 className="h-4 w-4" /></Button></div>}
+      </div></CardContent></Card>))}
+    </CardContent></Card>
+    
+    {editTour !== null && <TourEditDialog tour={editTour} onClose={() => setEditTour(null)} onSave={(updated) => { const isNew = editTour._idx === undefined; if (isNew) { setTours([...tours, { ...updated, id: `tour-${Date.now()}`, published: true, demo: false }]); } else { const t = [...tours]; t[editTour._idx] = updated; setTours(t); } setEditTour(null); }} />}
+  </div>);
+}
+
+function TourEditDialog({ tour, onClose, onSave }) {
+  const isNew = !tour.id;
+  const [f, setF] = useState({ name: tour.name || '', slug: tour.slug || '', destination: tour.destination || '', category: tour.category || '', price: tour.price || 0, currency: tour.currency || 'INR', duration: tour.duration || '', days: tour.days || 1, tag: tour.tag || '', summary: tour.summary || '', description: tour.description || '', image: tour.image || '', groupSize: tour.groupSize || '' });
+  
+  return (<Dialog open onOpenChange={onClose}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+    <DialogHeader><DialogTitle>{isNew ? 'Add Tour' : 'Edit Tour'}</DialogTitle></DialogHeader>
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1 sm:col-span-2"><Label>Tour Name</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
+      <div className="space-y-1"><Label>Destination</Label><Input value={f.destination} onChange={(e) => setF({ ...f, destination: e.target.value })} /></div>
+      <div className="space-y-1"><Label>Category</Label><Input value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} placeholder="e.g. Adventure, Beach" /></div>
+      <div className="space-y-1"><Label>Price</Label><Input type="number" value={f.price} onChange={(e) => setF({ ...f, price: Number(e.target.value) })} /></div>
+      <div className="space-y-1"><Label>Currency</Label><Input value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })} /></div>
+      <div className="space-y-1"><Label>Duration</Label><Input value={f.duration} onChange={(e) => setF({ ...f, duration: e.target.value })} placeholder="e.g. 5 days / 4 nights" /></div>
+      <div className="space-y-1"><Label>Days</Label><Input type="number" value={f.days} onChange={(e) => setF({ ...f, days: Number(e.target.value) })} /></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Image URL</Label><Input value={f.image} onChange={(e) => setF({ ...f, image: e.target.value })} placeholder="https://..." /></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Summary</Label><Textarea rows={2} value={f.summary} onChange={(e) => setF({ ...f, summary: e.target.value })} /></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Description</Label><Textarea rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
+      <div className="space-y-1"><Label>Tag</Label><Input value={f.tag} onChange={(e) => setF({ ...f, tag: e.target.value })} placeholder="e.g. Bestseller, Popular" /></div>
+      <div className="space-y-1"><Label>Group Size</Label><Input value={f.groupSize} onChange={(e) => setF({ ...f, groupSize: e.target.value })} placeholder="e.g. 2-8 guests" /></div>
+    </div>
+    <DialogFooter><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => { if (!f.name.trim()) { toast.error('Tour name is required'); return; } onSave({ ...tour, ...f, slug: f.slug || f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') }); }} disabled={!f.name.trim()}>Save tour</Button></DialogFooter>
+  </DialogContent></Dialog>);
+}
+
+function WebsiteDestinations({ data, canManage, onSaved }) {
+  const [dests, setDests] = useState((data.settings?.builder?.destinations || []).map(d => ({ ...d, demo: d.demo !== false })));
+  const [editDest, setEditDest] = useState(null);
+  const [saving, setSaving] = useState(false);
+  
+  const save = async () => {
+    setSaving(true);
+    try {
+      const builder = data.settings?.builder || {};
+      await api('/website/builder', { method: 'PUT', body: JSON.stringify({ ...builder, destinations: dests }) });
+      toast.success('Destinations saved');
+      onSaved();
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  
+  const togglePublish = (idx) => {
+    const d = [...dests];
+    d[idx] = { ...d[idx], published: !d[idx].published };
+    setDests(d);
+  };
+  
+  const deleteDest = (idx) => {
+    if (!window.confirm('Delete this destination?')) return;
+    setDests(dests.filter((_, i) => i !== idx));
+  };
+  
+  return (<div className="space-y-4">
+    <Card><CardHeader className="flex flex-row items-center justify-between">
+      <CardTitle>Destinations</CardTitle>
+      {canManage && <div className="flex gap-2"><Button size="sm" onClick={() => setEditDest({})}>Add destination</Button><Button size="sm" variant="outline" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button></div>}
+    </CardHeader><CardContent className="space-y-2">
+      {dests.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No destinations yet.</p>}
+      {dests.map((d, i) => (<Card key={d.id || i}><CardContent className="p-4"><div className="flex items-start justify-between gap-4">
+        <div className="flex-1"><div className="flex items-center gap-2"><h4 className="font-semibold">{d.name}</h4>{d.demo && <Badge variant="outline" className="text-xs">Demo</Badge>}{!d.published && <Badge variant="outline">Draft</Badge>}</div><p className="mt-1 text-sm text-muted-foreground">{d.region}</p></div>
+        {canManage && <div className="flex gap-1"><Button size="sm" variant="ghost" onClick={() => togglePublish(i)}>{d.published ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</Button><Button size="sm" variant="ghost" onClick={() => setEditDest({ ...d, _idx: i })}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => deleteDest(i)}><Trash2 className="h-4 w-4" /></Button></div>}
+      </div></CardContent></Card>))}
+    </CardContent></Card>
+    
+    {editDest !== null && <DestEditDialog dest={editDest} onClose={() => setEditDest(null)} onSave={(updated) => { const isNew = editDest._idx === undefined; if (isNew) { setDests([...dests, { ...updated, id: `dest-${Date.now()}`, published: true, demo: false }]); } else { const d = [...dests]; d[editDest._idx] = updated; setDests(d); } setEditDest(null); }} />}
+  </div>);
+}
+
+function DestEditDialog({ dest, onClose, onSave }) {
+  const isNew = !dest.id;
+  const [f, setF] = useState({ name: dest.name || '', slug: dest.slug || '', region: dest.region || '', description: dest.description || '', image: dest.image || '' });
+  
+  return (<Dialog open onOpenChange={onClose}><DialogContent className="max-w-2xl">
+    <DialogHeader><DialogTitle>{isNew ? 'Add Destination' : 'Edit Destination'}</DialogTitle></DialogHeader>
+    <div className="grid gap-3">
+      <div className="space-y-1"><Label>Destination Name</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
+      <div className="space-y-1"><Label>Region</Label><Input value={f.region} onChange={(e) => setF({ ...f, region: e.target.value })} placeholder="e.g. Southeast Asia, India" /></div>
+      <div className="space-y-1"><Label>Image URL</Label><Input value={f.image} onChange={(e) => setF({ ...f, image: e.target.value })} placeholder="https://..." /></div>
+      <div className="space-y-1"><Label>Description</Label><Textarea rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
+    </div>
+    <DialogFooter><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => { if (!f.name.trim()) { toast.error('Destination name is required'); return; } onSave({ ...dest, ...f, slug: f.slug || f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') }); }} disabled={!f.name.trim()}>Save destination</Button></DialogFooter>
+  </DialogContent></Dialog>);
 }
 
 function WebsiteSettings({ data, canManage, onSaved }) {
@@ -6914,7 +7137,7 @@ function Website({ session, tab, onNav }) {
   const [data, setData] = useState(null); const [loading, setLoading] = useState(true);
   const load = async () => { setLoading(true); try { const d = await api('/website/settings'); setData(d); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
   useEffect(() => { load(); }, []);
-  const TABS = [{ id: 'dashboard', label: 'Dashboard' }, { id: 'settings', label: 'Settings' }, { id: 'appearance', label: 'Appearance' }, { id: 'pages', label: 'Pages' }, { id: 'seo', label: 'SEO' }, { id: 'preview', label: 'Preview' }];
+  const TABS = [{ id: 'dashboard', label: 'Dashboard' }, { id: 'content', label: 'Content' }, { id: 'tours', label: 'Tours' }, { id: 'destinations', label: 'Destinations' }, { id: 'settings', label: 'Settings' }, { id: 'appearance', label: 'Appearance' }, { id: 'pages', label: 'Pages' }, { id: 'seo', label: 'SEO' }, { id: 'preview', label: 'Preview' }];
   const current = TABS.some((t) => t.id === tab) ? tab : 'dashboard';
   const slug = (data && data.agency && data.agency.slug) || '';
   const siteUrl = (typeof window !== 'undefined' ? window.location.origin : '') + '/site/' + slug;
@@ -6922,6 +7145,9 @@ function Website({ session, tab, onNav }) {
     <div className="flex gap-1 overflow-x-auto rounded-lg border bg-muted/40 p-1">{TABS.map((t) => { const on = current === t.id; return (<button key={t.id} onClick={() => onNav(t.id)} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm ${on ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'}`}>{t.label}</button>); })}</div>
     {loading || !data ? <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" /> : (<>
       {current === 'dashboard' && <WebsiteDashboard data={data} siteUrl={siteUrl} canManage={canManage} onChanged={load} />}
+      {current === 'content' && <WebsiteContentEditor data={data} canManage={canManage} onSaved={load} />}
+      {current === 'tours' && <WebsiteTours data={data} canManage={canManage} onSaved={load} />}
+      {current === 'destinations' && <WebsiteDestinations data={data} canManage={canManage} onSaved={load} />}
       {current === 'settings' && <WebsiteSettings data={data} canManage={canManage} onSaved={load} />}
       {current === 'appearance' && <WebsiteAppearance data={data} canManage={canManage} onSaved={load} />}
       {current === 'pages' && <WebsitePages canManage={canManage} />}
