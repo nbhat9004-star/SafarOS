@@ -1,8 +1,17 @@
 import { notFound } from 'next/navigation';
+import { headers } from 'next/headers';
 
 async function getWebsiteData(slug) {
   try {
-    const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')).replace(/\/$/, '');
+    // Resolve the API origin from the actual request host first. A global NEXT_PUBLIC_BASE_URL
+    // can point at the marketing site or a different Vercel project, making published sites 404.
+    const requestHeaders = await headers();
+    const requestHost = requestHeaders.get('x-forwarded-host') || requestHeaders.get('host');
+    const forwardedProto = requestHeaders.get('x-forwarded-proto')?.split(',')[0]?.trim();
+    const origin = requestHost
+      ? `${forwardedProto || 'https'}://${requestHost}`
+      : (process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'));
+    const baseUrl = origin.replace(/\\/$/, '');
     const url = `${baseUrl}/api/public/site/${encodeURIComponent(slug)}`;
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return null;
