@@ -4409,7 +4409,9 @@ export async function POST(request, context) {
     // Public website inquiry -> existing CRM leads (no auth; agency by slug)
     if (path.startsWith('/public/')) return publicPost(db, path, await readBody(request));
 
-    if (path === '/website/pages') {
+    // Website builder actions (including template application) must reach the shared
+    // websitePost handler. Restrict access to an authenticated agency manager.
+    if (path.startsWith('/website/')) {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'website:manage')) return err('forbidden', 403);
