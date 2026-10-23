@@ -6799,7 +6799,10 @@ function WebsiteAppearance({ data, canManage, onSaved }) {
       setF({ ...f, theme: key, primaryColor: theme.primaryColor || f.primaryColor, secondaryColor: theme.secondaryColor || f.secondaryColor, font: theme.font || f.font });
       toast.success('Template applied with demo pages. Review the content before publishing.');
       onSaved();
-    } catch (e) { toast.error(friendlyError(e)); } finally { setApplying(''); }
+    } catch (e) {
+      console.error('[website template apply] Request failed:', e);
+      toast.error(e?.message || 'Template could not be applied. Please try again.');
+    } finally { setApplying(''); }
   };
   return (<div className="space-y-4">
     <Card><CardContent className="space-y-4 p-5">
