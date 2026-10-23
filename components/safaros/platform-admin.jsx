@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -43,6 +43,7 @@ const NAV = [
   { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
   { id: 'plans', label: 'Plans', icon: Layers },
+  { id: 'themes', label: 'Website Theme Library', icon: Palette },
   { id: 'ai', label: 'AI Platforms', icon: Bot },
   { id: 'api_integrations', label: 'API & Integrations', icon: KeyRound },
   { id: 'integrations', label: 'Integrations', icon: Plug },
@@ -422,6 +423,98 @@ function ProviderCredentialsView() {
   </div>);
 }
 
+// ---------- Website Theme Library ----------
+const EMPTY_THEME = { name: '', category: 'Custom', description: '', primaryColor: '#334155', secondaryColor: '#0ea5e9', font: 'Inter', active: true };
+function WebsiteThemesView() {
+  const [themes, setThemes] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [previewTheme, setPreviewTheme] = useState(null);
+  const [form, setForm] = useState(EMPTY_THEME);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try { const d = await api('/themes'); setThemes(d.themes || []); }
+    catch (e) { toast.error(e.message); setThemes([]); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const startEdit = (theme) => { setEditing(theme || null); setForm(theme ? { ...theme } : { ...EMPTY_THEME }); setDialogOpen(true); };
+  const save = async () => {
+    if (!form.name.trim()) { toast.error('Enter a theme name'); return; }
+    setBusy(true);
+    try {
+      if (editing) await api(`/themes/${editing.id}`, { method: 'PUT', body: JSON.stringify(form) });
+      else await api('/themes', { method: 'POST', body: JSON.stringify(form) });
+      toast.success(editing ? 'Theme updated' : 'Theme added');
+      setEditing(null); setDialogOpen(false); setForm(EMPTY_THEME); await load();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  const toggle = async (theme) => {
+    try { await api(`/themes/${theme.id}`, { method: 'PUT', body: JSON.stringify({ active: !theme.active }) }); await load(); toast.success(theme.active ? 'Theme deactivated' : 'Theme activated'); }
+    catch (e) { toast.error(e.message); }
+  };
+  const remove = async (theme) => {
+    if (!window.confirm(`Delete custom theme "${theme.name}"?`)) return;
+    try { await api(`/themes/${theme.id}`, { method: 'DELETE' }); await load(); toast.success('Theme deleted'); }
+    catch (e) { toast.error(e.message); }
+  };
+  if (themes === null) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
+  return <div className="space-y-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><p className="text-sm text-muted-foreground">Manage starter website themes available to travel agencies. Edit a theme, preview its palette, or add your own custom theme.</p><p className="mt-1 text-xs text-muted-foreground">Theme catalogue records are managed here. Applying a theme to a live agency website is a separate publishing step.</p></div>
+      <Button onClick={() => startEdit(null)}><Plus className="mr-2 h-4 w-4" /> Add theme</Button>
+    </div>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {themes.map(theme => <Card key={theme.id} className={!theme.active ? 'opacity-70' : ''}>
+        <CardContent className="space-y-3 p-4">
+          <div className="flex items-start justify-between gap-2"><div><div className="font-semibold text-slate-900">{theme.name}</div><div className="text-xs text-muted-foreground">{theme.category} · {theme.font}</div></div><Badge variant="outline" className={theme.active ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ''}>{theme.active ? 'Active' : 'Inactive'}</Badge></div>
+          <div className="overflow-hidden rounded-lg border bg-white">
+            <div className="flex h-20 items-end p-3" style={{ background: `linear-gradient(120deg, ${theme.primaryColor}, ${theme.secondaryColor})` }}><div className="rounded-md bg-white/90 px-2 py-1 text-xs font-bold" style={{ color: theme.primaryColor }}>{theme.name}</div></div>
+            <div className="space-y-2 p-3"><div className="h-2 w-2/3 rounded" style={{ backgroundColor: theme.primaryColor }} /><div className="h-2 w-full rounded bg-slate-100" /><div className="flex gap-2"><div className="h-6 flex-1 rounded" style={{ backgroundColor: theme.secondaryColor }} /><div className="h-6 flex-1 rounded bg-slate-100" /></div></div>
+          </div>
+          <p className="min-h-10 text-sm text-muted-foreground">{theme.description || 'No description yet.'}</p>
+          <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => setPreviewTheme(theme)}><Eye className="mr-1 h-3.5 w-3.5" /> Preview demo</Button><Button size="sm" variant="outline" onClick={() => startEdit(theme)}>Edit</Button><Button size="sm" variant="outline" onClick={() => toggle(theme)}>{theme.active ? 'Deactivate' : 'Activate'}</Button>{!theme.builtIn && <Button size="sm" variant="ghost" className="text-rose-600" onClick={() => remove(theme)}>Delete</Button>}</div>
+        </CardContent>
+      </Card>)}
+    </div>
+    <Dialog open={!!previewTheme} onOpenChange={open => !open && setPreviewTheme(null)}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader><DialogTitle>{previewTheme ? `${previewTheme.name} — demo preview` : 'Theme demo'}</DialogTitle></DialogHeader>
+        {previewTheme && <div className="overflow-hidden rounded-xl border bg-white" style={{ fontFamily: previewTheme.font || 'Inter, sans-serif' }}>
+          <div className="p-5 text-white sm:p-8" style={{ background: `linear-gradient(120deg, ${previewTheme.primaryColor}, ${previewTheme.secondaryColor})` }}>
+            <div className="text-xs font-semibold uppercase tracking-[.2em] opacity-80">Discover your next journey</div>
+            <h2 className="mt-3 text-2xl font-bold sm:text-4xl">Travel beyond the ordinary.</h2>
+            <p className="mt-2 max-w-xl text-sm text-white/90">Thoughtfully curated holidays, local experiences and unforgettable places.</p>
+            <div className="mt-5 inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold" style={{ color: previewTheme.primaryColor }}>Explore trips</div>
+          </div>
+          <div className="grid gap-3 p-4 sm:grid-cols-3 sm:p-6">
+            {[['Kashmir escapes','Lakes, valleys and mountain stays'],['Cultural journeys','Local food, heritage and people'],['Adventure trails','Outdoor experiences and discovery']].map((item, i) => <div key={item[0]} className="rounded-lg border p-4">
+              <div className="mb-3 h-16 rounded-md" style={{ background: i === 0 ? `linear-gradient(135deg, ${previewTheme.primaryColor}, ${previewTheme.secondaryColor})` : i === 1 ? `linear-gradient(135deg, ${previewTheme.secondaryColor}, #f8fafc)` : `linear-gradient(135deg, #e2e8f0, ${previewTheme.primaryColor})` }} />
+              <div className="font-semibold">{item[0]}</div><p className="mt-1 text-xs text-slate-500">{item[1]}</p>
+              <div className="mt-3 h-1.5 w-20 rounded" style={{ backgroundColor: previewTheme.secondaryColor }} />
+            </div>)}
+          </div>
+          <div className="border-t px-4 py-3 text-xs text-slate-500 sm:px-6">Responsive demo preview · {previewTheme.category} · {previewTheme.font}</div>
+        </div>}
+        <DialogFooter><Button variant="outline" onClick={() => setPreviewTheme(null)}>Close preview</Button>{previewTheme && <Button onClick={() => { setPreviewTheme(null); startEdit(previewTheme); }}>Customize theme</Button>}</DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={dialogOpen} onOpenChange={open => { setDialogOpen(open); if (!open) { setEditing(null); setForm(EMPTY_THEME); } }}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader><DialogTitle>{editing ? `Edit ${editing.name}` : 'Add custom theme'}</DialogTitle></DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1 sm:col-span-2"><Label>Theme name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
+          <div className="space-y-1"><Label>Category</Label><Input value={form.category || ''} onChange={e => setForm({ ...form, category: e.target.value })} /></div>
+          <div className="space-y-1"><Label>Font</Label><Select value={form.font || 'Inter'} onValueChange={font => setForm({ ...form, font })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['Inter','Poppins','Roboto','Lato','Montserrat'].map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select></div>
+          <div className="space-y-1"><Label>Primary colour</Label><div className="flex gap-2"><input aria-label="Primary colour picker" type="color" className="h-9 w-12 rounded border" value={form.primaryColor || '#334155'} onChange={e => setForm({ ...form, primaryColor: e.target.value })} /><Input value={form.primaryColor || ''} onChange={e => setForm({ ...form, primaryColor: e.target.value })} /></div></div>
+          <div className="space-y-1"><Label>Secondary colour</Label><div className="flex gap-2"><input aria-label="Secondary colour picker" type="color" className="h-9 w-12 rounded border" value={form.secondaryColor || '#0ea5e9'} onChange={e => setForm({ ...form, secondaryColor: e.target.value })} /><Input value={form.secondaryColor || ''} onChange={e => setForm({ ...form, secondaryColor: e.target.value })} /></div></div>
+          <div className="space-y-1 sm:col-span-2"><Label>Description</Label><Textarea rows={3} value={form.description || ''} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
+        </div>
+        <DialogFooter><Button variant="outline" onClick={() => { setDialogOpen(false); setEditing(null); setForm(EMPTY_THEME); }}>Cancel</Button><Button onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save theme'}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </div>;
+}
+
 // ---------- Integrations ----------
 function IntegrationsView() {
   const [data, setData] = useState(null);
@@ -636,6 +729,7 @@ export default function PlatformAdmin() {
         {section === 'users' && <UsersView />}
         {section === 'subscriptions' && <SubscriptionsView />}
         {section === 'plans' && <PlansView />}
+        {section === 'themes' && <WebsiteThemesView />}
         {section === 'ai' && <AiView />}
         {section === 'api_integrations' && <ProviderCredentialsView />}
         {section === 'integrations' && <IntegrationsView />}

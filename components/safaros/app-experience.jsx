@@ -1917,9 +1917,9 @@ function Clients({ session }) {
   );
 }
 
-const EMPTY_FORM = { name: '', email: '', password: '', role: 'agent' };
+const EMPTY_FORM = { name: '', email: '', role: 'agent' };
 
-function AddMemberForm({ open, setOpen, onAdded }) {
+function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -1931,13 +1931,12 @@ function AddMemberForm({ open, setOpen, onAdded }) {
   };
 
   const emailValid = EMAIL_RE.test(form.email.trim());
-  const canSubmit = !!form.name.trim() && emailValid && form.password.length >= 6 && !!form.role;
+  const canSubmit = !!form.name.trim() && emailValid && !!form.role;
 
   const submit = async () => {
     setError('');
     if (!form.name.trim()) return setError('Full name is required.');
     if (!emailValid) return setError('Enter a valid business email address.');
-    if (form.password.length < 6) return setError('Password must be at least 6 characters.');
     setSubmitting(true);
     try {
       await api('/members', {
@@ -1945,11 +1944,10 @@ function AddMemberForm({ open, setOpen, onAdded }) {
         body: JSON.stringify({
           name: form.name.trim(),
           email: form.email.trim().toLowerCase(),
-          password: form.password,
           role: form.role,
         }),
       });
-      toast.success('Team member added');
+      toast.success('Invitation email sent');
       setForm(EMPTY_FORM);
       setOpen(false);
       onAdded();
@@ -1958,7 +1956,8 @@ function AddMemberForm({ open, setOpen, onAdded }) {
       if (/already registered|duplicate|E11000/i.test(msg)) setError('A member with this email already exists.');
       else if (/forbidden/i.test(msg)) setError('You do not have permission to add team members.');
       else if (/invalid role/i.test(msg)) setError('Please select a valid role.');
-      else if (/required/i.test(msg)) setError('Please fill in all required fields.');
+      else if (/email delivery is not configured/i.test(msg)) setError('Connect the agency email provider in Integrations before inviting staff.');
+      else if (/required|valid name, email and role/i.test(msg)) setError('Please enter a name, valid email and role.');
       else if (/unauthenticated/i.test(msg)) setError('Your session has expired. Please sign in again.');
       else setError('Something went wrong while adding the member. Please try again.');
     } finally {
@@ -1996,22 +1995,15 @@ function AddMemberForm({ open, setOpen, onAdded }) {
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Password</Label>
-            <Input
-              type="password"
-              value={form.password}
-              placeholder="At least 6 characters"
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
-            <p className="text-xs text-muted-foreground">Share this with the employee so they can sign in.</p>
+          <div className="rounded-md border bg-muted/30 px-3 py-3 text-sm text-muted-foreground">
+            SafarOS will email this employee a secure, single-use password setup link. They choose their own password; you never need to create or share one.
           </div>
           <div className="space-y-1.5">
             <Label>Role</Label>
             <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="manager">Manager</SelectItem>
+                {actorRole === 'owner' && <SelectItem value="manager">Manager</SelectItem>}
                 <SelectItem value="agent">Agent</SelectItem>
                 <SelectItem value="finance">Finance</SelectItem>
               </SelectContent>
@@ -2054,7 +2046,7 @@ function Team({ session }) {
           </p>
         </div>
         {canInvite && !isEmpty && (
-          <AddMemberForm open={open} setOpen={setOpen} onAdded={load} />
+          <AddMemberForm open={open} setOpen={setOpen} onAdded={load} actorRole={session.user.role} />
         )}
       </div>
 
@@ -2078,7 +2070,7 @@ function Team({ session }) {
                 Add employees to your SafarOS workspace so your team can work together.
               </p>
             </div>
-            {canInvite && <AddMemberForm open={open} setOpen={setOpen} onAdded={load} />}
+            {canInvite && <AddMemberForm open={open} setOpen={setOpen} onAdded={load} actorRole={session.user.role} />}
           </CardContent>
         </Card>
       )}
@@ -5187,7 +5179,7 @@ function BookingDetail({ session, bookingId, onBack, onEdit }) {
                     <TableRow key={it.id}>
                       <TableCell><Badge variant="outline" className="font-normal">{BK_SERVICE_TYPE_LABEL[it.type] || 'Other'}</Badge></TableCell>
                       <TableCell>{it.description || '—'}</TableCell>
-                      <TableCell className="text-muted-foreground">{it.supplierName || '—'}</TableCell>
+                      <TableCell className="text-muted-foreground">{it.supplierId ? (it.supplierName || 'Linked supplier') : 'Unassigned'}</TableCell>
                       <TableCell className="text-right">{it.quantity}</TableCell>
                       <TableCell className="text-right">{money(it.unitPrice)}</TableCell>
                       <TableCell className="text-right font-medium">{money(it.total)}</TableCell>
@@ -5202,7 +5194,7 @@ function BookingDetail({ session, bookingId, onBack, onEdit }) {
                 <div key={it.id} className="rounded-lg border p-3 text-sm">
                   <div className="flex items-center justify-between"><Badge variant="outline" className="font-normal">{BK_SERVICE_TYPE_LABEL[it.type] || 'Other'}</Badge><MetaBadge meta={BK_SERVICE_STATUS_META[it.status] || BK_SERVICE_STATUS_META.pending} /></div>
                   <div className="mt-1 font-medium">{it.description || '—'}</div>
-                  {it.supplierName && <div className="text-muted-foreground">{it.supplierName}</div>}
+                  <div className="text-muted-foreground">{it.supplierId ? (it.supplierName || 'Linked supplier') : 'Unassigned'}</div>
                   <div className="mt-1 flex justify-between text-muted-foreground"><span>{it.quantity} × {money(it.unitPrice)}</span><span className="font-medium text-foreground">{money(it.total)}</span></div>
                 </div>
               ))}
@@ -6067,7 +6059,7 @@ function ExpensesPane({ session }) {
 
 function InvoicesPane({ session }) {
   const canCreate = can(session.user.role, 'finance:create'); const canUpdate = can(session.user.role, 'finance:update');
-  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [query, setQuery] = useState(''); const [show, setShow] = useState(false);
+  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [query, setQuery] = useState(''); const [show, setShow] = useState(false); const [selectedInvoice, setSelectedInvoice] = useState(null);
   const blank = { clientId: '', bookingId: '', subtotal: 0, discount: 0, taxPercent: 0, taxInclusive: false, tax: 0, dueDate: '', status: 'draft', notes: '' };
   const [f, setF] = useState(blank);
   const load = async () => { setLoading(true); try { const d = await api('/finance/invoices'); setRows(d.invoices || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
@@ -6104,7 +6096,29 @@ function InvoicesPane({ session }) {
       {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
       {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No invoices yet.</CardContent></Card>}
       {!loading && rr.length > 0 && (<Card className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Invoice</TableHead><TableHead>Client</TableHead><TableHead>Issued</TableHead><TableHead>Due</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Paid</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-        <TableBody>{rr.map((r) => { const ov = finOverdue(r); const meta = ov ? INV_STATUS_META.overdue : (INV_STATUS_META[r.status] || INV_STATUS_META.draft); return (<TableRow key={r.id}><TableCell className="font-medium">{r.invoiceNumber}</TableCell><TableCell>{r.clientName || '—'}</TableCell><TableCell className="text-muted-foreground">{r.issueDate || '—'}</TableCell><TableCell className="text-muted-foreground">{r.dueDate || '—'}</TableCell><TableCell className="text-right font-medium">{money(r.total)}</TableCell><TableCell className="text-right text-muted-foreground">{money(r.paidAmount)}</TableCell><TableCell>{canUpdate ? <Select value={r.status} onValueChange={(v) => setStatus(r.id, v)}><SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger><SelectContent>{Object.keys(INV_STATUS_META).map((s) => <SelectItem key={s} value={s}>{INV_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select> : <MetaBadge meta={meta} />}</TableCell></TableRow>); })}</TableBody></Table></Card>)}
+        <TableBody>{rr.map((r) => { const ov = finOverdue(r); const meta = ov ? INV_STATUS_META.overdue : (INV_STATUS_META[r.status] || INV_STATUS_META.draft); return (<TableRow key={r.id}><TableCell className="font-medium"><Button variant="link" className="h-auto p-0 font-medium" onClick={() => setSelectedInvoice(r)}>{r.invoiceNumber}</Button></TableCell><TableCell>{r.clientName || '—'}</TableCell><TableCell className="text-muted-foreground">{r.issueDate || '—'}</TableCell><TableCell className="text-muted-foreground">{r.dueDate || '—'}</TableCell><TableCell className="text-right font-medium">{money(r.total)}</TableCell><TableCell className="text-right text-muted-foreground">{money(r.paidAmount)}</TableCell><TableCell>{canUpdate ? <Select value={r.status} onValueChange={(v) => setStatus(r.id, v)}><SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger><SelectContent>{Object.keys(INV_STATUS_META).map((s) => <SelectItem key={s} value={s}>{INV_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select> : <MetaBadge meta={meta} />}</TableCell></TableRow>); })}</TableBody></Table></Card>)}
+      <Dialog open={!!selectedInvoice} onOpenChange={(open) => { if (!open) setSelectedInvoice(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>{selectedInvoice ? selectedInvoice.invoiceNumber : 'Invoice details'}</DialogTitle></DialogHeader>
+          {selectedInvoice && <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <KV k="Client" v={selectedInvoice.clientName || '—'} />
+              <KV k="Booking" v={selectedInvoice.bookingNumber || '—'} />
+              <KV k="Issue date" v={selectedInvoice.issueDate || '—'} />
+              <KV k="Due date" v={selectedInvoice.dueDate || '—'} />
+              <KV k="Status" v={(INV_STATUS_META[selectedInvoice.status] || INV_STATUS_META.draft).label} />
+              <KV k="Subtotal" v={money(selectedInvoice.subtotal)} />
+              <KV k="Discount" v={money(selectedInvoice.discount)} />
+              <KV k="Tax" v={money(selectedInvoice.tax)} />
+              <KV k="Total" v={money(selectedInvoice.total)} />
+              <KV k="Paid" v={money(selectedInvoice.paidAmount)} />
+              <KV k="Outstanding" v={money(Math.max(0, Number(selectedInvoice.total || 0) - Number(selectedInvoice.paidAmount || 0)))} />
+            </div>
+            {selectedInvoice.notes && <div><div className="text-xs text-muted-foreground">Notes</div><p className="whitespace-pre-wrap">{selectedInvoice.notes}</p></div>}
+          </div>}
+          <DialogFooter><Button variant="outline" onClick={() => setSelectedInvoice(null)}>Close</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </FinListShell>
   );
 }
@@ -6308,21 +6322,88 @@ function Finance({ session, tab, onNav }) {
 
 function Settings({ session }) {
   const { agency, user } = session;
+  // Agency profile updates are owner-only in the API RBAC policy.
+  const canManageAgency = user?.role === 'owner';
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    name: agency?.name || '',
+    email: agency?.email || user?.email || '',
+    phone: agency?.phone || '',
+    website: agency?.website || '',
+    address: agency?.address || '',
+    city: agency?.city || '',
+    country: agency?.country || 'India',
+    currency: agency?.currency || 'INR',
+    timezone: agency?.timezone || 'Asia/Kolkata',
+  });
+  const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const save = async () => {
+    setSaving(true);
+    try {
+      const result = await api('/agency', { method: 'PUT', body: JSON.stringify(form) });
+      const updated = result?.agency || form;
+      setForm((current) => ({ ...current, ...updated }));
+      toast.success('Agency profile updated');
+      setEditing(false);
+    } catch (error) {
+      toast.error(error?.message || 'Could not update agency profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="space-y-4 max-w-2xl">
-      <h2 className="text-xl font-bold">Workspace settings</h2>
+    <div className="space-y-4 max-w-3xl">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold">Workspace settings</h2>
+          <p className="text-sm text-muted-foreground mt-1">Manage your travel business profile and regional preferences.</p>
+          {!canManageAgency && <p className="text-xs text-muted-foreground mt-1">Only the agency owner can edit these settings.</p>}
+        </div>
+        {!editing && canManageAgency && <Button onClick={() => setEditing(true)}><Pencil className="h-4 w-4 mr-2" /> Edit agency profile</Button>}
+      </div>
       <Card>
-        <CardContent className="p-5 space-y-3">
-          <Row label="Agency name" value={agency?.name} />
-          <Row label="Workspace slug" value={agency?.slug} icon={Globe} />
-          <Row label="Plan" value={agency?.plan} />
-          <Separator />
-          <Row label="Your role" value={<RoleBadge role={user?.role} />} />
-          <Row label="Agency ID (tenant key)" value={<code className="text-xs">{agency?.id}</code>} icon={Lock} />
+        <CardContent className="p-5">
+          {editing ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5"><Label>Agency name</Label><Input value={form.name} onChange={update('name')} required /></div>
+              <div className="space-y-1.5"><Label>Business email</Label><Input type="email" value={form.email} onChange={update('email')} /></div>
+              <div className="space-y-1.5"><Label>Business phone</Label><Input value={form.phone} onChange={update('phone')} placeholder="+91 98765 43210" /></div>
+              <div className="space-y-1.5"><Label>Website</Label><Input value={form.website} onChange={update('website')} placeholder="https://" /></div>
+              <div className="space-y-1.5 sm:col-span-2"><Label>Business address</Label><Input value={form.address} onChange={update('address')} /></div>
+              <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={update('city')} /></div>
+              <div className="space-y-1.5"><Label>Country</Label><Input value={form.country} onChange={update('country')} /></div>
+              <div className="space-y-1.5"><Label>Currency</Label><Input value={form.currency} onChange={update('currency')} placeholder="INR" /></div>
+              <div className="space-y-1.5"><Label>Timezone</Label><Input value={form.timezone} onChange={update('timezone')} placeholder="Asia/Kolkata" /></div>
+              <div className="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => { setForm({ name: agency?.name || '', email: agency?.email || user?.email || '', phone: agency?.phone || '', website: agency?.website || '', address: agency?.address || '', city: agency?.city || '', country: agency?.country || 'India', currency: agency?.currency || 'INR', timezone: agency?.timezone || 'Asia/Kolkata' }); setEditing(false); }} disabled={saving}>Cancel</Button>
+                <Button onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : 'Save changes'}</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <Row label="Agency name" value={form.name || '—'} />
+              <Row label="Business email" value={form.email || '—'} />
+              <Row label="Business phone" value={form.phone || '—'} />
+              <Row label="Website" value={form.website || '—'} icon={Globe} />
+              <Row label="Business address" value={form.address || '—'} />
+              <Row label="City" value={form.city || '—'} />
+              <Row label="Country" value={form.country || '—'} />
+              <Row label="Currency" value={form.currency || 'INR'} />
+              <Row label="Timezone" value={form.timezone || 'Asia/Kolkata'} />
+              <Separator />
+              <Row label="Workspace slug" value={agency?.slug} icon={Globe} />
+              <Row label="Plan" value={agency?.plan} />
+              <Separator />
+              <Row label="Your role" value={<RoleBadge role={user?.role} />} />
+              <Row label="Agency ID (tenant key)" value={<code className="text-xs">{agency?.id}</code>} icon={Lock} />
+            </div>
+          )}
         </CardContent>
       </Card>
       <p className="text-xs text-muted-foreground flex items-center gap-1">
-        <Lock className="h-3 w-3" /> The agency ID is derived server-side from your session and scopes all your data.
+        <Lock className="h-3 w-3" /> Your agency ID, workspace slug, plan and role are read-only here. Changes apply only to this agency.
       </p>
     </div>
   );
@@ -6683,18 +6764,77 @@ function WebsiteSettings({ data, canManage, onSaved }) {
 }
 
 function WebsiteAppearance({ data, canManage, onSaved }) {
-  const s = data.settings;
-  const [f, setF] = useState({ primaryColor: s.primaryColor || '#7c3aed', secondaryColor: s.secondaryColor || '#0ea5e9', font: s.font || 'Inter', theme: s.theme || 'classic', logo: s.logo || '' });
+  const s = data.settings || {};
+  const fallbackThemes = [
+    { themeKey: 'atlas-journeys', name: 'Atlas Journeys', category: 'General', description: 'A versatile modern website for any travel agency.', primaryColor: '#2563eb', secondaryColor: '#0ea5e9', font: 'Inter' },
+    { themeKey: 'luxe-voyage', name: 'Luxe Voyage', category: 'Luxury', description: 'Premium holidays, honeymoon trips and luxury escapes.', primaryColor: '#9a7848', secondaryColor: '#efe4d0', font: 'Montserrat' },
+    { themeKey: 'wildtrail', name: 'Wildtrail', category: 'Adventure', description: 'Trekking, outdoor adventures and expedition tours.', primaryColor: '#315c43', secondaryColor: '#d5a84f', font: 'Lato' },
+    { themeKey: 'coastline', name: 'Coastline', category: 'Beach', description: 'Beach holidays, island escapes and coastal resorts.', primaryColor: '#0f766e', secondaryColor: '#2dd4bf', font: 'Poppins' },
+    { themeKey: 'roots-routes', name: 'Roots & Routes', category: 'Culture', description: 'Cultural journeys, heritage walks and local experiences.', primaryColor: '#92400e', secondaryColor: '#d97706', font: 'Lato' },
+    { themeKey: 'happy-trails', name: 'Happy Trails', category: 'Family', description: 'Friendly family breaks and group holiday packages.', primaryColor: '#15803d', secondaryColor: '#f59e0b', font: 'Poppins' },
+    { themeKey: 'meridian', name: 'Meridian', category: 'Business', description: 'Professional corporate travel and managed business trips.', primaryColor: '#334155', secondaryColor: '#64748b', font: 'Inter' },
+  ];
+  const themes = (data.themes || []).length ? data.themes : fallbackThemes;
+  const [f, setF] = useState({ primaryColor: s.primaryColor || '#2563eb', secondaryColor: s.secondaryColor || '#0ea5e9', font: s.font || 'Inter', theme: themes.some(t => (t.themeKey || t.id) === s.theme) ? s.theme : 'atlas-journeys', logo: s.logo || '' });
   const [saving, setSaving] = useState(false);
+  const [applying, setApplying] = useState('');
+  const choose = (theme) => setF({ ...f, theme: theme.themeKey || theme.id, primaryColor: theme.primaryColor || f.primaryColor, secondaryColor: theme.secondaryColor || f.secondaryColor, font: theme.font || f.font });
   const save = async () => { setSaving(true); try { await api('/website/settings', { method: 'PUT', body: JSON.stringify(f) }); toast.success('Appearance saved'); onSaved(); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
-  return (<Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
-    <div className="space-y-1"><Label>Primary color</Label><div className="flex gap-2"><input type="color" value={f.primaryColor} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} disabled={!canManage} className="h-9 w-12 rounded border" /><Input value={f.primaryColor} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} disabled={!canManage} /></div></div>
-    <div className="space-y-1"><Label>Secondary color</Label><div className="flex gap-2"><input type="color" value={f.secondaryColor} onChange={(e) => setF({ ...f, secondaryColor: e.target.value })} disabled={!canManage} className="h-9 w-12 rounded border" /><Input value={f.secondaryColor} onChange={(e) => setF({ ...f, secondaryColor: e.target.value })} disabled={!canManage} /></div></div>
-    <div className="space-y-1"><Label>Font</Label><Select value={f.font} onValueChange={(v) => setF({ ...f, font: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['Inter', 'Poppins', 'Roboto', 'Lato', 'Montserrat'].map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select></div>
-    <div className="space-y-1"><Label>Theme</Label><Select value={f.theme} onValueChange={(v) => setF({ ...f, theme: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['classic', 'modern', 'minimal'].map((x) => <SelectItem key={x} value={x}>{titleCase(x)}</SelectItem>)}</SelectContent></Select></div>
-    <div className="space-y-1 sm:col-span-2"><Label>Logo URL</Label><Input value={f.logo} onChange={(e) => setF({ ...f, logo: e.target.value })} disabled={!canManage} /></div>
-    <div className="flex items-center gap-3 sm:col-span-2"><div className="flex items-center gap-2 text-sm"><span className="h-6 w-6 rounded" style={{ background: f.primaryColor }} /><span className="h-6 w-6 rounded" style={{ background: f.secondaryColor }} /><span className="text-muted-foreground">Palette preview</span></div>{canManage && <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save appearance'}</Button>}</div>
-  </CardContent></Card>);
+  const apply = async (theme) => {
+    const key = theme.themeKey || theme.id;
+    const hasExistingPages = Boolean(data.pages && data.pages.length);
+    const replaceExisting = hasExistingPages ? window.confirm('This agency already has website pages. Replace them with the selected template starter pages? This cannot be undone.') : false;
+    if (hasExistingPages && !replaceExisting) return;
+    setApplying(key);
+    try {
+      try {
+        await api('/website/templates/apply', { method: 'POST', body: JSON.stringify({ theme: key, replaceExisting }) });
+      } catch (firstError) {
+        const message = friendlyError(firstError);
+        if (!message.toLowerCase().includes('already has website pages')) throw firstError;
+        const confirmed = window.confirm('This agency already has website pages. Replace them with this template’s starter pages? This cannot be undone.');
+        if (!confirmed) return;
+        await api('/website/templates/apply', { method: 'POST', body: JSON.stringify({ theme: key, replaceExisting: true }) });
+      }
+      setF({ ...f, theme: key, primaryColor: theme.primaryColor || f.primaryColor, secondaryColor: theme.secondaryColor || f.secondaryColor, font: theme.font || f.font });
+      toast.success('Premium template applied! Demo tours, destinations and content are ready to edit.');
+      onSaved();
+    } catch (e) {
+      console.error('[website template apply] Request failed:', e);
+      toast.error(e?.message || 'Template could not be applied. Please try again.');
+    } finally { setApplying(''); }
+  };
+  return (<div className="space-y-4">
+    <Card><CardContent className="space-y-4 p-5">
+      <div><h3 className="text-base font-semibold">Premium Website Templates</h3><p className="mt-1 text-sm text-muted-foreground">Choose a professional travel website design. Each template includes demo tours, destinations, images, and fully editable sections. All demo content must be reviewed and updated before publishing.</p></div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {themes.map((theme) => {
+          const key = theme.themeKey || theme.id;
+          const selected = f.theme === key;
+          return <div key={key} className={`overflow-hidden rounded-xl border ${selected ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}>
+            <div className="h-28 p-3" style={{ background: `linear-gradient(135deg,${theme.primaryColor || '#2563eb'},${theme.secondaryColor || '#0ea5e9'})` }}>
+              <div className="flex h-full flex-col justify-between rounded-lg border border-white/30 bg-white/10 p-3 text-white">
+                <div className="text-xs uppercase tracking-[.18em]">{theme.category || 'Travel'}</div>
+                <div><div className="text-lg font-semibold">{theme.name || titleCase(key)}</div><div className="mt-1 flex gap-1"><span className="h-1.5 w-8 rounded-full bg-white/90"/><span className="h-1.5 w-4 rounded-full bg-white/60"/></div></div>
+              </div>
+            </div>
+            <div className="space-y-3 p-3"><p className="min-h-10 text-sm text-muted-foreground">{theme.description || 'A customizable travel agency website design.'}</p>
+              <div className="flex items-center gap-2"><span className="h-5 w-5 rounded-full border" style={{ background: theme.primaryColor || '#2563eb' }}/><span className="h-5 w-5 rounded-full border" style={{ background: theme.secondaryColor || '#0ea5e9' }}/><span className="text-xs text-muted-foreground">{theme.font || 'Inter'}</span></div>
+              <div className="flex gap-2"><Button size="sm" variant={selected ? 'default' : 'outline'} onClick={() => choose(theme)} className="flex-1">{selected ? 'Selected' : 'Customize'}</Button><Button size="sm" onClick={() => apply(theme)} disabled={!canManage || Boolean(applying)} className="flex-1">{applying === key ? 'Applying…' : 'Use template'}</Button></div>
+            </div>
+          </div>;
+        })}
+      </div>
+    </CardContent></Card>
+    <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+      <div className="space-y-1"><Label>Primary color</Label><div className="flex gap-2"><input type="color" value={f.primaryColor} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} disabled={!canManage} className="h-9 w-12 rounded border" /><Input value={f.primaryColor} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} disabled={!canManage} /></div></div>
+      <div className="space-y-1"><Label>Secondary color</Label><div className="flex gap-2"><input type="color" value={f.secondaryColor} onChange={(e) => setF({ ...f, secondaryColor: e.target.value })} disabled={!canManage} className="h-9 w-12 rounded border" /><Input value={f.secondaryColor} onChange={(e) => setF({ ...f, secondaryColor: e.target.value })} disabled={!canManage} /></div></div>
+      <div className="space-y-1"><Label>Font</Label><Select value={f.font} onValueChange={(v) => setF({ ...f, font: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['Inter', 'Poppins', 'Roboto', 'Lato', 'Montserrat'].map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select></div>
+      <div className="space-y-1"><Label>Selected template</Label><Select value={f.theme} onValueChange={(v) => { const chosen = themes.find((t) => (t.themeKey || t.id) === v); setF({ ...f, theme: v, ...(chosen ? { primaryColor: chosen.primaryColor, secondaryColor: chosen.secondaryColor, font: chosen.font } : {}) }); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{themes.map((x) => <SelectItem key={x.themeKey || x.id} value={x.themeKey || x.id}>{x.name || titleCase(x.themeKey || x.id)}</SelectItem>)}</SelectContent></Select></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Logo URL</Label><Input value={f.logo} onChange={(e) => setF({ ...f, logo: e.target.value })} disabled={!canManage} /></div>
+      <div className="flex items-center gap-3 sm:col-span-2"><div className="flex items-center gap-2 text-sm"><span className="h-6 w-6 rounded" style={{ background: f.primaryColor }} /><span className="h-6 w-6 rounded" style={{ background: f.secondaryColor }} /><span className="text-muted-foreground">Palette preview</span></div>{canManage && <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save appearance'}</Button>}</div>
+    </CardContent></Card>
+  </div>);
 }
 
 function WebsitePageDialog({ page, onClose, onSaved }) {
@@ -7033,9 +7173,9 @@ function IntOverview({ canManage }) {
   const load = async () => { try { const d = await api('/integrations'); setData(d); } catch (e) { toast.error(friendlyError(e)); } };
   useEffect(() => { load(); }, []);
   if (!data) return <div className="h-40 rounded-lg border bg-muted/30 animate-pulse" />;
-  const cats = data.categories.filter((c) => c.id !== 'webhooks' && c.id !== 'api');
+  const cats = data.categories.filter((c) => ['payments', 'email'].includes(c.id));
   return (<div className="space-y-6">
-    <p className="text-sm text-muted-foreground">Connect SafarOS to external services. Disconnected providers show their real state — no fake connections. Secrets are never shown to the browser.</p>
+    <p className="text-sm text-muted-foreground">Connect your agency's own payment gateway or email provider. Only optional agency-level services are shown here; platform-wide services are managed by SafarOS.</p>
     {cats.map((cat) => {
       const items = data.integrations.filter((i) => i.category === cat.id);
       if (!items.length) return null;

@@ -5,8 +5,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
-import { publicSettings, publicPage } from '@/lib/public-site';
-import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE } from '@/lib/email';
+import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured, isAgencyEmailConfigured } from '@/lib/email';
 import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
 import {
   COOKIE_NAME, PORTAL_COOKIE, PLATFORM_COOKIE, hashPassword, verifyPassword, signSession, getSession,
@@ -40,6 +39,8 @@ import {
   DOCUMENT_ENTITY_TYPES, DOCUMENT_CATEGORIES, DOCUMENT_MAX_BYTES, buildDocumentMeta,
   CUSTOM_FIELD_ENTITIES, CUSTOM_FIELD_TYPES, slugify as slugifyKey, buildFieldDefinition, coerceFieldValue, buildCustomModule,
 } from '@/lib/intelligence';
+import { templateMeta, buildTemplateBuilder, LEGACY_THEME_MAP, BUILDER_TEMPLATE_KEYS } from '@/lib/website-templates';
+import { sanitizeBuilder, publicBuilder } from '@/lib/website-builder';
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -711,7 +712,7 @@ async function financeGet(db, session, path, sp) {
       db.collection('customerReceivables').find(tenantFilter(session), { projection: { _id: 0 } }).toArray(),
       db.collection('supplierPayables').find(tenantFilter(session), { projection: { _id: 0 } }).toArray(),
       db.collection('expenses').find(tenantFilter(session), { projection: { _id: 0 } }).toArray(),
-      db.collection('bookings').find(tenantFilter(session), { projection: { _id: 0, id: 1, bookingNumber: 1, customerName: 1, grandTotal: 1, internalCost: 1, startDate: 1 } }).toArray(),
+      db.collection('bookings').find(tenantFilter(session), { projection: { _id: 0, id: 1, bookingNumber: 1, customerName: 1, grandTotal: 1, internalCost: 1, startDate: 1, status: 1 } }).toArray(),
     ]);
     // Customer & supplier outstanding balances (grouped).
     const groupBal = (arr, idKey, nameKey, outKey) => {
@@ -724,7 +725,8 @@ async function financeGet(db, session, path, sp) {
     // Booking profitability: selling (grandTotal) - supplier cost (payables) - expenses tagged to booking.
     const payByBooking = {}; for (const p of pay) { if (!p.bookingId || p.status === 'cancelled') continue; payByBooking[p.bookingId] = round2((payByBooking[p.bookingId] || 0) + (Number(p.totalAmount) || 0)); }
     const expByBooking = {}; for (const e of exps) { if (!e.bookingId || e.status === 'cancelled') continue; expByBooking[e.bookingId] = round2((expByBooking[e.bookingId] || 0) + (Number(e.amount) || 0)); }
-    const bookingProfitability = bookings.filter((b) => inRange(b.startDate)).map((b) => {
+    // Keep draft and cancelled bookings out of the main profitability report; booking records remain untouched.
+    const bookingProfitability = bookings.filter((b) => inRange(b.startDate) && !['draft', 'cancelled'].includes(String(b.status || '').toLowerCase())).map((b) => {
       const revenue = Number(b.grandTotal) || 0;
       const supplierCost = payByBooking[b.id] || round2(Number(b.internalCost) || 0);
       const expenses = expByBooking[b.id] || 0;
@@ -1457,6 +1459,15 @@ async function portalAccessStatus(db, session, id, body) {
 }
 
 // ======================= WEBSITE BUILDER (5.6) + SEO (5.7) =======================
+const WEBSITE_THEME_DEFAULTS = [
+  { id: 'luxe-voyage', themeKey: 'luxe-voyage', name: 'Luxe Voyage', category: 'Luxury', description: 'Premium holidays, honeymoon trips and luxury escapes.', primaryColor: '#9a7848', secondaryColor: '#efe4d0', font: 'Montserrat', active: true, builtIn: true },
+  { id: 'wildtrail', themeKey: 'wildtrail', name: 'Wildtrail', category: 'Adventure', description: 'Trekking, outdoor adventures and expedition tours.', primaryColor: '#315c43', secondaryColor: '#d5a84f', font: 'Lato', active: true, builtIn: true },
+  { id: 'atlas-journeys', themeKey: 'atlas-journeys', name: 'Atlas Journeys', category: 'General', description: 'A versatile modern website for any travel agency.', primaryColor: '#2563eb', secondaryColor: '#0ea5e9', font: 'Inter', active: true, builtIn: true },
+  { id: 'coastline', themeKey: 'coastline', name: 'Coastline', category: 'Beach', description: 'Beach holidays, island escapes and coastal resorts.', primaryColor: '#0f766e', secondaryColor: '#2dd4bf', font: 'Poppins', active: true, builtIn: true },
+  { id: 'roots-routes', themeKey: 'roots-routes', name: 'Roots & Routes', category: 'Culture', description: 'Cultural journeys, heritage walks and local experiences.', primaryColor: '#92400e', secondaryColor: '#d97706', font: 'Lato', active: true, builtIn: true },
+  { id: 'happy-trails', themeKey: 'happy-trails', name: 'Happy Trails', category: 'Family', description: 'Friendly family breaks and group holiday packages.', primaryColor: '#15803d', secondaryColor: '#f59e0b', font: 'Poppins', active: true, builtIn: true },
+  { id: 'meridian', themeKey: 'meridian', name: 'Meridian', category: 'Business', description: 'Professional corporate travel and managed business trips.', primaryColor: '#334155', secondaryColor: '#64748b', font: 'Inter', active: true, builtIn: true },
+];
 const PAGE_TYPES = ['home', 'about', 'contact', 'packages', 'destinations', 'custom'];
 const WEBSITE_STATUS = ['draft', 'published'];
 function slugify(s) { return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 80); }
@@ -1480,7 +1491,9 @@ async function websiteGet(db, session, path) {
   if (path === '/website/settings') {
     let s = await db.collection('websiteSettings').findOne(tenantFilter(session), { projection: { _id: 0 } });
     if (!s) s = defaultWebsiteSettings(session, agency);
-    return json({ settings: s, agency: { name: (agency && agency.name) || '', slug: (agency && agency.slug) || '' } });
+    // Return premium templates from website-templates.js
+    const themes = templateMeta();
+    return json({ settings: s, themes, agency: { name: (agency && agency.name) || '', slug: (agency && agency.slug) || '' } });
   }
   if (path === '/website/pages') {
     const pages = await db.collection('websitePages').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ sortOrder: 1, createdAt: 1 }).toArray();
@@ -1531,6 +1544,59 @@ function buildPageFields(body, { partial = false } = {}) {
 
 async function websitePost(db, session, path, body) {
   const now = new Date().toISOString();
+  if (path === '/website/templates/apply') {
+    const themeKey = String(body.theme || 'atlas-journeys');
+    // Map legacy theme keys to new ones
+    const mappedKey = LEGACY_THEME_MAP[themeKey] || themeKey;
+    if (!BUILDER_TEMPLATE_KEYS.includes(mappedKey)) return err('Unknown website template', 400);
+    
+    const agency = await db.collection('agencies').findOne({ id: session.agencyId }, { projection: { _id: 0, name: 1, slug: 1 } });
+    const agencyName = (agency && agency.name) || 'Your Travel Agency';
+    
+    // Build the complete template with demo content
+    const builderDoc = buildTemplateBuilder(mappedKey, agencyName);
+    if (!builderDoc) return err('Template could not be generated', 500);
+    
+    // Sanitize the builder document
+    const { value: safeBuilder, error: sanitizeError } = sanitizeBuilder(builderDoc);
+    if (sanitizeError) return err(sanitizeError, 400);
+    
+    // Check if agency already has a builder document
+    const existing = await db.collection('websiteSettings').findOne(tenantFilter(session));
+    const hasContent = existing && existing.builder && (existing.builder.tours?.length > 0 || existing.builder.sections?.length > 0);
+    
+    if (hasContent && body.replaceExisting !== true) {
+      return err('This agency already has website content. Set replaceExisting:true to replace it.', 409);
+    }
+    
+    // Prepare the new settings document
+    const base = existing || defaultWebsiteSettings(session, agency);
+    const nextSettings = {
+      ...base,
+      siteTitle: base.siteTitle || agencyName,
+      tagline: base.tagline || safeBuilder.header?.tagline || 'Thoughtfully planned journeys',
+      theme: mappedKey,
+      primaryColor: safeBuilder.brand?.primary || '#2563eb',
+      secondaryColor: safeBuilder.brand?.secondary || '#0f172a',
+      font: safeBuilder.brand?.bodyFont || 'Inter',
+      builder: safeBuilder,
+      status: base.status || 'draft',
+      updatedAt: now,
+      createdAt: base.createdAt || now,
+    };
+    
+    await db.collection('websiteSettings').updateOne(
+      tenantFilter(session),
+      { $set: nextSettings },
+      { upsert: true }
+    );
+    
+    return json({
+      ok: true,
+      theme: mappedKey,
+      message: 'Premium template applied with demo content. Edit sections, tours and destinations before publishing.'
+    }, 201);
+  }
   if (path === '/website/pages') {
     const { value, error } = buildPageFields(body);
     if (error) return err(error);
@@ -1546,6 +1612,19 @@ async function websitePost(db, session, path, body) {
 
 async function websitePut(db, session, path, body) {
   const now = new Date().toISOString();
+  if (path === '/website/builder') {
+    // Save the complete builder document
+    const { value: safeBuilder, error: sanitizeError } = sanitizeBuilder(body);
+    if (sanitizeError) return err(sanitizeError, 400);
+    
+    const r = await db.collection('websiteSettings').updateOne(
+      tenantFilter(session),
+      { $set: { builder: safeBuilder, updatedAt: now } },
+      { upsert: true }
+    );
+    
+    return json({ ok: true, message: 'Website builder saved' });
+  }
   if (path === '/website/settings') {
     const existing = await db.collection('websiteSettings').findOne(tenantFilter(session));
     const base = existing || defaultWebsiteSettings(session, await db.collection('agencies').findOne({ id: session.agencyId }, { projection: { _id: 0, name: 1 } }));
@@ -1606,6 +1685,13 @@ async function websiteDelete(db, session, path) {
 }
 
 // ---- Public website (no auth; agency resolved by slug; published content only) ----
+function publicSettings(s) {
+  if (!s) return null;
+  return { siteTitle: s.siteTitle, tagline: s.tagline, logo: s.logo, favicon: s.favicon, contactEmail: s.contactEmail, phone: s.phone, address: s.address, social: s.social, primaryColor: s.primaryColor, secondaryColor: s.secondaryColor, font: s.font, theme: s.theme, seo: s.seo };
+}
+function publicPage(p) {
+  return { id: p.id, title: p.title, slug: p.slug, pageType: p.pageType, status: p.status, sortOrder: p.sortOrder, content: p.content, seoTitle: p.seoTitle, seoDescription: p.seoDescription, canonicalUrl: p.canonicalUrl, noindex: p.noindex, ogTitle: p.ogTitle, ogDescription: p.ogDescription, ogImage: p.ogImage };
+}
 
 async function publicGet(db, path) {
   const parts = path.split('/'); // ['', 'public', 'site', slug, ...]
@@ -1653,7 +1739,8 @@ async function publicGet(db, path) {
 async function publicPost(db, path, body) {
   const parts = path.split('/');
   const slug = parts[3];
-  if (parts[4] !== 'inquiry' || !slug) return err('not found', 404);
+  // Support both /inquiry and /enquiry
+  if ((parts[4] !== 'inquiry' && parts[4] !== 'enquiry') || !slug) return err('not found', 404);
   const agency = await db.collection('agencies').findOne({ slug }, { projection: { _id: 0, id: 1 } });
   if (!agency) return err('Site not found', 404);
   const name = str(body.name, 120); const email = str(body.email, 160).toLowerCase(); const phone = str(body.phone, 40); const message = str(body.message, 2000);
@@ -1943,21 +2030,23 @@ function maskApiKey(k) {
     status: k.status, displayKey: `${k.prefix || 'sk_safaros_'}••••${k.last4 || ''}`, createdAt: k.createdAt, lastUsedAt: k.lastUsedAt || null };
 }
 
+const AGENCY_INTEGRATION_PROVIDERS = new Set(['razorpay', 'resend']);
+
 async function integrationsGet(db, session, path) {
   if (path === '/integrations') {
     const docs = await db.collection('integrations').find(tenantFilter(session), { projection: { _id: 0 } }).toArray();
     const byProvider = Object.fromEntries(docs.map((d) => [d.provider, d]));
-    const integrations = INTEGRATION_CATALOG.map((c) => integrationView(c, byProvider[c.provider]));
+    const integrations = INTEGRATION_CATALOG.filter((c) => AGENCY_INTEGRATION_PROVIDERS.has(c.provider)).map((c) => integrationView(c, byProvider[c.provider]));
     const [webhookCount, apiKeyCount] = await Promise.all([
       db.collection('webhooks').countDocuments(tenantFilter(session)),
       db.collection('apiKeys').countDocuments(tenantFilter(session)),
     ]);
-    return json({ categories: INTEGRATION_CATEGORIES, integrations, counts: { webhooks: webhookCount, apiKeys: apiKeyCount }, webhookEvents: WEBHOOK_EVENTS, apiScopes: API_SCOPES });
+    return json({ categories: INTEGRATION_CATEGORIES.filter((c) => ['payments', 'email'].includes(c.id)), integrations, counts: { webhooks: webhookCount, apiKeys: apiKeyCount }, webhookEvents: WEBHOOK_EVENTS, apiScopes: API_SCOPES });
   }
   if (path.startsWith('/integrations/')) {
     const provider = path.split('/')[2];
     const cat = CATALOG_BY_PROVIDER[provider];
-    if (!cat) return err('Unknown integration', 404);
+    if (!cat || !AGENCY_INTEGRATION_PROVIDERS.has(provider)) return err('Integration is not available in agency settings', 404);
     const doc = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
     return json({ integration: integrationView(cat, doc) });
   }
@@ -1980,24 +2069,45 @@ async function integrationsPost(db, session, path, body) {
   if (cfgMatch) {
     const provider = cfgMatch[1];
     const cat = CATALOG_BY_PROVIDER[provider];
-    if (!cat) return err('Unknown integration', 404);
+    if (!cat || !AGENCY_INTEGRATION_PROVIDERS.has(provider)) return err('Integration is not available in agency settings', 404);
     if (cat.managed === 'env') return err('This provider is managed via secure server environment and cannot be configured here');
     const input = (body && body.config) || {};
     const existing = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
     const metadata = { ...((existing && existing.configurationMetadata) || {}) };
     const secretHints = { ...((existing && existing.secretHints) || {}) };
+    const agencyId = String(session.agencyId || '');
+    if (provider === 'resend' && !agencyId) return err('Agency context is missing; please sign in again.', 401);
+    const secretDoc = provider === 'resend'
+      ? await db.collection('agencyIntegrationSecrets').findOne({ agencyId, provider }, { projection: { _id: 0, secrets: 1 } })
+      : null;
+    const encryptedSecrets = { ...(secretDoc?.secrets || {}) };
     for (const f of cat.fields) {
       const val = input[f.key];
       if (val === undefined || val === '') continue;
       if (f.type === 'secret') {
-        // Never persist the secret itself — only a masked hint.
-        secretHints[f.key] = last4(val);
+        const secret = String(val).trim();
+        if (provider === 'resend' && f.key === 'apiKey') {
+          if (!/^re_[A-Za-z0-9_-]{8,200}$/.test(secret)) return err('Enter a valid Resend API key beginning with re_.');
+          encryptedSecrets[f.key] = { enc: encryptSecret(secret), last4: last4(secret), updatedAt: now };
+        }
+        secretHints[f.key] = last4(secret);
       } else {
-        metadata[f.key] = str(val, 500);
+        const clean = str(val, 500);
+        if (provider === 'resend' && f.key === 'fromEmail' && !EMAIL_ADDR_RE.test(clean.toLowerCase())) return err('Enter a valid sender email address.');
+        metadata[f.key] = provider === 'resend' && f.key === 'fromEmail' ? clean.toLowerCase() : clean;
       }
     }
+    if (provider === 'resend' && Object.keys(encryptedSecrets).length) {
+      await db.collection('agencyIntegrationSecrets').updateOne(
+        { agencyId, provider },
+        { $set: { agencyId, provider, secrets: encryptedSecrets, updatedAt: now }, $setOnInsert: { id: uuidv4(), createdAt: now } },
+        { upsert: true },
+      );
+    }
     // Determine completeness from safe signals (non-secret present, or secret hint on record).
-    const missing = cat.fields.filter((f) => f.required && (f.type === 'secret' ? !secretHints[f.key] : (metadata[f.key] === undefined || metadata[f.key] === '')));
+    const missing = cat.fields.filter((f) => f.required && (f.type === 'secret'
+      ? (provider === 'resend' ? !encryptedSecrets[f.key]?.enc : !secretHints[f.key])
+      : (metadata[f.key] === undefined || metadata[f.key] === '')));
     const status = missing.length ? 'configuration_required' : 'connected';
     const enabled = body && body.enabled === false ? false : true;
     const finalStatus = enabled ? status : 'disabled';
@@ -2022,6 +2132,9 @@ async function integrationsPost(db, session, path, body) {
     if (!cat) return err('Unknown integration', 404);
     if (cat.managed === 'env') return err('This provider is managed via server environment');
     await db.collection('integrations').deleteOne(tenantFilter(session, { provider }));
+    if (provider === 'resend' && session.agencyId) {
+      await db.collection('agencyIntegrationSecrets').deleteOne({ agencyId: String(session.agencyId), provider: 'resend' });
+    }
     return json({ integration: integrationView(cat, null) });
   }
 
@@ -2560,7 +2673,18 @@ async function ensureDemoAgency(db) {
 
 const agStatus = (s) => (s || 'active');
 
+const PLATFORM_WEBSITE_THEME_DEFAULTS = [
+  { id: 'luxe-voyage', themeKey: 'luxe-voyage', name: 'Luxe Voyage', category: 'Luxury', description: 'Elegant, premium travel experiences with editorial typography.', primaryColor: '#172554', secondaryColor: '#c9a96e', font: 'Montserrat', builtIn: true, active: true },
+  { id: 'wildtrail', themeKey: 'wildtrail', name: 'WildTrail', category: 'Adventure', description: 'Bold outdoor trips, trekking, wildlife and expedition packages.', primaryColor: '#234b36', secondaryColor: '#d5a84f', font: 'Inter', builtIn: true, active: true },
+  { id: 'atlas-journeys', themeKey: 'atlas-journeys', name: 'Atlas Journeys', category: 'Contemporary', description: 'Clean, modern layouts for curated multi-destination journeys.', primaryColor: '#334155', secondaryColor: '#0ea5e9', font: 'Inter', builtIn: true, active: true },
+  { id: 'coastline', themeKey: 'coastline', name: 'Coastline', category: 'Beach & Island', description: 'Airy coastal styling for beach holidays and island escapes.', primaryColor: '#075985', secondaryColor: '#2dd4bf', font: 'Lato', builtIn: true, active: true },
+  { id: 'roots-routes', themeKey: 'roots-routes', name: 'Roots & Routes', category: 'Culture', description: 'Warm, story-led presentation for heritage and local experiences.', primaryColor: '#78350f', secondaryColor: '#d97706', font: 'Poppins', builtIn: true, active: true },
+  { id: 'happy-trails', themeKey: 'happy-trails', name: 'Happy Trails', category: 'Family', description: 'Friendly, colourful package presentation for families and groups.', primaryColor: '#166534', secondaryColor: '#f59e0b', font: 'Poppins', builtIn: true, active: true },
+  { id: 'meridian', themeKey: 'meridian', name: 'Meridian', category: 'Corporate', description: 'Professional, restrained design for business and managed travel.', primaryColor: '#1e3a8a', secondaryColor: '#64748b', font: 'Roboto', builtIn: true, active: true },
+];
+
 function platformReadPerm(path) {
+  if (path.startsWith('/platform/themes')) return 'themes:manage';
   if (path === '/platform/dashboard') return 'platform:dashboard';
   if (path.startsWith('/platform/agencies')) return 'agencies:read';
   if (path.startsWith('/platform/users')) return 'users:read';
@@ -2665,6 +2789,14 @@ async function testProviderConnection(provider, values = {}) {
 
 async function platformGet(db, session, path, sp) {
   if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
+
+  if (path === '/platform/themes') {
+    for (const theme of PLATFORM_WEBSITE_THEME_DEFAULTS) {
+      await db.collection('websiteThemes').updateOne({ id: theme.id }, { $setOnInsert: { ...theme, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }, { upsert: true });
+    }
+    const themes = await db.collection('websiteThemes').find({}, { projection: { _id: 0 } }).sort({ builtIn: -1, name: 1 }).toArray();
+    return json({ themes });
+  }
 
   if (path === '/platform/dashboard') {
     const agencies = await db.collection('agencies').find({}, { projection: { _id: 0, id: 1, status: 1, plan: 1 } }).toArray();
@@ -2849,6 +2981,26 @@ async function platformGet(db, session, path, sp) {
 
 async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
+  if (path === '/platform/themes') {
+    if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
+    const name = str(body.name, 80);
+    if (!name) return err('Theme name is required');
+    const themeKey = slugify(str(body.themeKey || name, 80));
+    const id = `custom-${themeKey}-${uuidv4().slice(0, 8)}`;
+    const theme = {
+      id, themeKey, name, category: str(body.category, 60) || 'Custom',
+      description: str(body.description, 500),
+      primaryColor: /^#[0-9a-fA-F]{6}$/.test(body.primaryColor || '') ? body.primaryColor : '#334155',
+      secondaryColor: /^#[0-9a-fA-F]{6}$/.test(body.secondaryColor || '') ? body.secondaryColor : '#0ea5e9',
+      font: ['Inter','Poppins','Roboto','Lato','Montserrat'].includes(body.font) ? body.font : 'Inter',
+      builtIn: false, active: body.active !== false, createdAt: now, updatedAt: now,
+    };
+    await db.collection('websiteThemes').insertOne(theme);
+    await platformAudit(db, session, request, { action: 'website_theme.created', targetType: 'website_theme', targetId: id, metadata: { name } });
+    const { _id, ...safe } = theme;
+    return json({ theme: safe }, 201);
+  }
+
   if (path === '/platform/settings/email/test') {
     if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403); // Super Admin only
     const to = String(body?.to || session.email || '').trim().toLowerCase();
@@ -2972,6 +3124,26 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
+  const themeEdit = path.match(/^\/platform\/themes\/([^/]+)$/);
+  if (themeEdit) {
+    if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
+    const id = themeEdit[1];
+    const existing = await db.collection('websiteThemes').findOne({ id });
+    if (!existing) return err('Theme not found', 404);
+    const set = { updatedAt: now };
+    if (body.name !== undefined) { const name = str(body.name, 80); if (!name) return err('Theme name is required'); set.name = name; }
+    if (body.category !== undefined) set.category = str(body.category, 60);
+    if (body.description !== undefined) set.description = str(body.description, 500);
+    if (body.primaryColor !== undefined) { if (!/^#[0-9a-fA-F]{6}$/.test(body.primaryColor)) return err('Primary color must be a 6-digit hex color'); set.primaryColor = body.primaryColor; }
+    if (body.secondaryColor !== undefined) { if (!/^#[0-9a-fA-F]{6}$/.test(body.secondaryColor)) return err('Secondary color must be a 6-digit hex color'); set.secondaryColor = body.secondaryColor; }
+    if (body.font !== undefined) { if (!['Inter','Poppins','Roboto','Lato','Montserrat'].includes(body.font)) return err('Invalid font'); set.font = body.font; }
+    if (body.active !== undefined) set.active = Boolean(body.active);
+    await db.collection('websiteThemes').updateOne({ id }, { $set: set });
+    await platformAudit(db, session, request, { action: 'website_theme.updated', targetType: 'website_theme', targetId: id, metadata: { fields: Object.keys(set).filter(k => k !== 'updatedAt') } });
+    const theme = await db.collection('websiteThemes').findOne({ id }, { projection: { _id: 0 } });
+    return json({ theme });
+  }
+
 
   // Landing-page early-access request status update.
   const eaM = path.match(/^\/platform\/early-access\/([^/]+)$/);
@@ -3110,6 +3282,18 @@ async function platformPut(db, session, path, body, request) {
 }
 
 async function platformDelete(db, session, path, request) {
+  const themeDel = path.match(/^\/platform\/themes\/([^/]+)$/);
+  if (themeDel) {
+    if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
+    const id = themeDel[1];
+    const existing = await db.collection('websiteThemes').findOne({ id });
+    if (!existing) return err('Theme not found', 404);
+    if (existing.builtIn) return err('Built-in themes cannot be deleted; deactivate them instead');
+    await db.collection('websiteThemes').deleteOne({ id });
+    await platformAudit(db, session, request, { action: 'website_theme.deleted', targetType: 'website_theme', targetId: id, metadata: { name: existing.name } });
+    return json({ ok: true });
+  }
+
   const agDel = path.match(/^\/platform\/agencies\/([^/]+)$/);
   if (agDel) {
     if (!canPlatform(session.role, 'agencies:delete')) return err('forbidden', 403);
@@ -3496,6 +3680,31 @@ export async function GET(request, context) {
       const quotations = await db.collection('quotations')
         .find(tenantFilter(session), { projection: { _id: 0 } })
         .sort({ createdAt: -1 }).toArray();
+      // Repair missing quotation links from existing non-cancelled bookings, so the UI
+      // shows "View Booking" for quotations that were converted before link backfilling.
+      const quotationIds = quotations.map((q) => q.id).filter(Boolean);
+      if (quotationIds.length) {
+        const linkedBookings = await db.collection('bookings')
+          .find(tenantFilter(session, { quotationId: { $in: quotationIds }, status: { $ne: 'cancelled' } }),
+            { projection: { _id: 0, id: 1, bookingNumber: 1, quotationId: 1, createdAt: 1 } })
+          .sort({ createdAt: 1 }).toArray();
+        const firstBookingByQuotation = new Map();
+        for (const booking of linkedBookings) {
+          if (booking.quotationId && !firstBookingByQuotation.has(booking.quotationId)) {
+            firstBookingByQuotation.set(booking.quotationId, booking);
+          }
+        }
+        for (const quotation of quotations) {
+          if (quotation.convertedBookingId) continue;
+          const linked = firstBookingByQuotation.get(quotation.id);
+          if (!linked) continue;
+          await db.collection('quotations').updateOne(
+            tenantFilter(session, { id: quotation.id, convertedBookingId: { $in: [null, ''] } }),
+            { $set: { convertedBookingId: linked.id, convertedBookingNumber: linked.bookingNumber || '' } });
+          quotation.convertedBookingId = linked.id;
+          quotation.convertedBookingNumber = linked.bookingNumber || '';
+        }
+      }
       return json({ quotations });
     }
 
@@ -3507,6 +3716,18 @@ export async function GET(request, context) {
       const quotation = await db.collection('quotations')
         .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
       if (!quotation) return err('Quotation not found', 404);
+      if (!quotation.convertedBookingId) {
+        const linked = await db.collection('bookings').findOne(
+          tenantFilter(session, { quotationId: quotation.id, status: { $ne: 'cancelled' } }),
+          { projection: { _id: 0, id: 1, bookingNumber: 1 }, sort: { createdAt: 1 } });
+        if (linked) {
+          await db.collection('quotations').updateOne(
+            tenantFilter(session, { id: quotation.id, convertedBookingId: { $in: [null, ''] } }),
+            { $set: { convertedBookingId: linked.id, convertedBookingNumber: linked.bookingNumber || '' } });
+          quotation.convertedBookingId = linked.id;
+          quotation.convertedBookingNumber = linked.bookingNumber || '';
+        }
+      }
       return json({ quotation });
     }
 
@@ -4231,7 +4452,9 @@ export async function POST(request, context) {
     // Public website inquiry -> existing CRM leads (no auth; agency by slug)
     if (path.startsWith('/public/')) return publicPost(db, path, await readBody(request));
 
-    if (path === '/website/pages') {
+    // Website builder actions (including template application) must reach the shared
+    // websitePost handler. Restrict access to an authenticated agency manager.
+    if (path.startsWith('/website/')) {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'website:manage')) return err('forbidden', 403);
@@ -4257,19 +4480,30 @@ export async function POST(request, context) {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'members:invite')) return err('forbidden', 403);
-      const { name, email, password, role } = await readBody(request);
-      if (!name || !email || !password || !role) return err('name, email, password, role required');
-      if (!isValidRole(role) || role === 'owner') return err('invalid role');
-      const existing = await db.collection('users').findOne({ email: String(email).toLowerCase() });
+      const { name, email, role } = await readBody(request);
+      const cleanName = String(name || '').trim().slice(0, 120);
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      if (!cleanName || !EMAIL_ADDR_RE.test(cleanEmail) || cleanEmail.length > 200 || !role) return err('valid name, email and role required');
+      // Managers may add operational staff only; only the agency owner can grant manager access.
+      if (!isValidRole(role) || role === 'owner' || (session.role === 'manager' && !['agent', 'finance'].includes(role))) return err('invalid role');
+      if (!(await isAgencyEmailConfigured(db, session.agencyId))) return err('Agency email is not configured. Connect Resend with a verified sender email before inviting staff.', 503);
+      const existing = await db.collection('users').findOne({ email: cleanEmail });
       if (existing) return err('email already registered', 409);
+      const now = new Date().toISOString();
+      const temporaryPassword = crypto.randomBytes(32).toString('base64url');
       const doc = withAgency(session, {
-        id: uuidv4(), name, email: String(email).toLowerCase(),
-        passwordHash: await hashPassword(password), role, status: 'active',
-        createdAt: new Date().toISOString(),
+        id: uuidv4(), name: cleanName, email: cleanEmail,
+        passwordHash: await hashPassword(temporaryPassword), role, status: 'active',
+        createdAt: now, invitedAt: now, invitedBy: session.userId,
       });
       await db.collection('users').insertOne(doc);
+      const invitation = await requestPasswordReset(db, 'agency', cleanEmail, clientIp(request), 'invite');
+      if (!invitation?.ok) {
+        await db.collection('users').deleteOne({ id: doc.id, agencyId: session.agencyId });
+        return err('The invitation email could not be sent. Check the agency Resend key, verified sender address, and application base URL, then try again.', 502);
+      }
       const { passwordHash, _id, ...safe } = doc;
-      return json({ member: safe }, 201);
+      return json({ member: safe, invitationSent: true }, 201);
     }
 
     // Demo tenant-scoped resource proving isolation.
