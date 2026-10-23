@@ -2630,7 +2630,7 @@ async function ensureDemoAgency(db) {
 
 const agStatus = (s) => (s || 'active');
 
-const WEBSITE_THEME_DEFAULTS = [
+const PLATFORM_WEBSITE_THEME_DEFAULTS = [
   { id: 'luxe-voyage', themeKey: 'luxe-voyage', name: 'Luxe Voyage', category: 'Luxury', description: 'Elegant, premium travel experiences with editorial typography.', primaryColor: '#172554', secondaryColor: '#c9a96e', font: 'Montserrat', builtIn: true, active: true },
   { id: 'wildtrail', themeKey: 'wildtrail', name: 'WildTrail', category: 'Adventure', description: 'Bold outdoor trips, trekking, wildlife and expedition packages.', primaryColor: '#234b36', secondaryColor: '#d5a84f', font: 'Inter', builtIn: true, active: true },
   { id: 'atlas-journeys', themeKey: 'atlas-journeys', name: 'Atlas Journeys', category: 'Contemporary', description: 'Clean, modern layouts for curated multi-destination journeys.', primaryColor: '#334155', secondaryColor: '#0ea5e9', font: 'Inter', builtIn: true, active: true },
@@ -2748,7 +2748,7 @@ async function platformGet(db, session, path, sp) {
   if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
 
   if (path === '/platform/themes') {
-    for (const theme of WEBSITE_THEME_DEFAULTS) {
+    for (const theme of PLATFORM_WEBSITE_THEME_DEFAULTS) {
       await db.collection('websiteThemes').updateOne({ id: theme.id }, { $setOnInsert: { ...theme, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }, { upsert: true });
     }
     const themes = await db.collection('websiteThemes').find({}, { projection: { _id: 0 } }).sort({ builtIn: -1, name: 1 }).toArray();
