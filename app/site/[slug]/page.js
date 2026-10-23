@@ -11,7 +11,7 @@ async function getWebsiteData(slug) {
     const origin = requestHost
       ? `${forwardedProto || 'https'}://${requestHost}`
       : (process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'));
-    const baseUrl = origin.replace(/\\/$/, '');
+    const baseUrl = origin.replace(/\/$/, '');
     const url = `${baseUrl}/api/public/site/${encodeURIComponent(slug)}`;
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return null;
