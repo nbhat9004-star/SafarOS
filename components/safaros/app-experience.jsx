@@ -6764,18 +6764,66 @@ function WebsiteSettings({ data, canManage, onSaved }) {
 }
 
 function WebsiteAppearance({ data, canManage, onSaved }) {
-  const s = data.settings;
-  const [f, setF] = useState({ primaryColor: s.primaryColor || '#7c3aed', secondaryColor: s.secondaryColor || '#0ea5e9', font: s.font || 'Inter', theme: ['luxe-voyage','wildtrail','atlas-journeys','coastline','roots-routes','happy-trails','meridian'].includes(s.theme) ? s.theme : 'atlas-journeys', logo: s.logo || '' });
+  const s = data.settings || {};
+  const fallbackThemes = [
+    { themeKey: 'atlas-journeys', name: 'Atlas Journeys', category: 'General', description: 'A versatile modern website for any travel agency.', primaryColor: '#2563eb', secondaryColor: '#0ea5e9', font: 'Inter' },
+    { themeKey: 'luxe-voyage', name: 'Luxe Voyage', category: 'Luxury', description: 'Premium holidays, honeymoon trips and luxury escapes.', primaryColor: '#9a7848', secondaryColor: '#efe4d0', font: 'Montserrat' },
+    { themeKey: 'wildtrail', name: 'Wildtrail', category: 'Adventure', description: 'Trekking, outdoor adventures and expedition tours.', primaryColor: '#315c43', secondaryColor: '#d5a84f', font: 'Lato' },
+    { themeKey: 'coastline', name: 'Coastline', category: 'Beach', description: 'Beach holidays, island escapes and coastal resorts.', primaryColor: '#0f766e', secondaryColor: '#2dd4bf', font: 'Poppins' },
+    { themeKey: 'roots-routes', name: 'Roots & Routes', category: 'Culture', description: 'Cultural journeys, heritage walks and local experiences.', primaryColor: '#92400e', secondaryColor: '#d97706', font: 'Lato' },
+    { themeKey: 'happy-trails', name: 'Happy Trails', category: 'Family', description: 'Friendly family breaks and group holiday packages.', primaryColor: '#15803d', secondaryColor: '#f59e0b', font: 'Poppins' },
+    { themeKey: 'meridian', name: 'Meridian', category: 'Business', description: 'Professional corporate travel and managed business trips.', primaryColor: '#334155', secondaryColor: '#64748b', font: 'Inter' },
+  ];
+  const themes = (data.themes || []).length ? data.themes : fallbackThemes;
+  const [f, setF] = useState({ primaryColor: s.primaryColor || '#2563eb', secondaryColor: s.secondaryColor || '#0ea5e9', font: s.font || 'Inter', theme: themes.some(t => (t.themeKey || t.id) === s.theme) ? s.theme : 'atlas-journeys', logo: s.logo || '' });
   const [saving, setSaving] = useState(false);
+  const [applying, setApplying] = useState('');
+  const choose = (theme) => setF({ ...f, theme: theme.themeKey || theme.id, primaryColor: theme.primaryColor || f.primaryColor, secondaryColor: theme.secondaryColor || f.secondaryColor, font: theme.font || f.font });
   const save = async () => { setSaving(true); try { await api('/website/settings', { method: 'PUT', body: JSON.stringify(f) }); toast.success('Appearance saved'); onSaved(); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
-  return (<Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
-    <div className="space-y-1"><Label>Primary color</Label><div className="flex gap-2"><input type="color" value={f.primaryColor} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} disabled={!canManage} className="h-9 w-12 rounded border" /><Input value={f.primaryColor} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} disabled={!canManage} /></div></div>
-    <div className="space-y-1"><Label>Secondary color</Label><div className="flex gap-2"><input type="color" value={f.secondaryColor} onChange={(e) => setF({ ...f, secondaryColor: e.target.value })} disabled={!canManage} className="h-9 w-12 rounded border" /><Input value={f.secondaryColor} onChange={(e) => setF({ ...f, secondaryColor: e.target.value })} disabled={!canManage} /></div></div>
-    <div className="space-y-1"><Label>Font</Label><Select value={f.font} onValueChange={(v) => setF({ ...f, font: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['Inter', 'Poppins', 'Roboto', 'Lato', 'Montserrat'].map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select></div>
-    <div className="space-y-1"><Label>Theme</Label><Select value={f.theme} onValueChange={(v) => { const chosen = (data.themes || []).find((t) => t.themeKey === v || t.id === v); setF({ ...f, theme: v, ...(chosen ? { primaryColor: chosen.primaryColor, secondaryColor: chosen.secondaryColor, font: chosen.font } : {}) }); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(data.themes && data.themes.length ? data.themes : [{ themeKey: 'classic', name: 'Classic' }, { themeKey: 'modern', name: 'Modern' }, { themeKey: 'minimal', name: 'Minimal' }]).map((x) => <SelectItem key={x.themeKey || x.id} value={x.themeKey || x.id}>{x.name || titleCase(x.themeKey || x.id)}</SelectItem>)}</SelectContent></Select></div>
-    <div className="space-y-1 sm:col-span-2"><Label>Logo URL</Label><Input value={f.logo} onChange={(e) => setF({ ...f, logo: e.target.value })} disabled={!canManage} /></div>
-    <div className="flex items-center gap-3 sm:col-span-2"><div className="flex items-center gap-2 text-sm"><span className="h-6 w-6 rounded" style={{ background: f.primaryColor }} /><span className="h-6 w-6 rounded" style={{ background: f.secondaryColor }} /><span className="text-muted-foreground">Palette preview</span></div>{canManage && <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save appearance'}</Button>}</div>
-  </CardContent></Card>);
+  const apply = async (theme) => {
+    const key = theme.themeKey || theme.id;
+    const hasExistingPages = Boolean(data.pages && data.pages.length);
+    const replaceExisting = hasExistingPages ? window.confirm('This agency already has website pages. Replace them with the selected template starter pages? This cannot be undone.') : false;
+    if (hasExistingPages && !replaceExisting) return;
+    setApplying(key);
+    try {
+      await api('/website/templates/apply', { method: 'POST', body: JSON.stringify({ theme: key, replaceExisting }) });
+      setF({ ...f, theme: key, primaryColor: theme.primaryColor || f.primaryColor, secondaryColor: theme.secondaryColor || f.secondaryColor, font: theme.font || f.font });
+      toast.success('Template applied with demo pages. Review the content before publishing.');
+      onSaved();
+    } catch (e) { toast.error(friendlyError(e)); } finally { setApplying(''); }
+  };
+  return (<div className="space-y-4">
+    <Card><CardContent className="space-y-4 p-5">
+      <div><h3 className="text-base font-semibold">Website templates</h3><p className="mt-1 text-sm text-muted-foreground">Choose a design for your agency. Each template includes editable starter pages and sample travel content. Demo prices, contact details and itineraries must be reviewed before publishing.</p></div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {themes.map((theme) => {
+          const key = theme.themeKey || theme.id;
+          const selected = f.theme === key;
+          return <div key={key} className={`overflow-hidden rounded-xl border ${selected ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}>
+            <div className="h-28 p-3" style={{ background: `linear-gradient(135deg,${theme.primaryColor || '#2563eb'},${theme.secondaryColor || '#0ea5e9'})` }}>
+              <div className="flex h-full flex-col justify-between rounded-lg border border-white/30 bg-white/10 p-3 text-white">
+                <div className="text-xs uppercase tracking-[.18em]">{theme.category || 'Travel'}</div>
+                <div><div className="text-lg font-semibold">{theme.name || titleCase(key)}</div><div className="mt-1 flex gap-1"><span className="h-1.5 w-8 rounded-full bg-white/90"/><span className="h-1.5 w-4 rounded-full bg-white/60"/></div></div>
+              </div>
+            </div>
+            <div className="space-y-3 p-3"><p className="min-h-10 text-sm text-muted-foreground">{theme.description || 'A customizable travel agency website design.'}</p>
+              <div className="flex items-center gap-2"><span className="h-5 w-5 rounded-full border" style={{ background: theme.primaryColor || '#2563eb' }}/><span className="h-5 w-5 rounded-full border" style={{ background: theme.secondaryColor || '#0ea5e9' }}/><span className="text-xs text-muted-foreground">{theme.font || 'Inter'}</span></div>
+              <div className="flex gap-2"><Button size="sm" variant={selected ? 'default' : 'outline'} onClick={() => choose(theme)} className="flex-1">{selected ? 'Selected' : 'Customize'}</Button><Button size="sm" onClick={() => apply(theme)} disabled={!canManage || Boolean(applying)} className="flex-1">{applying === key ? 'Applying…' : 'Use template'}</Button></div>
+            </div>
+          </div>;
+        })}
+      </div>
+    </CardContent></Card>
+    <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+      <div className="space-y-1"><Label>Primary color</Label><div className="flex gap-2"><input type="color" value={f.primaryColor} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} disabled={!canManage} className="h-9 w-12 rounded border" /><Input value={f.primaryColor} onChange={(e) => setF({ ...f, primaryColor: e.target.value })} disabled={!canManage} /></div></div>
+      <div className="space-y-1"><Label>Secondary color</Label><div className="flex gap-2"><input type="color" value={f.secondaryColor} onChange={(e) => setF({ ...f, secondaryColor: e.target.value })} disabled={!canManage} className="h-9 w-12 rounded border" /><Input value={f.secondaryColor} onChange={(e) => setF({ ...f, secondaryColor: e.target.value })} disabled={!canManage} /></div></div>
+      <div className="space-y-1"><Label>Font</Label><Select value={f.font} onValueChange={(v) => setF({ ...f, font: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['Inter', 'Poppins', 'Roboto', 'Lato', 'Montserrat'].map((x) => <SelectItem key={x} value={x}>{x}</SelectItem>)}</SelectContent></Select></div>
+      <div className="space-y-1"><Label>Selected template</Label><Select value={f.theme} onValueChange={(v) => { const chosen = themes.find((t) => (t.themeKey || t.id) === v); setF({ ...f, theme: v, ...(chosen ? { primaryColor: chosen.primaryColor, secondaryColor: chosen.secondaryColor, font: chosen.font } : {}) }); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{themes.map((x) => <SelectItem key={x.themeKey || x.id} value={x.themeKey || x.id}>{x.name || titleCase(x.themeKey || x.id)}</SelectItem>)}</SelectContent></Select></div>
+      <div className="space-y-1 sm:col-span-2"><Label>Logo URL</Label><Input value={f.logo} onChange={(e) => setF({ ...f, logo: e.target.value })} disabled={!canManage} /></div>
+      <div className="flex items-center gap-3 sm:col-span-2"><div className="flex items-center gap-2 text-sm"><span className="h-6 w-6 rounded" style={{ background: f.primaryColor }} /><span className="h-6 w-6 rounded" style={{ background: f.secondaryColor }} /><span className="text-muted-foreground">Palette preview</span></div>{canManage && <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save appearance'}</Button>}</div>
+    </CardContent></Card>
+  </div>);
 }
 
 function WebsitePageDialog({ page, onClose, onSaved }) {
