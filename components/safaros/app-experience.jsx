@@ -6787,7 +6787,15 @@ function WebsiteAppearance({ data, canManage, onSaved }) {
     if (hasExistingPages && !replaceExisting) return;
     setApplying(key);
     try {
-      await api('/website/templates/apply', { method: 'POST', body: JSON.stringify({ theme: key, replaceExisting }) });
+      try {
+        await api('/website/templates/apply', { method: 'POST', body: JSON.stringify({ theme: key, replaceExisting }) });
+      } catch (firstError) {
+        const message = friendlyError(firstError);
+        if (!message.toLowerCase().includes('already has website pages')) throw firstError;
+        const confirmed = window.confirm('This agency already has website pages. Replace them with this template’s starter pages? This cannot be undone.');
+        if (!confirmed) return;
+        await api('/website/templates/apply', { method: 'POST', body: JSON.stringify({ theme: key, replaceExisting: true }) });
+      }
       setF({ ...f, theme: key, primaryColor: theme.primaryColor || f.primaryColor, secondaryColor: theme.secondaryColor || f.secondaryColor, font: theme.font || f.font });
       toast.success('Template applied with demo pages. Review the content before publishing.');
       onSaved();
