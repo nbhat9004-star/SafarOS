@@ -1,22 +1,60 @@
 import { notFound } from 'next/navigation';
-import { headers } from 'next/headers';
+import { getDb } from '@/lib/db';
 
 async function getWebsiteData(slug) {
   try {
-    // Resolve the API origin from the actual request host first. A global NEXT_PUBLIC_BASE_URL
-    // can point at the marketing site or a different Vercel project, making published sites 404.
-    const requestHeaders = await headers();
-    const requestHost = requestHeaders.get('x-forwarded-host') || requestHeaders.get('host');
-    const forwardedProto = requestHeaders.get('x-forwarded-proto')?.split(',')[0]?.trim();
-    const origin = requestHost
-      ? `${forwardedProto || 'https'}://${requestHost}`
-      : (process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'));
-    const baseUrl = origin.replace(/\/$/, '');
-    const url = `${baseUrl}/api/public/site/${encodeURIComponent(slug)}`;
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
+    // Read from the same database directly instead of making an HTTP request back
+    // into this deployment. Internal fetches can fail on protected Vercel previews
+    // and incorrectly turn a published agency website into a 404.
+    const db = await getDb();
+    const agency = await db.collection('agencies').findOne(
+      { slug },
+      { projection: { _id: 0, id: 1, name: 1, slug: 1 } },
+    );
+    if (!agency) return null;
+
+    const settingsDoc = await db.collection('websiteSettings').findOne(
+      { agencyId: agency.id },
+      { projection: { _id: 0 } },
+    );
+    if (!settingsDoc || settingsDoc.status !== 'published') {
+      return { published: false, agency: { name: agency.name, slug: agency.slug } };
+    }
+
+    const pages = await db.collection('websitePages')
+      .find({ agencyId: agency.id, status: 'published' }, { projection: { _id: 0 } })
+      .sort({ sortOrder: 1, createdAt: 1 })
+      .toArray();
+    const settings = {
+      siteTitle: settingsDoc.siteTitle,
+      tagline: settingsDoc.tagline,
+      logo: settingsDoc.logo,
+      favicon: settingsDoc.favicon,
+      contactEmail: settingsDoc.contactEmail,
+      phone: settingsDoc.phone,
+      address: settingsDoc.address,
+      social: settingsDoc.social,
+      primaryColor: settingsDoc.primaryColor,
+      secondaryColor: settingsDoc.secondaryColor,
+      font: settingsDoc.font,
+      theme: settingsDoc.theme,
+      seo: settingsDoc.seo,
+    };
+    const publicPages = pages.map((p) => ({
+      id: p.id, title: p.title, slug: p.slug, pageType: p.pageType,
+      status: p.status, sortOrder: p.sortOrder, content: p.content,
+      seoTitle: p.seoTitle, seoDescription: p.seoDescription,
+      canonicalUrl: p.canonicalUrl, noindex: p.noindex,
+      ogTitle: p.ogTitle, ogDescription: p.ogDescription, ogImage: p.ogImage,
+    }));
+    return {
+      published: true,
+      agency: { name: agency.name, slug: agency.slug },
+      settings,
+      pages: publicPages,
+    };
+  } catch (error) {
+    console.error('[public agency website] Failed to load site:', error);
     return null;
   }
 }
