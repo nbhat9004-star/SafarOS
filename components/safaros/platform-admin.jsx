@@ -19,8 +19,9 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus, UserCog, Newspaper,
 } from 'lucide-react';
+import { StaffView, UsageAnalyticsView, BlogView } from '@/components/safaros/platform-admin-extras';
 
 async function api(path, options = {}) {
   const res = await fetch(`/api/platform${path}`, {
@@ -37,20 +38,25 @@ const fdate = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLo
 const fdt = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return '—'; } };
 const humanize = (k) => String(k).replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
 
+// `perm` mirrors the server-side permission each section's API requires (lib/platform-rbac.js).
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'agencies', label: 'Agencies', icon: Building2 },
-  { id: 'users', label: 'Users', icon: UsersIcon },
-  { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
-  { id: 'plans', label: 'Plans', icon: Layers },
-  { id: 'themes', label: 'Website Theme Library', icon: Palette },
-  { id: 'ai', label: 'AI Platforms', icon: Bot },
-  { id: 'api_integrations', label: 'API & Integrations', icon: KeyRound },
-  { id: 'integrations', label: 'Integrations', icon: Plug },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { id: 'audit', label: 'Audit Logs', icon: ScrollText },
-  { id: 'settings', label: 'Platform Settings', icon: SettingsIcon },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, perm: 'platform:dashboard' },
+  { id: 'agencies', label: 'Agencies', icon: Building2, perm: 'agencies:read' },
+  { id: 'users', label: 'Users', icon: UsersIcon, perm: 'users:read' },
+  { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard, perm: 'subscriptions:read' },
+  { id: 'plans', label: 'Plans', icon: Layers, perm: 'plans:read' },
+  { id: 'themes', label: 'Website Theme Library', icon: Palette, perm: 'themes:manage' },
+  { id: 'ai', label: 'AI Platforms', icon: Bot, perm: 'ai:read' },
+  { id: 'api_integrations', label: 'API & Integrations', icon: KeyRound, perm: 'integrations:read' },
+  { id: 'integrations', label: 'Integrations', icon: Plug, perm: 'integrations:read' },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3, perm: 'analytics:read' },
+  { id: 'audit', label: 'Audit Logs', icon: ScrollText, perm: 'audit:read' },
+  { id: 'blog', label: 'Blog', icon: Newspaper, perm: 'blog:manage' },
+  { id: 'team', label: 'Team & Roles', icon: UserCog, perm: 'staff:manage' },
+  { id: 'settings', label: 'Settings & Account', icon: SettingsIcon, perm: null }, // account security for every role
 ];
+const ROLE_LABEL = { super_admin: 'Super Admin', platform_admin: 'Platform Admin', support_admin: 'Support Admin', finance_admin: 'Finance Admin', blog_editor: 'Blog Editor' };
+const navFor = (admin) => NAV.filter((n) => n.perm === null || (admin?.permissions || []).includes(n.perm));
 
 const STATUS_CLS = {
   active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -542,6 +548,14 @@ function AnalyticsView() {
 
 // ---------- Audit Logs ----------
 function AuditView() {
+  const [tab, setTab] = useState('logs');
+  return (<div className="space-y-4">
+    <div className="flex w-fit gap-1 rounded-lg border bg-muted/40 p-1">{[['logs', 'Audit Logs'], ['usage', 'Usage Analytics']].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={`rounded-md px-3 py-1.5 text-sm ${tab === k ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground'}`}>{l}</button>)}</div>
+    {tab === 'logs' ? <AuditLogList /> : <UsageAnalyticsView />}
+  </div>);
+}
+
+function AuditLogList() {
   const [rows, setRows] = useState(null);
   const [search, setSearch] = useState('');
   const load = useCallback(async () => { try { const q = new URLSearchParams(); if (search) q.set('search', search); const d = await api(`/audit-logs?${q}`); setRows(d.logs); } catch (e) { toast.error(e.message); } }, [search]);
@@ -558,13 +572,14 @@ function SettingsView({ admin, onPasswordChanged }) {
   const [s, setS] = useState(null);
   const [pwOpen, setPwOpen] = useState(false);
   const [pw, setPw] = useState({ currentPassword: '', newPassword: '' });
-  useEffect(() => { api('/settings').then((d) => setS(d.settings)).catch((e) => toast.error(e.message)); }, []);
+  const canSettings = (admin.permissions || []).includes('settings:read');
+  useEffect(() => { if (!canSettings) { setS({}); return; } api('/settings').then((d) => setS(d.settings)).catch((e) => toast.error(e.message)); }, [canSettings]);
   const save = async () => { try { const d = await api('/settings', { method: 'PUT', body: JSON.stringify(s) }); setS(d.settings); toast.success('Settings saved'); } catch (e) { toast.error(e.message); } };
   const changePw = async () => { try { await api('/auth/change-password', { method: 'POST', body: JSON.stringify(pw) }); toast.success('Password changed'); setPwOpen(false); setPw({ currentPassword: '', newPassword: '' }); onPasswordChanged && onPasswordChanged(); } catch (e) { toast.error(e.message); } };
   if (!s) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
   const field = (k, label) => (<div className="space-y-1.5" key={k}><Label>{label}</Label><Input value={s[k] || ''} onChange={(e) => setS((prev) => ({ ...prev, [k]: e.target.value }))} /></div>);
   return (<div className="space-y-5 max-w-3xl">
-    <Card><CardHeader><CardTitle className="text-base">Platform settings</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2">
+    {canSettings && <Card><CardHeader><CardTitle className="text-base">Platform settings</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2">
       {field('platformName', 'Platform name')}
       {field('supportEmail', 'Support email')}
       {field('supportPhone', 'Support phone')}
@@ -574,10 +589,10 @@ function SettingsView({ admin, onPasswordChanged }) {
       <div className="space-y-1.5 sm:col-span-2"><Label>Description</Label><Textarea value={s.description || ''} onChange={(e) => setS({ ...s, description: e.target.value })} /></div>
       <div className="flex items-center gap-2"><Label>Maintenance mode</Label><Button size="sm" variant={s.maintenanceMode ? 'default' : 'outline'} onClick={() => setS({ ...s, maintenanceMode: !s.maintenanceMode })}>{s.maintenanceMode ? 'On' : 'Off'}</Button></div>
       <div className="sm:col-span-2"><Button onClick={save}>Save settings</Button></div>
-    </CardContent></Card>
+    </CardContent></Card>}
     {admin.role === 'super_admin' && <EmailSettingsCard adminEmail={admin.email} />}
     <Card><CardHeader><CardTitle className="text-base">Security</CardTitle></CardHeader><CardContent className="flex items-center justify-between">
-      <div className="text-sm"><div className="font-medium">{admin.email}</div><div className="text-xs text-muted-foreground">Super Admin{admin.mustChangePassword ? ' · password change recommended' : ''}</div></div>
+      <div className="text-sm"><div className="font-medium">{admin.email}</div><div className="text-xs text-muted-foreground">{ROLE_LABEL[admin.role] || admin.role}{admin.mustChangePassword ? ' · password change recommended' : ''}</div></div>
       <Button variant="outline" onClick={() => setPwOpen(true)}>Change password</Button>
     </CardContent></Card>
     <Dialog open={pwOpen} onOpenChange={setPwOpen}><DialogContent><DialogHeader><DialogTitle>Change password</DialogTitle></DialogHeader><div className="space-y-3">
@@ -680,8 +695,8 @@ function LoginScreen({ onLoggedIn }) {
 
 const TITLES = Object.fromEntries(NAV.map((n) => [n.id, n.label]));
 
-function PlatformNavLinks({ section, onSelect }) {
-  return NAV.map((n) => {
+function PlatformNavLinks({ section, onSelect, admin }) {
+  return navFor(admin).map((n) => {
     const Icon = n.icon; const on = section === n.id;
     return (
       <button key={n.id} onClick={() => onSelect(n.id)}
@@ -704,12 +719,15 @@ export default function PlatformAdmin() {
   if (admin === undefined) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white"><div className="animate-pulse">Loading SafarOS Platform…</div></div>;
   if (admin === null) return (<><LoginScreen onLoggedIn={setAdmin} /><Toaster richColors position="top-right" /></>);
   if (admin.mustChangePassword) return (<><ForcePasswordChange admin={admin} onDone={reloadMe} onLogout={logout} /><Toaster richColors position="top-right" /></>);
+  const allowed = navFor(admin);
+  const can = (id) => allowed.some((n) => n.id === id);
+  if (!can(section) && allowed.length && section !== allowed[0].id) { setTimeout(() => setSection(allowed[0].id), 0); }
 
   return (<div className="flex min-h-screen bg-slate-50">
     {/* Desktop / tablet sidebar */}
     <aside className="hidden md:flex w-60 shrink-0 flex-col bg-slate-950 text-slate-200">
       <div className="flex items-center gap-2 px-5 py-5"><Shield className="h-6 w-6 text-violet-400" /><div><div className="text-sm font-bold text-white">SafarOS</div><div className="text-[10px] uppercase tracking-wider text-violet-300">Platform Admin</div></div></div>
-      <nav className="flex-1 space-y-1 px-3"><PlatformNavLinks section={section} onSelect={setSection} /></nav>
+      <nav className="flex-1 space-y-1 px-3"><PlatformNavLinks admin={admin} section={section} onSelect={setSection} /></nav>
       <div className="border-t border-slate-800 p-3"><div className="mb-2 px-2 text-xs"><div className="font-medium text-white">{admin.name}</div><div className="truncate text-slate-400">{admin.email}</div></div><button onClick={logout} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"><LogOut className="h-4 w-4" /> Sign out</button></div>
     </aside>
 
@@ -721,21 +739,24 @@ export default function PlatformAdmin() {
         <span className="ml-auto truncate text-xs text-slate-400">{TITLES[section]}</span>
       </header>
       {/* Desktop header */}
-      <header className="hidden md:flex items-center justify-between border-b bg-white px-6 py-4"><h1 className="text-lg font-semibold text-slate-900">{TITLES[section]}</h1><Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> super_admin</Badge></header>
+      <header className="hidden md:flex items-center justify-between border-b bg-white px-6 py-4"><h1 className="text-lg font-semibold text-slate-900">{TITLES[section]}</h1><Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> {ROLE_LABEL[admin.role] || admin.role}</Badge></header>
       {admin.mustChangePassword && section !== 'settings' && (<div className="mx-4 mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:mx-6">For security, please change your temporary password in <button className="font-medium underline" onClick={() => setSection('settings')}>Platform Settings → Security</button>.</div>)}
       <div className="p-4 sm:p-6">
-        {section === 'dashboard' && <DashboardView />}
-        {section === 'agencies' && <AgenciesView />}
-        {section === 'users' && <UsersView />}
-        {section === 'subscriptions' && <SubscriptionsView />}
-        {section === 'plans' && <PlansView />}
-        {section === 'themes' && <WebsiteThemesView />}
-        {section === 'ai' && <AiView />}
-        {section === 'api_integrations' && <ProviderCredentialsView />}
-        {section === 'integrations' && <IntegrationsView />}
-        {section === 'analytics' && <AnalyticsView />}
-        {section === 'audit' && <AuditView />}
-        {section === 'settings' && <SettingsView admin={admin} onPasswordChanged={reloadMe} />}
+        {!allowed.length && <div className="rounded-lg border bg-white p-10 text-center text-sm text-muted-foreground">Your account has no admin sections assigned. Contact the Super Admin.</div>}
+        {section === 'dashboard' && can('dashboard') && <DashboardView />}
+        {section === 'agencies' && can('agencies') && <AgenciesView />}
+        {section === 'users' && can('users') && <UsersView />}
+        {section === 'subscriptions' && can('subscriptions') && <SubscriptionsView />}
+        {section === 'plans' && can('plans') && <PlansView />}
+        {section === 'themes' && can('themes') && <WebsiteThemesView />}
+        {section === 'ai' && can('ai') && <AiView />}
+        {section === 'api_integrations' && can('api_integrations') && <ProviderCredentialsView />}
+        {section === 'integrations' && can('integrations') && <IntegrationsView />}
+        {section === 'analytics' && can('analytics') && <AnalyticsView />}
+        {section === 'audit' && can('audit') && <AuditView />}
+        {section === 'blog' && can('blog') && <BlogView />}
+        {section === 'team' && can('team') && <StaffView admin={admin} />}
+        {section === 'settings' && can('settings') && <SettingsView admin={admin} onPasswordChanged={reloadMe} />}
       </div>
     </main>
 
@@ -747,7 +768,7 @@ export default function PlatformAdmin() {
           <div className="flex items-center gap-2"><Shield className="h-6 w-6 text-violet-400" /><div><div className="text-sm font-bold text-white">SafarOS</div><div className="text-[10px] uppercase tracking-wider text-violet-300">Platform Admin</div></div></div>
           <button onClick={() => setMenuOpen(false)} aria-label="Close menu" className="flex h-9 w-9 items-center justify-center rounded-md text-slate-300 hover:bg-slate-800"><X className="h-5 w-5" /></button>
         </div>
-        <nav className="flex-1 space-y-1 overflow-auto px-3"><PlatformNavLinks section={section} onSelect={go} /></nav>
+        <nav className="flex-1 space-y-1 overflow-auto px-3"><PlatformNavLinks admin={admin} section={section} onSelect={go} /></nav>
         <div className="border-t border-slate-800 p-3"><div className="mb-2 px-2 text-xs"><div className="font-medium text-white">{admin.name}</div><div className="truncate text-slate-400">{admin.email}</div></div><button onClick={logout} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"><LogOut className="h-4 w-4" /> Sign out</button></div>
       </div>
     </div>

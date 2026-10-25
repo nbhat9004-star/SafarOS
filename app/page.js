@@ -137,7 +137,7 @@ function Hero() {
         </motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.8 }}
           className="mx-auto mt-10 flex max-w-xl flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
-          {['14-day free trial', 'Prices in ₹ INR', 'Works on phone & laptop'].map((t) => (
+          {['Use for free', 'Prices in ₹ INR', 'Works on phone & laptop'].map((t) => (
             <span key={t} className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-amber-400" />{t}</span>
           ))}
         </motion.div>
@@ -510,7 +510,7 @@ function Pricing({ onChoose }) {
                     {feats.length > 7 && <li className={`pl-6 text-xs ${popular ? 'text-white/50' : 'text-slate-400'}`}>+ {feats.length - 7} more</li>}
                   </ul>
                   {p.id === 'trial' ? (
-                    <a href="/signup" data-testid={`plan-cta-${p.id}`} className="mt-7 inline-flex items-center justify-center gap-2 rounded-full border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50">Start free trial</a>
+                    <a href="/signup" data-testid={`plan-cta-${p.id}`} className="mt-7 inline-flex items-center justify-center gap-2 rounded-full border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50">Use for free</a>
                   ) : (
                     <button onClick={() => onChoose(p.id)} data-testid={`plan-cta-${p.id}`} className={`mt-7 inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${popular ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 hover:brightness-110' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>Choose {p.name} <ArrowRight className="h-4 w-4" /></button>
                   )}
@@ -589,7 +589,7 @@ function EarlyAccess({ plan }) {
                   <h3 className="mt-5 text-2xl font-bold text-slate-900">You&apos;re on the list!</h3>
                   <p className="mx-auto mt-2 max-w-sm text-sm text-slate-600">Thanks, {f.name.split(' ')[0] || 'there'}. Our team will contact you at <b>{f.email}</b> shortly.</p>
                   <div className="mt-6 flex flex-wrap justify-center gap-3">
-                    <a href="/signup" className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">Start free trial now <ArrowRight className="h-4 w-4" /></a>
+                    <a href="/signup" className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">Use for free <ArrowRight className="h-4 w-4" /></a>
                     <button onClick={() => { setF(EMPTY); setState('idle'); }} className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-900">Send another</button>
                   </div>
                 </motion.div>

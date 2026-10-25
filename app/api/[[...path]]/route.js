@@ -12,7 +12,9 @@ import {
   signPortalSession, getPortalSession, signPlatformSession, getPlatformSession,
 } from '@/lib/auth';
 import { can, isValidRole } from '@/lib/rbac';
-import { canPlatform, isValidPlatformRole, PLATFORM_ROLES } from '@/lib/platform-rbac';
+import { canPlatform, isValidPlatformRole, PLATFORM_ROLES, ASSIGNABLE_STAFF_ROLES, platformPermissionsFor } from '@/lib/platform-rbac';
+import { buildBlogFields, BLOG_STATUSES, BLOG_IMAGE_TYPES, BLOG_MAX_IMAGE_BYTES } from '@/lib/blog';
+import { recordUsage, moduleForPath, moduleForActivityType } from '@/lib/usage';
 import { tenantFilter, withAgency } from '@/lib/tenancy';
 import { aiConfig, aiComplete } from '@/lib/ai';
 import {
@@ -2256,7 +2258,7 @@ async function platformAudit(db, session, request, { action, targetType = '', ta
 
 function platformAdminView(a) {
   if (!a) return null;
-  return { id: a.id, email: a.email, name: a.name, role: a.role, status: a.status, mustChangePassword: !!a.mustChangePassword, createdAt: a.createdAt, lastLoginAt: a.lastLoginAt || null };
+  return { id: a.id, email: a.email, name: a.name, role: a.role, status: a.status, mustChangePassword: !!a.mustChangePassword, createdAt: a.createdAt, lastLoginAt: a.lastLoginAt || null, permissions: platformPermissionsFor(a.role), passwordSet: a.passwordSet !== false };
 }
 
 // SUPER_ADMIN_INITIAL_PASSWORD_HASH: a bcrypt hash, raw ("$2b$...") or base64-encoded (avoids "$"
@@ -2317,6 +2319,8 @@ async function ensureSuperAdmin(db, request = null) {
     }
   }
   try {
+    // Single-Super-Admin rule: never bootstrap a second super_admin account.
+    if (await db.collection('platformAdmins').countDocuments({ role: 'super_admin' }, { limit: 1 })) return;
     const now = new Date().toISOString();
     await db.collection('platformAdmins').insertOne({
       id: uuidv4(), email, name: 'SafarOS Super Admin',
@@ -2328,6 +2332,18 @@ async function ensureSuperAdmin(db, request = null) {
     // unique-index race across concurrent serverless invocations — safe to ignore
     console.warn('[safaros] super admin bootstrap skipped');
   }
+}
+
+// Re-validate every platform request against the database: a deactivated or re-roled staff
+// member loses access immediately (the JWT role is never trusted on its own).
+async function livePlatformSession(db, ps, path) {
+  if (!ps || !ps.adminId) return null;
+  const a = await db.collection('platformAdmins').findOne({ id: ps.adminId }, { projection: { _id: 0, id: 1, role: 1, status: 1, email: 1 } });
+  if (!a || a.status !== 'active' || !isValidPlatformRole(a.role)) return null;
+  const live = { ...ps, role: a.role, email: a.email };
+  // Blog Editors are confined to blog endpoints (plus their own auth/session endpoints).
+  if (a.role === 'blog_editor' && path && !path.startsWith('/platform/blog') && !path.startsWith('/platform/auth/')) live.blocked = true;
+  return live;
 }
 
 async function platformLogin(db, body, request) {
@@ -2694,7 +2710,9 @@ function platformReadPerm(path) {
   if (path.startsWith('/platform/provider-credentials')) return 'integrations:read';
   if (path.startsWith('/platform/integrations')) return 'integrations:read';
   if (path.startsWith('/platform/analytics')) return 'analytics:read';
-  if (path.startsWith('/platform/audit')) return 'audit:read';
+  if (path.startsWith('/platform/audit') || path.startsWith('/platform/usage')) return 'audit:read';
+  if (path.startsWith('/platform/staff')) return 'staff:manage';
+  if (path.startsWith('/platform/blog')) return 'blog:manage';
   if (path.startsWith('/platform/settings')) return 'settings:read';
   if (path.startsWith('/platform/early-access')) return 'agencies:read';
   return 'platform:dashboard';
@@ -2785,6 +2803,196 @@ async function testProviderConnection(provider, values = {}) {
   } catch (e) {
     return { ok: false, message: 'Connection test failed to reach the provider.' };
   }
+}
+
+// ======================= USAGE ANALYTICS (Audit Logs → Usage Analytics) =======================
+// Aggregates REAL stored data only: hourly usage buckets (usageEvents, recorded going forward)
+// plus the pre-existing per-agency `activities` log. No message content or personal data is returned.
+async function platformUsageAnalytics(db, sp) {
+  const days = sp.get('days') === '7' ? 7 : 30;
+  const fAgency = String(sp.get('agencyId') || ''); const fModule = String(sp.get('module') || '');
+  const now = Date.now(); const DAY = 86400000;
+  const sinceIso = new Date(now - (days - 1) * DAY).toISOString().slice(0, 10) + 'T00:00:00.000Z';
+  const todayKey = new Date(now).toISOString().slice(0, 10);
+  const day7Key = new Date(now - 6 * DAY).toISOString().slice(0, 10);
+  const CAP = 100000;
+  const [agencies, subs, buckets, acts] = await Promise.all([
+    db.collection('agencies').find({ status: { $ne: 'deleted' } }, { projection: { _id: 0, id: 1, name: 1, slug: 1, status: 1, plan: 1, createdAt: 1 } }).limit(5000).toArray(),
+    db.collection('agencySubscriptions').find({}, { projection: { _id: 0, agencyId: 1, planId: 1, status: 1, trialEndDate: 1 } }).limit(5000).toArray(),
+    db.collection('usageEvents').find({ day: { $gte: sinceIso.slice(0, 10) } }, { projection: { _id: 0, agencyId: 1, module: 1, day: 1, hourOfDay: 1, count: 1, lastAt: 1 } }).limit(CAP).toArray(),
+    db.collection('activities').find({ createdAt: { $gte: sinceIso } }, { projection: { _id: 0, agencyId: 1, type: 1, createdAt: 1 } }).limit(CAP).toArray(),
+  ]);
+  const agencyById = Object.fromEntries(agencies.map((a) => [a.id, a]));
+  const subByAgency = Object.fromEntries(subs.map((s) => [s.agencyId, s]));
+  let events = [
+    ...buckets.map((b) => ({ agencyId: b.agencyId, module: b.module, day: b.day, hour: Number(b.hourOfDay) || 0, count: Number(b.count) || 1, at: b.lastAt })),
+    ...acts.map((a) => ({ agencyId: a.agencyId, module: moduleForActivityType(a.type), day: String(a.createdAt).slice(0, 10), hour: new Date(a.createdAt).getUTCHours() || 0, count: 1, at: a.createdAt })),
+  ].filter((e) => e.agencyId && agencyById[e.agencyId]);
+  const allModules = [...new Set(events.map((e) => e.module))].sort();
+  if (fAgency) events = events.filter((e) => e.agencyId === fAgency);
+  if (fModule) events = events.filter((e) => e.module === fModule);
+
+  const daily = []; for (let i = days - 1; i >= 0; i -= 1) daily.push({ day: new Date(now - i * DAY).toISOString().slice(0, 10), count: 0, agencies: new Set() });
+  const dayIdx = Object.fromEntries(daily.map((d, i) => [d.day, i]));
+  const hourly = Array.from({ length: 24 }, (_, h) => ({ hour: h, count: 0 }));
+  const modTotals = {}; const per = {};
+  for (const e of events) {
+    const di = dayIdx[e.day]; if (di !== undefined) { daily[di].count += e.count; daily[di].agencies.add(e.agencyId); }
+    hourly[e.hour] && (hourly[e.hour].count += e.count);
+    modTotals[e.module] = (modTotals[e.module] || 0) + e.count;
+    const p = per[e.agencyId] || (per[e.agencyId] = { count: 0, last: '', days: new Set(), mods: {} });
+    p.count += e.count; p.days.add(e.day); p.mods[e.module] = (p.mods[e.module] || 0) + e.count;
+    if (String(e.at || '') > p.last) p.last = String(e.at || '');
+  }
+  const topModules = Object.entries(modTotals).sort((a, b) => b[1] - a[1]).map(([module, count]) => ({ module, count }));
+  const scoped = fAgency ? agencies.filter((a) => a.id === fAgency) : agencies;
+  const rows = scoped.map((a) => {
+    const p = per[a.id] || { count: 0, last: '', days: new Set(), mods: {} };
+    const sub = subByAgency[a.id] || null;
+    const activeDays = p.days.size;
+    const active7 = [...p.days].some((d) => d >= day7Key);
+    const trialEnd = sub && sub.trialEndDate ? new Date(sub.trialEndDate).getTime() : null;
+    const onTrial = sub ? sub.status === 'trial' : a.plan === 'trial';
+    const indicators = [];
+    if (onTrial && trialEnd && trialEnd > now && trialEnd - now <= 7 * DAY) indicators.push('trial_ending_soon');
+    if (onTrial && trialEnd && trialEnd <= now) indicators.push('trial_expired');
+    if (!active7) indicators.push('inactive');
+    else if (activeDays >= Math.ceil(days * 0.3)) indicators.push('high_engagement');
+    else if (activeDays <= 2) indicators.push('low_engagement');
+    const planId = (sub && sub.planId) || a.plan || '';
+    if (indicators.includes('high_engagement') && (onTrial || ['trial', 'starter'].includes(planId))) indicators.push('upgrade_opportunity');
+    else if (indicators.includes('trial_ending_soon') && activeDays >= 3) indicators.push('upgrade_opportunity');
+    return {
+      agencyId: a.id, name: a.name, slug: a.slug, status: a.status || 'active', plan: planId, subscriptionStatus: sub ? sub.status : '',
+      trialEndDate: sub ? sub.trialEndDate || null : null, lastActivity: p.last || null, activityCount: p.count, activeDays,
+      topModules: Object.entries(p.mods).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([m]) => m), indicators,
+    };
+  }).sort((x, y) => y.activityCount - x.activityCount);
+  const recent = events.filter((e) => e.at).sort((x, y) => String(y.at).localeCompare(String(x.at))).slice(0, 15)
+    .map((e) => ({ agencyName: agencyById[e.agencyId]?.name || '', module: e.module, at: e.at }));
+  return json({
+    range: { days, since: sinceIso },
+    kpis: {
+      totalAgencies: agencies.length,
+      activeToday: new Set(events.filter((e) => e.day === todayKey).map((e) => e.agencyId)).size,
+      active7d: new Set(events.filter((e) => e.day >= day7Key).map((e) => e.agencyId)).size,
+      noRecentActivity: rows.filter((r) => r.indicators.includes('inactive')).length,
+      totalEvents: events.reduce((s, e) => s + e.count, 0),
+    },
+    daily: daily.map((d) => ({ day: d.day, count: d.count, agencies: d.agencies.size })),
+    hourly, topModules, agencies: rows, recent,
+    filters: { modules: allModules, agencies: agencies.map((a) => ({ id: a.id, name: a.name })) },
+    truncated: buckets.length >= CAP || acts.length >= CAP,
+  });
+}
+
+// ======================= PLATFORM STAFF (single Super Admin enforced) =======================
+async function platformStaffMutation(db, session, method, path, body, request) {
+  if (!canPlatform(session.role, 'staff:manage')) return err('forbidden', 403);
+  const now = new Date().toISOString();
+  if (method === 'POST' && path === '/platform/staff') {
+    const name = str(body.name, 120).trim(); const email = str(body.email, 160).trim().toLowerCase(); const role = String(body.role || '');
+    if (!name) return err('Name is required');
+    if (!EMAIL_RE.test(email)) return err('Please enter a valid email address');
+    if (role === 'super_admin') return err('There can be only one Super Admin. Choose another role.', 400);
+    if (!ASSIGNABLE_STAFF_ROLES.includes(role)) return err('Unknown role', 400);
+    if (email === String(process.env.SUPER_ADMIN_EMAIL || '').toLowerCase().trim()) return err('This email is reserved for the Super Admin account', 409);
+    if (await db.collection('platformAdmins').findOne({ email })) return err('A staff account with this email already exists', 409);
+    // No usable password until the person sets one via the secure, single-use setup link.
+    const doc = { id: uuidv4(), email, name, role, status: 'active', passwordHash: await hashPassword(crypto.randomBytes(32).toString('hex')), passwordSet: false, mustChangePassword: false, createdBy: session.adminId, createdAt: now, updatedAt: now };
+    try { await db.collection('platformAdmins').insertOne(doc); } catch { return err('A staff account with this email already exists', 409); }
+    await requestPasswordReset(db, 'platform', email, clientIp(request), 'invite');
+    await platformAudit(db, session, request, { action: 'staff.created', targetType: 'platform_admin', targetId: doc.id, metadata: { role } });
+    const emailConfigured = await isEmailConfigured(db, '');
+    return json({ staff: platformAdminView(doc), emailConfigured, message: emailConfigured ? 'Account created. A password setup link was emailed.' : 'Account created, but email is not configured — configure email in Platform Settings, then use "Send setup link".' }, 201);
+  }
+  const m = path.match(/^\/platform\/staff\/([^/]+)(\/setup-link)?$/);
+  if (!m) return err('not found', 404);
+  const target = await db.collection('platformAdmins').findOne({ id: m[1] });
+  if (!target) return err('Staff account not found', 404);
+  if (method === 'POST' && m[2]) {
+    if (target.role === 'super_admin') return err('Use the Forgot-password flow for the Super Admin account', 400);
+    if (target.status !== 'active') return err('Reactivate the account before sending a setup link');
+    await requestPasswordReset(db, 'platform', target.email, clientIp(request), 'invite');
+    await platformAudit(db, session, request, { action: 'staff.setup_link_sent', targetType: 'platform_admin', targetId: target.id });
+    const emailConfigured = await isEmailConfigured(db, '');
+    return json({ ok: true, emailConfigured, message: emailConfigured ? 'If allowed by rate limits, a setup link has been emailed.' : 'Email is not configured — no link was sent.' });
+  }
+  if (method === 'PUT' && !m[2]) {
+    if (target.role === 'super_admin' || target.id === session.adminId) return err('The Super Admin account cannot be changed or deactivated here', 403);
+    const set = { updatedAt: now };
+    if (body.name !== undefined) { const n = str(body.name, 120).trim(); if (!n) return err('Name is required'); set.name = n; }
+    if (body.role !== undefined) {
+      if (body.role === 'super_admin') return err('There can be only one Super Admin', 400);
+      if (!ASSIGNABLE_STAFF_ROLES.includes(body.role)) return err('Unknown role', 400);
+      set.role = body.role;
+    }
+    if (body.status !== undefined) { if (!['active', 'suspended'].includes(body.status)) return err('Invalid status'); set.status = body.status; }
+    await db.collection('platformAdmins').updateOne({ id: target.id, role: { $ne: 'super_admin' } }, { $set: set });
+    await platformAudit(db, session, request, { action: 'staff.updated', targetType: 'platform_admin', targetId: target.id, metadata: { fields: Object.keys(set).filter((k) => k !== 'updatedAt'), ...(set.role ? { role: set.role } : {}), ...(set.status ? { status: set.status } : {}) } });
+    const fresh = await db.collection('platformAdmins').findOne({ id: target.id }, { projection: { _id: 0, passwordHash: 0 } });
+    return json({ staff: platformAdminView(fresh) });
+  }
+  return err('not found', 404);
+}
+
+// ======================= PLATFORM BLOG CMS =======================
+async function uniqueBlogSlug(db, base, excludeId = '') {
+  let slug = base || `post-${Date.now()}`; let i = 2;
+  while (await db.collection('blogPosts').findOne({ slug, ...(excludeId ? { id: { $ne: excludeId } } : {}) }, { projection: { _id: 0, id: 1 } })) { slug = `${base}-${i}`; i += 1; if (i > 50) { slug = `${base}-${uuidv4().slice(0, 6)}`; break; } }
+  return slug;
+}
+async function platformBlogMutation(db, session, method, path, body, request) {
+  if (!canPlatform(session.role, 'blog:manage')) return err('forbidden', 403);
+  const now = new Date().toISOString();
+  if (method === 'POST' && path === '/platform/blog/media') {
+    const mime = String(body.mimeType || ''); const data = String(body.data || '');
+    if (!BLOG_IMAGE_TYPES.includes(mime)) return err('Only PNG, JPEG, WebP or GIF images are allowed');
+    if (!/^[A-Za-z0-9+/=]+$/.test(data)) return err('Invalid image data');
+    const bytes = Math.floor(data.length * 3 / 4);
+    if (bytes > BLOG_MAX_IMAGE_BYTES) return err('Image is too large (max 2 MB)');
+    const id = uuidv4();
+    await db.collection('blogMedia').insertOne({ id, mimeType: mime, data, size: bytes, uploadedBy: session.adminId, createdAt: now });
+    await platformAudit(db, session, request, { action: 'blog.media_uploaded', targetType: 'blog_media', targetId: id, metadata: { size: bytes } });
+    return json({ url: `/api/public/blog-media/${id}` }, 201);
+  }
+  if (method === 'POST' && path === '/platform/blog') {
+    const { value, error } = buildBlogFields(body);
+    if (error) return err(error);
+    const status = BLOG_STATUSES.includes(body.status) ? body.status : 'draft';
+    const doc = { id: uuidv4(), excerpt: '', content: '', featuredImage: '', featuredImageAlt: '', author: '', category: '', tags: [], seoTitle: '', metaDescription: '', ogImage: '', ...value, slug: await uniqueBlogSlug(db, value.slug), status, publishedAt: status === 'published' ? (value.publishedAt || now) : (value.publishedAt || null), createdBy: session.adminId, updatedBy: session.adminId, createdAt: now, updatedAt: now };
+    await db.collection('blogPosts').insertOne(doc);
+    await platformAudit(db, session, request, { action: 'blog.created', targetType: 'blog_post', targetId: doc.id, metadata: { status } });
+    const { _id, ...safe } = doc; return json({ post: safe }, 201);
+  }
+  const m = path.match(/^\/platform\/blog\/([^/]+)(\/status)?$/);
+  if (!m || m[1] === 'media') return err('not found', 404);
+  const existing = await db.collection('blogPosts').findOne({ id: m[1] });
+  if (!existing) return err('Post not found', 404);
+  if (method === 'DELETE' && !m[2]) {
+    await db.collection('blogPosts').deleteOne({ id: existing.id });
+    await platformAudit(db, session, request, { action: 'blog.deleted', targetType: 'blog_post', targetId: existing.id, metadata: { slug: existing.slug } });
+    return json({ ok: true });
+  }
+  if (method === 'PUT' && m[2]) {
+    const status = BLOG_STATUSES.includes(body.status) ? body.status : 'draft';
+    const set = { status, updatedAt: now, updatedBy: session.adminId };
+    if (status === 'published' && !existing.publishedAt) set.publishedAt = now;
+    await db.collection('blogPosts').updateOne({ id: existing.id }, { $set: set });
+    await platformAudit(db, session, request, { action: status === 'published' ? 'blog.published' : 'blog.unpublished', targetType: 'blog_post', targetId: existing.id });
+    return json({ ok: true, status });
+  }
+  if (method === 'PUT') {
+    const { value, error } = buildBlogFields(body, { partial: true });
+    if (error) return err(error);
+    if (value.slug) value.slug = await uniqueBlogSlug(db, value.slug, existing.id);
+    if (body.status !== undefined && BLOG_STATUSES.includes(body.status)) { value.status = body.status; if (body.status === 'published' && !existing.publishedAt && !value.publishedAt) value.publishedAt = now; }
+    await db.collection('blogPosts').updateOne({ id: existing.id }, { $set: { ...value, updatedAt: now, updatedBy: session.adminId } });
+    await platformAudit(db, session, request, { action: 'blog.updated', targetType: 'blog_post', targetId: existing.id, metadata: { fields: Object.keys(value) } });
+    const post = await db.collection('blogPosts').findOne({ id: existing.id }, { projection: { _id: 0 } });
+    return json({ post });
+  }
+  return err('not found', 404);
 }
 
 async function platformGet(db, session, path, sp) {
@@ -2955,6 +3163,28 @@ async function platformGet(db, session, path, sp) {
     return json({ logs });
   }
 
+  if (path === '/platform/staff') {
+    const rows = await db.collection('platformAdmins').find({}, { projection: { _id: 0, passwordHash: 0, appliedResetMarker: 0 } }).sort({ createdAt: 1 }).limit(500).toArray();
+    return json({ staff: rows.map(platformAdminView), assignableRoles: ASSIGNABLE_STAFF_ROLES, emailConfigured: await isEmailConfigured(db, '') });
+  }
+
+  if (path === '/platform/usage') return platformUsageAnalytics(db, sp);
+
+  if (path === '/platform/blog') {
+    const status = sp.get('status') || ''; const search = String(sp.get('search') || '').trim().toLowerCase();
+    const q = BLOG_STATUSES.includes(status) ? { status } : {};
+    let posts = await db.collection('blogPosts').find(q, { projection: { _id: 0, content: 0 } }).sort({ updatedAt: -1 }).limit(1000).toArray();
+    if (search) posts = posts.filter((p) => [p.title, p.slug, p.category, p.author, ...(p.tags || [])].some((v) => String(v || '').toLowerCase().includes(search)));
+    const counts = { all: await db.collection('blogPosts').countDocuments({}), draft: await db.collection('blogPosts').countDocuments({ status: 'draft' }), published: await db.collection('blogPosts').countDocuments({ status: 'published' }) };
+    return json({ posts, counts });
+  }
+  const blogOne = path.match(/^\/platform\/blog\/([^/]+)$/);
+  if (blogOne) {
+    const post = await db.collection('blogPosts').findOne({ id: blogOne[1] }, { projection: { _id: 0 } });
+    if (!post) return err('Post not found', 404);
+    return json({ post });
+  }
+
   if (path === '/platform/settings/email') {
     if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403); // Super Admin only
     return json({ email: emailSettingsView(await loadEmailSettings(db)) });
@@ -2981,6 +3211,8 @@ async function platformGet(db, session, path, sp) {
 
 async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
+  if (path.startsWith('/platform/staff')) return platformStaffMutation(db, session, 'POST', path, body, request);
+  if (path.startsWith('/platform/blog')) return platformBlogMutation(db, session, 'POST', path, body, request);
   if (path === '/platform/themes') {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
     const name = str(body.name, 80);
@@ -3124,6 +3356,8 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
+  if (path.startsWith('/platform/staff')) return platformStaffMutation(db, session, 'PUT', path, body, request);
+  if (path.startsWith('/platform/blog')) return platformBlogMutation(db, session, 'PUT', path, body, request);
   const themeEdit = path.match(/^\/platform\/themes\/([^/]+)$/);
   if (themeEdit) {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
@@ -3282,6 +3516,7 @@ async function platformPut(db, session, path, body, request) {
 }
 
 async function platformDelete(db, session, path, request) {
+  if (path.startsWith('/platform/blog')) return platformBlogMutation(db, session, 'DELETE', path, {}, request);
   const themeDel = path.match(/^\/platform\/themes\/([^/]+)$/);
   if (themeDel) {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
@@ -3326,7 +3561,7 @@ async function platformDelete(db, session, path, request) {
   return err('not found', 404);
 }
 
-export async function GET(request, context) {
+async function handleGET(request, context) {
   const params = await context.params;
   const path = pathOf(params);
   try {
@@ -3337,7 +3572,10 @@ export async function GET(request, context) {
       const pdb = await getDb();
       if (path === '/platform/auth/me') return platformMe(pdb, ps);
       if (ps.mcp) return err('password change required', 403);
-      return platformGet(pdb, ps, path, new URL(request.url).searchParams);
+      const lps = await livePlatformSession(pdb, ps, path);
+      if (!lps) return err('unauthenticated', 401);
+      if (lps.blocked) return err('forbidden', 403);
+      return platformGet(pdb, lps, path, new URL(request.url).searchParams);
     }
     if (path === '/' || path === '') {
       return json({ app: 'SafarOS', status: 'ok', message: 'SafarOS API — B2B multi-tenant foundation' });
@@ -3349,6 +3587,13 @@ export async function GET(request, context) {
     }
 
     // ---- Public agency website (no auth; tenant resolved by agency slug) ----
+    const mediaM = path.match(/^\/public\/blog-media\/([a-f0-9-]{36})$/);
+    if (mediaM) {
+      const db = await getDb();
+      const m = await db.collection('blogMedia').findOne({ id: mediaM[1] }, { projection: { _id: 0, mimeType: 1, data: 1 } });
+      if (!m || !BLOG_IMAGE_TYPES.includes(m.mimeType)) return err('not found', 404);
+      return new NextResponse(Buffer.from(m.data, 'base64'), { status: 200, headers: { 'Content-Type': m.mimeType, 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' } });
+    }
     if (path.startsWith('/public/')) {
       const db = await getDb();
       return publicGet(db, path);
@@ -4133,7 +4378,7 @@ function toCsv(columns, rows) {
   return head + '\n' + body;
 }
 
-export async function POST(request, context) {
+async function handlePOST(request, context) {
   const params = await context.params;
   const path = pathOf(params);
   try {
@@ -4155,10 +4400,13 @@ export async function POST(request, context) {
         const b = await readBody(request); const r = await completePasswordReset(db, 'platform', b.token, b.password);
         return r.ok ? json({ ok: true }) : err(r.error, 400);
       }
-      const ps = getPlatformSession(request);
+      const ps0 = getPlatformSession(request);
+      if (!ps0) return err('unauthenticated', 401);
+      const ps = await livePlatformSession(db, ps0, path);
       if (!ps) return err('unauthenticated', 401);
       if (path === '/platform/auth/change-password') return platformChangePassword(db, ps, await readBody(request), request);
       if (ps.mcp) return err('password change required', 403);
+      if (ps.blocked) return err('forbidden', 403);
       return platformPost(db, ps, path, await readBody(request), request);
     }
 
@@ -4435,6 +4683,7 @@ export async function POST(request, context) {
       const agencyDoc = await db.collection('agencies').findOne({ id: user.agencyId }, { projection: { _id: 0, status: 1 } });
       if (agencyDoc && (agencyDoc.status === 'suspended' || agencyDoc.status === 'deleted')) return err('This agency workspace is not active. Please contact SafarOS support.', 403);
       const token = signSession({ userId: user.id, agencyId: user.agencyId, role: user.role });
+      await recordUsage(db, { agencyId: user.agencyId, userId: user.id, module: 'login', action: 'login' });
       const res = json({ ok: true });
       return setSessionCookie(res, token);
     }
@@ -4964,7 +5213,7 @@ export async function POST(request, context) {
 }
 
 // ---------------------------------------------------------------- PUT
-export async function PUT(request, context) {
+async function handlePUT(request, context) {
   const params = await context.params;
   const path = pathOf(params);
   try {
@@ -4981,7 +5230,10 @@ export async function PUT(request, context) {
       if (!ps) return err('unauthenticated', 401);
       if (ps.mcp) return err('password change required', 403);
       const pdb = await getDb();
-      return platformPut(pdb, ps, path, await readBody(request), request);
+      const lps = await livePlatformSession(pdb, ps, path);
+      if (!lps) return err('unauthenticated', 401);
+      if (lps.blocked) return err('forbidden', 403);
+      return platformPut(pdb, lps, path, await readBody(request), request);
     }
     if (path.startsWith('/website/')) {
       const session = getSession(request);
@@ -5478,7 +5730,7 @@ export async function PUT(request, context) {
 }
 
 // ---------------------------------------------------------------- DELETE
-export async function DELETE(request, context) {
+async function handleDELETE(request, context) {
   const params = await context.params;
   const path = pathOf(params);
   try {
@@ -5488,7 +5740,10 @@ export async function DELETE(request, context) {
       if (!ps) return err('unauthenticated', 401);
       if (ps.mcp) return err('password change required', 403);
       const pdb = await getDb();
-      return platformDelete(pdb, ps, path, request);
+      const lps = await livePlatformSession(pdb, ps, path);
+      if (!lps) return err('unauthenticated', 401);
+      if (lps.blocked) return err('forbidden', 403);
+      return platformDelete(pdb, lps, path, request);
     }
     const session = getSession(request);
     if (!session) return err('unauthenticated', 401);
@@ -5631,3 +5886,26 @@ export async function DELETE(request, context) {
     return err(e.message || 'server error', 500);
   }
 }
+
+
+// ---- Agency usage tracking (hourly aggregated; see lib/usage.js) ----
+// Tracked: dashboard/session access (GET /auth/me) and successful create/update/delete actions per module.
+// Not tracked: platform admin, public site, portal, auth and other read-only requests.
+async function trackAgencyUsage(request, context, method, res) {
+  try {
+    if (!res || res.status >= 400) return;
+    const params = await context.params; const path = pathOf(params);
+    const isMe = method === 'GET' && path === '/auth/me';
+    if (method === 'GET' && !isMe) return;
+    const module = isMe ? 'dashboard' : moduleForPath(path);
+    if (!module) return;
+    const session = getSession(request);
+    if (!session || !session.agencyId) return;
+    const action = isMe ? 'view' : ({ POST: 'create', PUT: 'update', DELETE: 'delete' }[method] || 'use');
+    await recordUsage(await getDb(), { agencyId: session.agencyId, userId: session.userId, module, action });
+  } catch { /* usage tracking must never break a request */ }
+}
+export async function GET(request, context) { const res = await handleGET(request, context); await trackAgencyUsage(request, context, 'GET', res); return res; }
+export async function POST(request, context) { const res = await handlePOST(request, context); await trackAgencyUsage(request, context, 'POST', res); return res; }
+export async function PUT(request, context) { const res = await handlePUT(request, context); await trackAgencyUsage(request, context, 'PUT', res); return res; }
+export async function DELETE(request, context) { const res = await handleDELETE(request, context); await trackAgencyUsage(request, context, 'DELETE', res); return res; }
