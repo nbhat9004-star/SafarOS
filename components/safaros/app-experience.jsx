@@ -26,6 +26,8 @@ import {
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { can } from '@/lib/rbac';
+import { useLocalization } from '@/components/safaros/localization-provider';
+import { GCC_COUNTRIES, getCountryDefaults } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
@@ -82,15 +84,18 @@ function formatJoined(iso) {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function AuthView({ onAuthed, initialTab = 'login' }) {
+  const { locale, countryCode, currency, updatePreferences } = useLocalization();
+  const isArabic = locale === 'ar';
+  const t = (en, ar) => isArabic ? ar : en;
   const [tab, setTab] = useState(initialTab === 'signup' ? 'signup' : 'login');
   const [loading, setLoading] = useState(false);
-  const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '' });
+  const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '', countryCode });
   const [login, setLogin] = useState({ email: '', password: '' });
 
   const doSignup = async () => {
     setLoading(true);
     try {
-      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify(signup) });
+      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: signup.countryCode || countryCode, currency }) });
       toast.success('Agency workspace created');
       onAuthed();
     } catch (e) { toast.error(e.message); } finally { setLoading(false); }
@@ -105,7 +110,7 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 so-font">
+    <div className="min-h-screen grid lg:grid-cols-2 so-font" lang={locale} dir={isArabic ? 'rtl' : 'ltr'}>
       <div className="relative hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-violet-700 via-indigo-700 to-blue-800 text-white overflow-hidden">
         <div className="relative z-10">
           <a href="/" className="flex items-center gap-2 text-xl font-bold tracking-tight hover:opacity-90">
@@ -132,42 +137,48 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
             <a href="/" className="text-sm text-muted-foreground inline-flex items-center gap-1 mb-2 hover:text-foreground">
               <ArrowLeft className="h-4 w-4" /> Back to safaros.com
             </a>
-            <CardTitle>{tab === 'signup' ? 'Create your SafarOS workspace' : 'Welcome back'}</CardTitle>
-            <CardDescription>{tab === 'signup' ? 'Bring your travel business into one intelligent operating system.' : 'Sign in to continue to your workspace.'}</CardDescription>
+            <CardTitle>{tab === 'signup' ? t('Create your SafarOS workspace', 'أنشئ مساحة عمل SafarOS') : t('Welcome back', 'مرحباً بعودتك')}</CardTitle>
+            <CardDescription>{tab === 'signup' ? t('Bring your travel business into one intelligent operating system.', 'اجمع أعمال السفر في نظام تشغيل ذكي واحد.') : t('Sign in to continue to your workspace.', 'سجّل الدخول للمتابعة إلى مساحة عملك.')}</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList className="grid grid-cols-2 w-full">
-                <TabsTrigger value="signup">Create workspace</TabsTrigger>
-                <TabsTrigger value="login">Sign in</TabsTrigger>
+                <TabsTrigger value="signup">{t('Create workspace', 'إنشاء مساحة عمل')}</TabsTrigger>
+                <TabsTrigger value="login">{t('Sign in', 'تسجيل الدخول')}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="signup" className="space-y-3 mt-4">
                 <div className="space-y-1.5">
-                  <Label>Your name</Label>
+                  <Label>{t('Your name', 'اسمك')}</Label>
                   <Input placeholder="Jane Doe" value={signup.name}
                     onChange={(e) => setSignup({ ...signup, name: e.target.value })} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Business email</Label>
+                  <Label>{t('Business email', 'البريد الإلكتروني للعمل')}</Label>
                   <Input type="email" placeholder="jane@agency.com" value={signup.email}
                     onChange={(e) => setSignup({ ...signup, email: e.target.value })} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Password</Label>
+                  <Label>{t('Password', 'كلمة المرور')}</Label>
                   <Input type="password" placeholder="........" value={signup.password}
                     onChange={(e) => setSignup({ ...signup, password: e.target.value })} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Agency name</Label>
+                  <Label>{t('Agency name', 'اسم الوكالة')}</Label>
                   <Input placeholder="Wanderlust Travels" value={signup.agencyName}
                     onChange={(e) => setSignup({ ...signup, agencyName: e.target.value })} />
                 </div>
+                <div className="space-y-1.5">
+                  <Label>{t('Country', 'الدولة')}</Label>
+                  <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup({ ...signup, countryCode: code }); if (defaults) updatePreferences({ countryCode: code }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    {Object.values(GCC_COUNTRIES).map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+                  </select>
+                </div>
                 <Button className="w-full" onClick={doSignup} disabled={loading}>
-                  {loading ? 'Creating...' : 'Create Workspace'}
+                  {loading ? t('Creating...', 'جارٍ الإنشاء...') : t('Create Workspace', 'إنشاء مساحة العمل')}
                 </Button>
                 <button type="button" onClick={() => setTab('login')} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">
-                  Already have an account? <span className="font-medium text-foreground">Sign in</span>
+                  {t('Already have an account?', 'لديك حساب بالفعل؟')} <span className="font-medium text-foreground">{t('Sign in', 'تسجيل الدخول')}</span>
                 </button>
               </TabsContent>
 
