@@ -48,6 +48,8 @@ function SectionHead({ eyebrow, title, sub, dark = false }) {
 const NAV = [['Demo', 'demo'], ['Features', 'features'], ['Pricing', 'pricing'], ['Early access', 'early-access']];
 
 function Header() {
+  const { locale } = useLocalization();
+  const isArabic = locale === 'ar';
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -73,7 +75,7 @@ function Header() {
           <div className="hidden items-center gap-2 md:flex">
             <a href="/login" data-testid="nav-signin" className="px-3 py-1.5 text-sm font-semibold text-white/85 hover:text-white">Sign in</a>
             <button onClick={() => go('early-access')} data-testid="nav-cta" className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-orange-900/30 transition hover:brightness-110">
-              Get early access <ArrowRight className="h-4 w-4" />
+              {isArabic ? 'احصل على وصول مبكر' : 'Get early access'} <ArrowRight className="h-4 w-4" />
             </button>
           </div>
           <button onClick={() => setOpen(true)} data-testid="nav-menu" className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-sm font-medium text-white md:hidden" aria-label="Open menu">
@@ -108,6 +110,8 @@ function Header() {
 
 /* ---------------------------------------------------- hero */
 function Hero() {
+  const { locale, currency } = useLocalization();
+  const isArabic = locale === 'ar';
   return (
     <section className="relative overflow-hidden bg-slate-950">
       <img src={IMG.hero} alt="Desert dunes at golden hour" fetchPriority="high" className="absolute inset-0 h-full w-full object-cover" />
@@ -116,20 +120,20 @@ function Hero() {
       <div className="relative z-10 mx-auto max-w-4xl px-6 pb-24 pt-36 text-center sm:pb-32 sm:pt-44">
         <motion.span initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}
           className="so-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-white/85">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Software for travel agencies & tour operators
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> {isArabic ? 'برنامج لوكالات السفر ومنظمي الرحلات' : 'Software for travel agencies & tour operators'}
         </motion.span>
         <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.8, ease: EASE }}
           className="mx-auto mt-6 max-w-3xl text-balance text-4xl font-bold leading-[1.06] tracking-tight text-white sm:text-6xl" data-testid="hero-title">
-          Run your whole travel agency <span className={WARM}>from one place.</span>
+          {isArabic ? <>أدر وكالة السفر بالكامل <span className={WARM}>من مكان واحد.</span></> : <>Run your whole travel agency <span className={WARM}>from one place.</span></>}
         </motion.h1>
         <motion.p initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.7, ease: EASE }}
           className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-white/75 sm:text-lg">
-          Enquiries, quotes, itineraries, bookings, drivers and payments — SafarOS keeps every trip moving, from the first call to the last drop-off.
+          {isArabic ? 'الاستفسارات والعروض وخطط الرحلات والحجوزات والسائقون والمدفوعات — يساعدك SafarOS على إدارة كل رحلة من أول اتصال حتى الوصول.' : 'Enquiries, quotes, itineraries, bookings, drivers and payments — SafarOS keeps every trip moving, from the first call to the last drop-off.'}
         </motion.p>
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38, duration: 0.7, ease: EASE }}
           className="mt-9 flex flex-wrap items-center justify-center gap-3">
           <button onClick={() => scrollToId('demo')} data-testid="hero-demo-btn" className="group inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-white/90">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-white"><Play className="h-3 w-3 fill-current" /></span> Watch the demo
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-white"><Play className="h-3 w-3 fill-current" /></span> {isArabic ? 'شاهد العرض التوضيحي' : 'Watch the demo'}
           </button>
           <button onClick={() => scrollToId('early-access')} data-testid="hero-cta-btn" className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_10px_40px_rgba(251,146,60,0.35)] transition hover:brightness-110">
             Get early access <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
@@ -137,7 +141,7 @@ function Hero() {
         </motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.8 }}
           className="mx-auto mt-10 flex max-w-xl flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
-          {['14-day free trial', 'Prices in ₹ INR', 'Works on phone & laptop'].map((t) => (
+          {(isArabic ? ['تجربة مجانية لمدة 14 يوماً', `الأسعار بعملة ${currency}`, 'يعمل على الهاتف والكمبيوتر'] : ['14-day free trial', `Prices in ${currency}`, 'Works on phone & laptop']).map((t) => (
             <span key={t} className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-amber-400" />{t}</span>
           ))}
         </motion.div>
@@ -656,10 +660,11 @@ function Footer() {
 
 /* ---------------------------------------------------- page */
 function App() {
+  const { locale } = useLocalization();
   const [plan, setPlan] = useState('');
   const choose = (id) => { setPlan(id); scrollToId('early-access'); };
   return (
-    <main className="so-font overflow-x-hidden bg-slate-950">
+    <main className="so-font overflow-x-hidden bg-slate-950" lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
       <Header />
       <Hero />
       <Demo />
