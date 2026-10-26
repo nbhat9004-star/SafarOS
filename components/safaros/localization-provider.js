@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import styles from './localization.module.css';
 import {
   GCC_COUNTRIES,
   SUPPORTED_CURRENCIES,
@@ -46,9 +47,8 @@ export function LocalizationProvider({ children }) {
 
   useEffect(() => {
     if (!ready) return;
-    const direction = getLocaleDirection(preferences.locale);
     document.documentElement.lang = preferences.locale;
-    document.documentElement.dir = direction;
+    document.documentElement.dir = getLocaleDirection(preferences.locale);
     document.documentElement.dataset.locale = preferences.locale;
     document.documentElement.dataset.currency = preferences.currency;
     try {
@@ -63,8 +63,6 @@ export function LocalizationProvider({ children }) {
       const next = { ...current, ...patch };
       if (patch.countryCode && GCC_COUNTRIES[patch.countryCode]) {
         const defaults = getCountryDefaults(patch.countryCode);
-        // Selecting a country proposes defaults. Explicit locale/currency values in
-        // the same patch take precedence so users can override them.
         if (patch.locale === undefined) next.locale = defaults.locale;
         if (patch.currency === undefined) next.currency = defaults.currency;
         if (patch.timeZone === undefined) next.timeZone = defaults.timeZone;
@@ -85,10 +83,10 @@ export function LocalizationProvider({ children }) {
   return (
     <LocalizationContext.Provider value={value}>
       {children}
-      <div className="safaros-locale-control" dir="ltr">
+      <div className={styles.localeControl} dir="ltr">
         <button
           type="button"
-          className="safaros-locale-trigger"
+          className={styles.localeTrigger}
           aria-expanded={open}
           aria-controls="safaros-locale-panel"
           onClick={() => setOpen((value) => !value)}
@@ -96,8 +94,8 @@ export function LocalizationProvider({ children }) {
           <span aria-hidden="true">◎</span> Language &amp; region
         </button>
         {open && (
-          <section id="safaros-locale-panel" className="safaros-locale-panel" aria-label="Language and regional preferences">
-            <div className="safaros-locale-heading">Language &amp; region</div>
+          <section id="safaros-locale-panel" className={styles.localePanel} aria-label="Language and regional preferences">
+            <div className={styles.heading}>Language &amp; region</div>
             <label>
               Country
               <select value={preferences.countryCode} onChange={(event) => updatePreferences({ countryCode: event.target.value })}>
@@ -119,8 +117,8 @@ export function LocalizationProvider({ children }) {
                 {SUPPORTED_CURRENCIES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
               </select>
             </label>
-            <p className="safaros-locale-note">These preferences currently apply to this browser. Currency selection changes display preferences only; it does not convert saved financial records.</p>
-            <button type="button" className="safaros-locale-done" onClick={() => setOpen(false)}>Done</button>
+            <p className={styles.note}>These preferences currently apply to this browser. Currency selection changes display preferences only; it does not convert saved financial records.</p>
+            <button type="button" className={styles.done} onClick={() => setOpen(false)}>Done</button>
           </section>
         )}
       </div>
