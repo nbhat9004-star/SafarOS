@@ -8,6 +8,7 @@ import {
   Mountain, Send, Loader2, CheckCircle2, LayoutDashboard, Clock, Phone, MessageCircle,
 } from 'lucide-react';
 import { PLAN_CATALOG } from '@/lib/plans';
+import { useLocalization } from '@/components/safaros/localization-provider';
 
 /* ---------------------------------------------------- imagery */
 const IMG = {
