@@ -38,6 +38,28 @@ export function LocalizationProvider({ children }) {
           currency,
           timeZone: typeof saved.timeZone === 'string' ? saved.timeZone : defaults.timeZone,
         });
+      } else {
+        // First visit: prefer the edge-detected region. A manual selection saved
+        // in localStorage always wins on later visits.
+        const match = document.cookie.split('; ').find((part) => part.startsWith('safaros.auto-region='));
+        if (match) {
+          try {
+            const detected = JSON.parse(decodeURIComponent(match.split('=').slice(1).join('=')));
+            const detectedCountry = GCC_COUNTRIES[detected.countryCode] ? detected.countryCode : DEFAULTS.countryCode;
+            const defaults = getCountryDefaults(detectedCountry) || DEFAULTS;
+            setPreferences({
+              countryCode: detectedCountry,
+              locale: normalizeLocale(detected.locale),
+              currency: SUPPORTED_CURRENCIES.includes(detected.currency) ? detected.currency : defaults.currency,
+              timeZone: defaults.timeZone,
+            });
+          } catch {
+            // Invalid edge cookie: keep safe defaults.
+          }
+        } else {
+          const browserLanguage = (navigator.language || 'en').toLowerCase().split('-')[0];
+          setPreferences({ ...DEFAULTS, locale: normalizeLocale(browserLanguage) });
+        }
       }
     } catch {
       // Storage may be unavailable in private browsing; in-memory defaults still work.
