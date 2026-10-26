@@ -76,7 +76,7 @@ export function LocalizationProvider({ children }) {
   const isArabic = preferences.locale === 'ar';
   const labels = isArabic
     ? { trigger: 'اللغة والمنطقة', heading: 'اللغة والمنطقة', country: 'الدولة', language: 'لغة العرض', currency: 'عملة العرض', english: 'الإنجليزية', arabic: 'العربية', note: 'تُحفظ هذه التفضيلات في هذا المتصفح حالياً. تغيير العملة يغيّر طريقة العرض فقط ولا يحوّل السجلات المالية المحفوظة.', done: 'تم' }
-    : { trigger: 'Language & region', heading: 'Language & region', country: 'Country', language: 'Display language', currency: 'Display currency', english: 'English', arabic: 'Arabic', note: '{labels.note}', done: 'Done' };
+    : { trigger: 'Language & region', heading: 'Language & region', country: 'Country', language: 'Display language', currency: 'Display currency', english: 'English', arabic: 'Arabic', note: 'These preferences currently apply to this browser. Currency selection changes display preferences only; it does not convert saved financial records.', done: 'Done' };
 
   const value = useMemo(() => ({
     ...preferences,
@@ -102,7 +102,7 @@ export function LocalizationProvider({ children }) {
           <section id="safaros-locale-panel" className={styles.localePanel} aria-label={labels.heading}>
             <div className={styles.heading}>{labels.heading}</div>
             <label>
-              Country
+              {labels.country}
               <select value={preferences.countryCode} onChange={(event) => updatePreferences({ countryCode: event.target.value })}>
                 {Object.values(GCC_COUNTRIES).map((country) => (
                   <option key={country.code} value={country.code}>{country.name}</option>
@@ -110,19 +110,19 @@ export function LocalizationProvider({ children }) {
               </select>
             </label>
             <label>
-              Display language
+              {labels.language}
               <select value={preferences.locale} onChange={(event) => updatePreferences({ locale: event.target.value })}>
                 <option value="en">{labels.english}</option>
                 <option value="ar">{labels.arabic}</option>
               </select>
             </label>
             <label>
-              Display currency
+              {labels.currency}
               <select value={preferences.currency} onChange={(event) => updatePreferences({ currency: event.target.value })}>
                 {SUPPORTED_CURRENCIES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
               </select>
             </label>
-            <p className={styles.note}>These preferences currently apply to this browser. Currency selection changes display preferences only; it does not convert saved financial records.</p>
+            <p className={styles.note}>{labels.note}</p>
             <button type="button" className={styles.done} onClick={() => setOpen(false)}>{labels.done}</button>
           </section>
         )}
