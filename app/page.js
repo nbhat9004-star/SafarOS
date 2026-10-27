@@ -176,11 +176,13 @@ function CountUp({ to, run }) {
   return <>{inr(v)}</>;
 }
 
-function LeadScreen() {
+function LeadScreen({ locale = 'en', region = {} }) {
+  const isArabic = locale === 'ar';
+  const destination = region.destination || 'your destination';
   const cols = [
-    { name: 'New', items: [['Rohan Kapoor', 'Ladakh · 2 pax', 'Phone']] },
-    { name: 'Contacted', items: [['Sana Qureshi', 'Goa · 3 pax', 'WhatsApp'], ['Vikram Rao', 'Kerala · 4 pax', 'Website']] },
-    { name: 'Quoted', items: [['Meera Iyer', 'Rajasthan · 2 pax', 'Referral']] },
+    { name: isArabic ? 'جديد' : 'New', items: [['Rohan Kapoor', 'Ladakh · 2 pax', isArabic?'الهاتف':'Phone']] },
+    { name: isArabic ? 'تم التواصل' : 'Contacted', items: [['Sana Qureshi', 'Goa · 3 pax', 'WhatsApp'], ['Vikram Rao', 'Kerala · 4 pax', isArabic?'الموقع':'Website']] },
+    { name: isArabic ? 'تم إرسال عرض' : 'Quoted', items: [['Meera Iyer', 'Rajasthan · 2 pax', isArabic?'إحالة':'Referral']] },
   ];
   return (
     <div className="grid gap-3 sm:grid-cols-3">
@@ -191,9 +193,9 @@ function LeadScreen() {
             {ci === 0 && (
               <motion.div initial={{ opacity: 0, y: -18, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: 0.5, duration: 0.5, ease: EASE }}
                 className="rounded-lg border-2 border-amber-400 bg-white p-2.5 shadow-md">
-                <div className="flex items-center justify-between"><span className="text-[13px] font-semibold text-slate-900">Aarav Mehta</span><span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-700">Just now</span></div>
-                <div className="mt-0.5 text-[11px] text-slate-500">Kashmir · 4 pax · 5 nights</div>
-                <div className="mt-1.5 flex items-center gap-1 text-[10px] text-indigo-600"><Globe className="h-3 w-3" /> Website enquiry</div>
+                <div className="flex items-center justify-between"><span className="text-[13px] font-semibold text-slate-900"{region.traveller || 'Aarav Mehta'}</span><span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-700">{isArabic?'الآن':'Just now'}</span></div>
+                <div className="mt-0.5 text-[11px] text-slate-500"{region.trip || 'Your destination · 4 travellers · 5 nights'}</div>
+                <div className="mt-1.5 flex items-center gap-1 text-[10px] text-indigo-600"><Globe className="h-3 w-3" /> {isArabic?'استفسار من الموقع':'Website enquiry'}</div>
               </motion.div>
             )}
             {c.items.map((it) => (
@@ -210,37 +212,41 @@ function LeadScreen() {
   );
 }
 
-function QuoteScreen() {
-  const rows = [['Hotels · 5 nights', 62000], ['Transfers & sightseeing cab', 18500], ['Activities (Gondola, Shikara)', 9500], ['Your markup (20%)', 18000], ['GST (5%)', 5400]];
+function QuoteScreen({ locale = 'en', currency = 'INR', region = {} }) {
+  const isArabic = locale === 'ar';
+  const destination = region.destination || 'your destination';
+  const money = (n) => { try { return new Intl.NumberFormat(isArabic ? 'ar' : 'en', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n); } catch { return `${n} ${currency}`; } };
+  const rows = [[isArabic?'الفنادق · 5 ليالٍ':'Hotels · 5 nights', 62000], [isArabic?'التنقلات والجولات':'Transfers & sightseeing', 18500], [isArabic?'الأنشطة المحلية':'Local activities', 9500], [isArabic?'هامش الربح (20%)':'Your markup (20%)', 18000], [isArabic?'الضريبة (5%)':'Tax (5%)', 5400]];
   return (
     <div className="mx-auto max-w-lg">
-      <div className="mb-3 flex items-center justify-between text-xs text-slate-500"><span className="font-semibold text-slate-800">Quote #Q-1042 · Aarav Mehta</span><span>Kashmir · 4 pax</span></div>
+      <div className="mb-3 flex items-center justify-between text-xs text-slate-500"><span className="font-semibold text-slate-800">{isArabic?'عرض السعر':'Quote'} #Q-1042 · {region.traveller || 'Aarav Mehta'}</span><span>{destination} · 4</span></div>
       {rows.map((r, i) => (
         <motion.div key={r[0]} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 + i * 0.18, duration: 0.4, ease: EASE }}
           className="flex items-center justify-between border-b border-slate-100 py-2.5 text-sm text-slate-600">
-          <span>{r[0]}</span><span className={`font-semibold ${i === 3 ? 'text-emerald-600' : 'text-slate-900'}`}>{i >= 3 ? '+ ' : ''}{inr(r[1])}</span>
+          <span>{r[0]}</span><span className={`font-semibold ${i === 3 ? 'text-emerald-600' : 'text-slate-900'}`}>{i >= 3 ? '+ ' : ''}{money(r[1])}</span>
         </motion.div>
       ))}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.1, duration: 0.5, ease: EASE }}
         className="mt-4 flex items-center justify-between rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 p-4 text-white">
-        <div><div className="text-xs text-white/70">Customer price</div><div className="text-2xl font-bold"><CountUp to={113400} run /></div></div>
-        <div className="text-right"><div className="text-xs text-white/70">Your profit</div><div className="text-lg font-bold text-amber-300"><CountUp to={18000} run /></div></div>
+        <div><div className="text-xs text-white/70">{isArabic?'سعر العميل':'Customer price'}</div><div className="text-2xl font-bold">{money(113400)}</div></div>
+        <div className="text-right"><div className="text-xs text-white/70">{isArabic?'ربحك':'Your profit'}</div><div className="text-lg font-bold text-amber-300">{money(18000)}</div></div>
       </motion.div>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.8 }} className="mt-3 flex items-center justify-end gap-2 text-xs font-medium text-emerald-600">
-        <Send className="h-3.5 w-3.5" /> Sent to client on WhatsApp & email
+        <Send className="h-3.5 w-3.5" /> {isArabic?'تم الإرسال عبر واتساب والبريد الإلكتروني':'Sent to client on WhatsApp & email'}
       </motion.div>
     </div>
   );
 }
 
-function ItineraryScreen() {
-  const days = [['Srinagar', 'Arrival · Houseboat stay on Dal Lake', Hotel], ['Gulmarg', 'Gondola ride · Snow point', Mountain], ['Pahalgam', 'Betaab & Aru Valley', MapPin], ['Sonmarg', 'Thajiwas Glacier day trip', Mountain], ['Srinagar', 'Shikara ride · Departure', Car]];
+function ItineraryScreen({ locale = 'en', region = {} }) {
+  const isArabic = locale === 'ar';
+  const days = region.destination === 'Kashmir' ? [['Srinagar', 'Arrival · Houseboat stay on Dal Lake', Hotel], ['Gulmarg', 'Gondola ride · Snow point', Mountain], ['Pahalgam', 'Betaab & Aru Valley', MapPin], ['Sonmarg', 'Thajiwas Glacier day trip', Mountain], ['Srinagar', 'Shikara ride · Departure', Car]] : [[region.destination || 'Destination', isArabic?'الوصول والإقامة في الفندق':'Arrival · hotel check-in', Hotel], [isArabic?'جولة المدينة':'City tour', isArabic?'أبرز المعالم والتجارب المحلية':'Landmarks and local experiences', MapPin], [isArabic?'نشاط محلي':'Local experience', isArabic?'نشاط مميز في الوجهة':'A signature destination activity', Mountain], [isArabic?'وقت حر':'Leisure time', isArabic?'التسوق والاستكشاف':'Shopping and exploring', MapPin], [region.destination || 'Destination', isArabic?'المغادرة والنقل':'Departure and transfer', Car]];
   return (
     <div className="space-y-2">
       {days.map((d, i) => { const Ic = d[2]; return (
         <motion.div key={i} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 + i * 0.2, duration: 0.45, ease: EASE }}
           className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
-          <div className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 text-white"><span className="text-[9px] font-medium leading-none">DAY</span><span className="text-sm font-bold leading-none">{i + 1}</span></div>
+          <div className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 text-white"><span className="text-[9px] font-medium leading-none">{isArabic?'يوم':'DAY'}</span><span className="text-sm font-bold leading-none">{i + 1}</span></div>
           <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-slate-900">{d[0]}</div><div className="truncate text-xs text-slate-500">{d[1]}</div></div>
           <Ic className="h-4 w-4 shrink-0 text-indigo-500" />
         </motion.div>
@@ -303,8 +309,11 @@ function FleetScreen() {
   );
 }
 
-function AiScreen() {
-  const answer = 'Family of 4 from Mumbai, 5 nights in Kashmir, budget about ₹1.1 lakh. Quote sent yesterday and opened twice. Next step: call this evening and offer a Gulmarg snow-activity add-on.';
+function AiScreen({ locale = 'en', currency = 'INR', region = {} }) {
+  const isArabic = locale === 'ar';
+  const destination = region.destination || 'your destination';
+  const traveller = region.traveller || 'Alex Morgan';
+  const answer = isArabic ? `عائلة من 4 أشخاص تزور ${destination} لمدة 5 ليالٍ. تم إرسال عرض السعر أمس وفتحه مرتين. الخطوة التالية: الاتصال هذا المساء واقتراح ${region.addOn || 'تجربة محلية'}.` : `Family of 4 from ${region.origin || 'London'}, 5 nights in ${destination}. Quote sent yesterday and opened twice. Next step: call this evening and offer ${region.addOn || 'a local experience'}.`;
   const [n, setN] = useState(0);
   useEffect(() => {
     let i = 0; let iv;
@@ -314,7 +323,7 @@ function AiScreen() {
   return (
     <div className="mx-auto max-w-lg space-y-3">
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-4 py-2.5 text-sm text-white">
-        Summarise Aarav Mehta&apos;s enquiry and tell me what to do next.
+        {isArabic?`لخّص استفسار ${traveller} وأخبرني بالخطوة التالية.`:`Summarise ${traveller}'s enquiry and tell me what to do next.`}
       </motion.div>
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6, duration: 0.4 }} className="flex gap-2.5">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white"><Sparkles className="h-4 w-4" /></span>
