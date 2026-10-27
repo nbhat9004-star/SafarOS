@@ -6712,9 +6712,6 @@ function ChannelIntegrations({ session }) {
   </div>;
 }
 
-// ======================= AI COPILOT UI (Phase 5.4) ======================
-}
-
 // ======================= AI COPILOT UI (Phase 5.4) =======================
 const COPILOT_SUGGESTIONS = [
   "Give me today's business priorities",
