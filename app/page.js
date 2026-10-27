@@ -76,7 +76,7 @@ function Header() {
             ))}
           </nav>
           <div className="hidden items-center gap-2 md:flex">
-            <a href="/login" data-testid="nav-signin" className="px-3 py-1.5 text-sm font-semibold text-white/85 hover:text-white">Sign in</a>
+            <a href="/login" data-testid="nav-signin" className="px-3 py-1.5 text-sm font-semibold text-white/85 hover:text-white">{isArabic?'تسجيل الدخول':'Sign in'}</a>
             <button onClick={() => go('early-access')} data-testid="nav-cta" className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-orange-900/30 transition hover:brightness-110">
               {isArabic ? 'احصل على وصول مبكر' : 'Get early access'} <ArrowRight className="h-4 w-4" />
             </button>
@@ -526,9 +526,9 @@ function Pricing({ onChoose }) {
                     {feats.length > 7 && <li className={`pl-6 text-xs ${popular ? 'text-white/50' : 'text-slate-400'}`}>+ {feats.length - 7} more</li>}
                   </ul>
                   {p.id === 'trial' ? (
-                    <a href="/signup" data-testid={`plan-cta-${p.id}`} className="mt-7 inline-flex items-center justify-center gap-2 rounded-full border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50">Start free trial</a>
+                    <a href="/signup" data-testid={`plan-cta-${p.id}`} className="mt-7 inline-flex items-center justify-center gap-2 rounded-full border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50">{isArabic?'ابدأ التجربة المجانية':'Start free trial'}</a>
                   ) : (
-                    <button onClick={() => onChoose(p.id)} data-testid={`plan-cta-${p.id}`} className={`mt-7 inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${popular ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 hover:brightness-110' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>Choose {p.name} <ArrowRight className="h-4 w-4" /></button>
+                    <button onClick={() => onChoose(p.id)} data-testid={`plan-cta-${p.id}`} className={`mt-7 inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${popular ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 hover:brightness-110' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>{isArabic?`اختر ${{trial:'التجريبية',starter:'المبتدئة',professional:'الاحترافية',enterprise:'المؤسسات'}[p.id]||p.name}`:`Choose ${p.name}`} <ArrowRight className="h-4 w-4" /></button>
                   )}
                 </div>
               </Reveal>
@@ -567,8 +567,8 @@ function EarlyAccess({ plan }) {
   const submit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!f.name.trim()) return setError('Please enter your name.');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(f.email.trim())) return setError('Please enter a valid email address.');
+    if (!f.name.trim()) return setError(isArabic?'يرجى إدخال اسمك.':'Please enter your name.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(f.email.trim())) return setError(isArabic?'يرجى إدخال بريد إلكتروني صحيح.':'Please enter a valid email address.');
     setState('sending');
     try {
       const res = await fetch('/api/early-access', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) });
