@@ -1134,6 +1134,24 @@ async function resolveCommRefs(db, session, body) {
 }
 
 async function commGet(db, session, path, sp) {
+  if (path === '/communications/integrations') {
+    const rows = await db.collection('communicationIntegrations').find(tenantFilter(session), { projection: { _id: 0, id: 1, status: 1, updatedAt: 1 } }).toArray();
+    const defaults = [
+      { id: 'website_chat', status: 'not_connected' },
+      { id: 'whatsapp', status: 'not_connected' },
+      { id: 'email', status: 'not_connected' },
+    ];
+    return json({ integrations: defaults.map((d) => ({ ...d, ...(rows.find((r) => r.id === d.id) || {}) })) });
+  }
+  if (path === '/communications/tickets') {
+    const q = {};
+    const status = sp.get('status');
+    const priority = sp.get('priority');
+    if (status) q.status = status;
+    if (priority) q.priority = priority;
+    const rows = await db.collection('supportTickets').find(tenantFilter(session, q), { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(500).toArray();
+    return json({ tickets: rows });
+  }
   if (path === '/communications/templates') {
     const rows = await db.collection('communicationTemplates').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
     return json({ templates: rows });
@@ -1149,6 +1167,21 @@ async function commGet(db, session, path, sp) {
 
 async function commPost(db, session, path, body) {
   const now = new Date().toISOString();
+  if (path === '/communications/tickets') {
+    const subject = str(body.subject, 200);
+    if (!subject) return err('Ticket subject is required');
+    const priority = ['low', 'normal', 'high', 'urgent'].includes(body.priority) ? body.priority : 'normal';
+    const status = ['open', 'pending', 'resolved', 'closed'].includes(body.status) ? body.status : 'open';
+    const doc = withAgency(session, {
+      id: uuidv4(), subject, description: str(body.description, 8000), priority, status,
+      clientId: '', clientName: '', assignedTo: '', createdBy: session.userId,
+      createdAt: now, updatedAt: now,
+    });
+    await db.collection('supportTickets').insertOne(doc);
+    await logActivity(db, session, { type: 'support_ticket_created', message: `Support ticket created: ${subject}`, refType: 'support_ticket', refId: doc.id });
+    const { _id, ...safe } = doc;
+    return json({ ticket: safe }, 201);
+  }
   if (path === '/communications/templates') {
     const name = str(body.name, 160); if (!name) return err('Template name is required');
     const channel = COMM_CHANNELS.includes(body.channel) ? body.channel : 'whatsapp';
@@ -1174,6 +1207,23 @@ async function commPost(db, session, path, body) {
 async function commPut(db, session, path, body) {
   const now = new Date().toISOString();
   const parts = path.split('/');
+  if (parts[2] === 'tickets' && parts[3]) {
+    const id = parts[3];
+    const set = { updatedAt: now };
+    if (body.status !== undefined) {
+      if (!['open', 'pending', 'resolved', 'closed'].includes(body.status)) return err('Invalid ticket status');
+      set.status = body.status;
+    }
+    if (body.priority !== undefined) {
+      if (!['low', 'normal', 'high', 'urgent'].includes(body.priority)) return err('Invalid ticket priority');
+      set.priority = body.priority;
+    }
+    if (body.assignedTo !== undefined) set.assignedTo = str(body.assignedTo, 120);
+    const r = await db.collection('supportTickets').updateOne(tenantFilter(session, { id }), { $set: set });
+    if (!r.matchedCount) return err('Support ticket not found', 404);
+    const ticket = await db.collection('supportTickets').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    return json({ ticket });
+  }
   if (parts[2] === 'templates' && parts[3]) {
     const id = parts[3];
     const set = { updatedAt: now };
