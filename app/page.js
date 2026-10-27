@@ -71,7 +71,7 @@ function Header() {
             <span className="text-base font-bold tracking-tight">SafarOS</span>
           </a>
           <nav className="hidden items-center gap-1 md:flex">
-            {NAV.map(([label, id]) => (
+            {(isArabic ? NAV_AR : NAV).map(([label, id]) => (
               <button key={id} onClick={() => go(id)} data-testid={`nav-${id}`} className="rounded-full px-3.5 py-1.5 text-sm font-medium text-white/70 transition-colors hover:text-white">{label}</button>
             ))}
           </nav>
@@ -82,7 +82,7 @@ function Header() {
             </button>
           </div>
           <button onClick={() => setOpen(true)} data-testid="nav-menu" className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-sm font-medium text-white md:hidden" aria-label="Open menu">
-            Menu <Menu className="h-4 w-4" />
+            {isArabic?'القائمة':'Menu'} <Menu className="h-4 w-4" />
           </button>
         </div>
       </header>
@@ -96,13 +96,13 @@ function Header() {
               <button onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 text-white" aria-label="Close menu"><X className="h-5 w-5" /></button>
             </div>
             <div className="flex-1 space-y-1 px-5 py-6">
-              {NAV.map(([label, id]) => (
+              {(isArabic ? NAV_AR : NAV).map(([label, id]) => (
                 <button key={id} onClick={() => go(id)} className="block w-full rounded-xl px-3 py-3 text-left text-lg font-medium text-white/90 hover:bg-white/5">{label}</button>
               ))}
             </div>
             <div className="border-t border-white/10 p-5">
-              <button onClick={() => go('early-access')} className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 py-3 text-sm font-semibold text-slate-950">Get early access <ArrowRight className="h-4 w-4" /></button>
-              <a href="/login" className="mt-2 block py-2 text-center text-sm font-medium text-white/60">Sign in</a>
+              <button onClick={() => go('early-access')} className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 py-3 text-sm font-semibold text-slate-950">{isArabic?'احصل على وصول مبكر':'Get early access'} <ArrowRight className="h-4 w-4" /></button>
+              <a href="/login" className="mt-2 block py-2 text-center text-sm font-medium text-white/60">{isArabic?'تسجيل الدخول':'Sign in'}</a>
             </div>
           </motion.div>
         )}
@@ -497,7 +497,7 @@ function Pricing({ onChoose }) {
             {(isArabic ? [['شهري',false],['سنوي',true]] : [['Monthly',false],['Yearly',true]]).map(([l, v]) => (
               <button key={l} onClick={() => setYearly(v)} data-testid={`billing-${l.toLowerCase()}`} className={`relative rounded-full px-4 py-1.5 font-medium ${yearly === v ? 'text-white' : 'text-slate-600'}`}>
                 {yearly === v && <motion.span layoutId="bill" className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
-                <span className="relative">{l}{v && <span className="ml-1.5 rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-slate-900">2 months free</span>}</span>
+                <span className="relative">{l}{v && <span className="ml-1.5 rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-slate-900">{isArabic?'شهران مجاناً':'2 months free'}</span>}</span>
               </button>
             ))}
           </div>
@@ -506,20 +506,20 @@ function Pricing({ onChoose }) {
           {plans.map((p, i) => {
             const popular = p.id === 'professional';
             const price = yearly ? p.priceYearly : p.price;
-            const feats = Object.entries(p.features || {}).filter(([, on]) => on).map(([k]) => FEATURE_LABELS[k]).filter(Boolean);
+            const feats = Object.entries(p.features || {}).filter(([, on]) => on).map(([k]) => FEATURE_LABELS[k]).filter(Boolean).map((f) => isArabic ? ({'Leads & CRM':'العملاء وإدارة العلاقات','Quotations':'عروض الأسعار','Tour packages':'الباقات السياحية','Finance':'المالية','Agency website':'موقع الوكالة','Messaging':'المراسلات','Fleet & drivers':'الأسطول والسائقون','Online payments':'المدفوعات الإلكترونية','AI Copilot':'مساعد الذكاء الاصطناعي','Customer portal':'بوابة العملاء','Analytics':'التحليلات'}[f] || f) : f);
             return (
               <Reveal key={p.id} delay={i * 0.06}>
                 <div className={`relative flex h-full flex-col rounded-2xl border p-6 ${popular ? 'border-transparent bg-slate-950 text-white shadow-2xl shadow-indigo-900/30 ring-2 ring-amber-400' : 'border-slate-200 bg-white text-slate-900'}`} data-testid={`plan-card-${p.id}`}>
-                  {popular && <span className="absolute -top-3 left-6 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-3 py-1 text-[11px] font-bold text-slate-950">Most popular</span>}
-                  <h3 className="text-lg font-bold">{p.name}</h3>
-                  <p className={`mt-1 min-h-[40px] text-sm ${popular ? 'text-white/60' : 'text-slate-500'}`}>{p.description}</p>
+                  {popular && <span className="absolute -top-3 left-6 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-3 py-1 text-[11px] font-bold text-slate-950">{isArabic?'الأكثر شيوعاً':'Most popular'}</span>}
+                  <h3 className="text-lg font-bold">{isArabic ? ({Trial:'التجربة المجانية',Starter:'المبتدئة',Professional:'الاحترافية',Enterprise:'المؤسسات'}[p.name] || p.name) : p.name}</h3>
+                  <p className={`mt-1 min-h-[40px] text-sm ${popular ? 'text-white/60' : 'text-slate-500'}`}>{isArabic ? ({'Full access to evaluate SafarOS for a limited time':'وصول كامل لتجربة SafarOS لفترة محدودة.','Essentials for a small travel agency getting started.':'الأساسيات لوكالة سفر صغيرة في بداية عملها.','Scaling agencies that need automation, finance and analytics.':'للوكالات النامية التي تحتاج إلى الأتمتة والمالية والتحليلات.','Unlimited scale with every SafarOS capability unlocked.':'توسّع بلا حدود مع جميع إمكانات SafarOS.'}[p.description] || p.description) : p.description}</p>
                   <div className="mt-5 flex items-end gap-1">
                     <span className="text-4xl font-bold tracking-tight" data-testid={`plan-price-${p.id}`}>{moneyFor(price, currency, locale)}</span>
                     <span className={`mb-1 text-sm ${popular ? 'text-white/50' : 'text-slate-400'}`}>{price ? (yearly ? (isArabic?'/سنة':'/year') : (isArabic?'/شهر':'/month')) : (isArabic?`لمدة ${p.trialDays||14} يوماً`:`for ${p.trialDays || 14} days`)}</span>
                   </div>
                   <ul className="mt-6 flex-1 space-y-2.5 text-sm">
-                    <li className="flex items-start gap-2"><Check className={`mt-0.5 h-4 w-4 shrink-0 ${popular ? 'text-amber-400' : 'text-orange-500'}`} /><span><b>{limitText(p.limits?.teamMembers)}</b> team members</span></li>
-                    <li className="flex items-start gap-2"><Check className={`mt-0.5 h-4 w-4 shrink-0 ${popular ? 'text-amber-400' : 'text-orange-500'}`} /><span><b>{limitText(p.limits?.bookings)}</b> bookings</span></li>
+                    <li className="flex items-start gap-2"><Check className={`mt-0.5 h-4 w-4 shrink-0 ${popular ? 'text-amber-400' : 'text-orange-500'}`} /><span><b>{limitText(p.limits?.teamMembers)}</b> {isArabic?'أعضاء الفريق':'team members'}</span></li>
+                    <li className="flex items-start gap-2"><Check className={`mt-0.5 h-4 w-4 shrink-0 ${popular ? 'text-amber-400' : 'text-orange-500'}`} /><span><b>{limitText(p.limits?.bookings)}</b> {isArabic?'حجوزات':'bookings'}</span></li>
                     {feats.slice(0, 7).map((f) => (
                       <li key={f} className="flex items-start gap-2"><Check className={`mt-0.5 h-4 w-4 shrink-0 ${popular ? 'text-amber-400' : 'text-orange-500'}`} /><span className={popular ? 'text-white/85' : 'text-slate-700'}>{f}</span></li>
                     ))}
@@ -598,7 +598,7 @@ function EarlyAccess({ plan }) {
         </Reveal>
 
         <Reveal delay={0.1}>
-          <div className="rounded-3xl bg-white p-6 shadow-2xl sm:p-8" data-testid="early-access-card">
+          <div className="rounded-3xl bg-white p-6 text-start shadow-2xl sm:p-8" data-testid="early-access-card">
             <AnimatePresence mode="wait">
               {state === 'done' ? (
                 <motion.div key="done" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4, ease: EASE }} className="py-10 text-center" data-testid="early-access-success">
@@ -611,7 +611,7 @@ function EarlyAccess({ plan }) {
                   </div>
                 </motion.div>
               ) : (
-                <motion.form key="form" onSubmit={submit} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4" noValidate data-testid="early-access-form">
+                <motion.form key="form" onSubmit={submit} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 text-start" noValidate data-testid="early-access-form">
                   <div className="flex items-center gap-2 text-slate-900"><MessageCircle className="h-5 w-5 text-orange-500" /><h3 className="text-lg font-bold">{isArabic?'طلب التسجيل المبكر':'Request early access'}</h3></div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field label={isArabic?'الاسم الكامل':'Your name'} required><input dir={isArabic?'rtl':'ltr'} className={inputCls} value={f.name} onChange={set('name')} placeholder={isArabic?'اكتب اسمك الكامل':'Full name'} data-testid="ea-name" /></Field>
