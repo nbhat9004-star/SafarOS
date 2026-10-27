@@ -713,7 +713,7 @@ function MarketingPagesView() {
  </div>;
 }
 function RegionalPricingView() {
- const initial={countryCode:'SA',countryName:'Saudi Arabia',currency:'SAR',enabled:true,prices:{starter:{monthly:0,yearly:0},growth:{monthly:0,yearly:0},scale:{monthly:0,yearly:0}}};
+ const initial={countryCode:'SA',countryName:'Saudi Arabia',currency:'SAR',enabled:true,prices:{starter:{monthly:0,yearly:0},professional:{monthly:0,yearly:0},enterprise:{monthly:0,yearly:0}}};
  const [entries,setEntries]=useState([]),[form,setForm]=useState(initial),[busy,setBusy]=useState(false);
  const load=async()=>{try{const d=await api('/regional-pricing');setEntries(d.entries||[]);}catch(e){toast.error(e.message);}};
  useEffect(()=>{load();},[]);
@@ -724,7 +724,7 @@ function RegionalPricingView() {
   <div><Label>Country name</Label><Input value={form.countryName} onChange={e=>setForm(v=>({...v,countryName:e.target.value}))}/></div>
   <div><Label>Currency (ISO-4217)</Label><Input maxLength={3} value={form.currency} onChange={e=>setForm(v=>({...v,currency:e.target.value.toUpperCase()}))}/></div>
   <div className="flex items-center gap-2 pt-6"><input type="checkbox" checked={form.enabled} onChange={e=>setForm(v=>({...v,enabled:e.target.checked}))}/><Label>Enabled on public landing page</Label></div>
-  {['starter','growth','scale'].map(p=><div key={p} className="rounded-lg border p-3"><div className="mb-2 font-semibold capitalize">{p} plan</div><Label>Monthly price</Label><Input type="number" min="0" value={form.prices[p].monthly} onChange={e=>setPrice(p,'monthly',e.target.value)}/><Label className="mt-2 block">Yearly price</Label><Input type="number" min="0" value={form.prices[p].yearly} onChange={e=>setPrice(p,'yearly',e.target.value)}/></div>)}
+  {['starter','professional','enterprise'].map(p=><div key={p} className="rounded-lg border p-3"><div className="mb-2 font-semibold capitalize">{p} plan</div><Label>Monthly price</Label><Input type="number" min="0" value={form.prices[p].monthly} onChange={e=>setPrice(p,'monthly',e.target.value)}/><Label className="mt-2 block">Yearly price</Label><Input type="number" min="0" value={form.prices[p].yearly} onChange={e=>setPrice(p,'yearly',e.target.value)}/></div>)}
   <div className="md:col-span-2"><Button onClick={save} disabled={busy}>Save country prices</Button></div>
  </CardContent></Card><Card><CardHeader><CardTitle>Configured countries</CardTitle></CardHeader><CardContent>{entries.length?<div className="space-y-2">{entries.map(e=><div key={e.countryCode} className="flex flex-wrap items-center justify-between gap-2 rounded border p-3 text-sm"><div><b>{e.countryName}</b> ({e.countryCode}) · {e.currency} · {e.enabled?'Enabled':'Disabled'}</div><Button variant="outline" size="sm" onClick={()=>setForm(e)}>Edit</Button></div>)}</div>:<p className="text-sm text-muted-foreground">No country overrides saved yet.</p>}</CardContent></Card></div>;
 }
