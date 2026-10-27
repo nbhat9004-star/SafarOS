@@ -1217,7 +1217,7 @@ async function commPut(db, session, path, body) {
     for (const key of allowed[id]) if (incoming[key] !== undefined) config[key] = str(incoming[key], key === 'websiteUrl' ? 300 : 180).trim();
     if (id === 'website_chat' && config.websiteUrl) { try { const u = new URL(config.websiteUrl); if (!['http:', 'https:'].includes(u.protocol)) return err('Website URL must use HTTP or HTTPS'); config.websiteUrl = u.origin; } catch { return err('Enter a valid website URL including https://'); } }
     if (id === 'email' && config.supportEmail && !EMAIL_RE.test(config.supportEmail)) return err('Enter a valid support email address');
-    if (id === 'whatsapp' && config.phoneNumber && !/^\\+?[0-9 ()-]{7,25}$/.test(config.phoneNumber)) return err('Enter a valid WhatsApp phone number');
+    if (id === 'whatsapp' && config.phoneNumber && !/^\+?[0-9 ()-]{7,25}$/.test(config.phoneNumber)) return err('Enter a valid WhatsApp phone number');
     if (!allowed[id].every((key) => Boolean(config[key]))) return err('Complete all required fields before saving this channel');
     const doc = withAgency(session, { id, status: 'pending', config, updatedAt: now, updatedBy: session.userId });
     await db.collection('communicationIntegrations').updateOne(tenantFilter(session, { id }), { $set: doc }, { upsert: true });
