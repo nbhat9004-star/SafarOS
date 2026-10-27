@@ -1732,6 +1732,17 @@ function publicPage(p) {
 }
 
 async function publicGet(db, path) {
+  if (path === '/public/marketing-content') {
+    const d = await db.collection('platformMarketingContent').findOne({id:'public-pages'},{projection:{_id:0,id:0}});
+    return json({pages:d?.pages || {faq:{title:'Frequently Asked Questions',body:'How does SafarOS work?\nSafarOS helps travel agencies manage their business in one place.'},contact:{title:'Contact us',body:'Have a question? Send us a message.'},privacy:{title:'Privacy Policy',body:'We use submitted information to respond to enquiries and operate SafarOS. We do not sell personal information.'}}});
+  }
+  if (path.startsWith('/public/regional-pricing')) {
+    const country = String(new URL('http://local'+path).searchParams.get('country') || 'IN').toUpperCase().slice(0,2);
+    const d = await db.collection('platformRegionalPricing').findOne({countryCode:country,enabled:true},{projection:{_id:0}});
+    const fallback = await db.collection('platformRegionalPricing').findOne({countryCode:'IN',enabled:true},{projection:{_id:0}});
+    return json({pricing:d || fallback || null, requestedCountry:country});
+  }
+async function publicGet(db, path) {
   const parts = path.split('/'); // ['', 'public', 'site', slug, ...]
   const slug = parts[3];
   if (!slug) return err('not found', 404);
@@ -1774,6 +1785,25 @@ async function publicGet(db, path) {
   });
 }
 
+async function publicPost(db, path, body) {
+  if (path === '/public/contact') {
+    if (body.website) return json({ok:true});
+    const name=str(body.name,120), email=str(body.email,160).toLowerCase(), subject=str(body.subject,180), message=str(body.message,3000);
+    if(!name || !email || !message) return err('Name, email and message are required');
+    if(!EMAIL_RE.test(email)) return err('Please enter a valid email address');
+    const now=new Date().toISOString(), id=uuidv4();
+    await db.collection('platformContactMessages').insertOne({id,name,email,subject,message,status:'new',createdAt:now});
+    const settings=await db.collection('platformSettings').findOne({id:'platform'},{projection:{_id:0,contactRecipientEmail:1,supportEmail:1}});
+    const to=String(settings?.contactRecipientEmail || settings?.supportEmail || '').trim().toLowerCase();
+    let emailDelivery='not_configured';
+    if(to && EMAIL_ADDR_RE.test(to)){
+      const esc=v=>String(v||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      const sent=await sendEmail(db,{to,subject:'SafarOS contact: '+(subject||'New message'),text:'From: '+name+' <'+email+'>\n\n'+message,html:emailLayout('New contact form message','<p><b>From:</b> '+esc(name)+' ('+esc(email)+')</p><p><b>Subject:</b> '+esc(subject)+'</p><p>'+esc(message).replace(/\n/g,'<br>')+'</p>')});
+      emailDelivery=sent.ok?'sent':'failed';
+      await db.collection('platformContactMessages').updateOne({id},{$set:{emailDelivery,emailError:sent.ok?'':str(sent.error,300)}});
+    }
+    return json({ok:true,emailDelivery},201);
+  }
 async function publicPost(db, path, body) {
   const parts = path.split('/');
   const slug = parts[3];
@@ -2992,6 +3022,19 @@ async function platformGet(db, session, path, sp) {
     return json({ logs });
   }
 
+  if (path === '/platform/marketing-content') {
+    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
+    const d=await db.collection('platformMarketingContent').findOne({id:'public-pages'},{projection:{_id:0}});
+    return json({pages:d?.pages || {faq:{title:'Frequently Asked Questions',body:''},contact:{title:'Contact us',body:''},privacy:{title:'Privacy Policy',body:''}}});
+  }
+  if (path === '/platform/regional-pricing') {
+    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
+    return json({entries:await db.collection('platformRegionalPricing').find({},{projection:{_id:0}}).sort({countryName:1}).toArray()});
+  }
+  if (path === '/platform/contact-messages') {
+    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
+    return json({messages:await db.collection('platformContactMessages').find({},{projection:{_id:0}}).sort({createdAt:-1}).limit(300).toArray()});
+  }
   if (path === '/platform/settings/email') {
     if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403); // Super Admin only
     return json({ email: emailSettingsView(await loadEmailSettings(db)) });
@@ -3017,6 +3060,26 @@ async function platformGet(db, session, path, sp) {
 }
 
 async function platformPost(db, session, path, body, request) {
+  const now = new Date().toISOString();
+  if(path==='/platform/marketing-content'){
+    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
+    const pages={};
+    for(const k of ['faq','contact','privacy']){pages[k]={title:str(body.pages?.[k]?.title,180),body:str(body.pages?.[k]?.body,12000)};if(!pages[k].title)return err('A title is required for '+k);}
+    await db.collection('platformMarketingContent').updateOne({id:'public-pages'},{$set:{pages,updatedAt:now,updatedBy:session.adminId},$setOnInsert:{id:'public-pages',createdAt:now}},{upsert:true});
+    await platformAudit(db,session,request,{action:'marketing_content.updated',targetType:'marketing_content',targetId:'public-pages'});
+    return json({ok:true,pages});
+  }
+  if(path==='/platform/regional-pricing'){
+    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
+    const countryCode=String(body.countryCode||'').toUpperCase().slice(0,2),countryName=str(body.countryName,100),currency=String(body.currency||'').toUpperCase().slice(0,3);
+    if(!/^[A-Z]{2}$/.test(countryCode)||!countryName||!/^[A-Z]{3}$/.test(currency))return err('Country code, country name and 3-letter currency are required');
+    const prices={};
+    for(const p of ['starter','growth','scale']){const monthly=Number(body.prices?.[p]?.monthly),yearly=Number(body.prices?.[p]?.yearly);if(!Number.isFinite(monthly)||monthly<0||!Number.isFinite(yearly)||yearly<0)return err('Prices must be non-negative numbers');prices[p]={monthly,yearly};}
+    const entry={countryCode,countryName,currency,prices,enabled:body.enabled!==false,updatedAt:now,updatedBy:session.adminId};
+    await db.collection('platformRegionalPricing').updateOne({countryCode},{$set:entry,$setOnInsert:{createdAt:now}},{upsert:true});
+    await platformAudit(db,session,request,{action:'regional_pricing.updated',targetType:'regional_pricing',targetId:countryCode,metadata:{currency}});
+    return json({ok:true,entry});
+  }async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
   if (path === '/platform/themes') {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
@@ -3161,6 +3224,14 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
+  if(path==='/platform/settings'){
+    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
+    const recipient=String(body.contactRecipientEmail||'').trim().toLowerCase();
+    if(recipient&&!EMAIL_ADDR_RE.test(recipient))return err('Enter a valid contact-form recipient email address');
+    await db.collection('platformSettings').updateOne({id:'platform'},{$set:{contactRecipientEmail:recipient,updatedAt:now,updatedBy:session.adminId},$setOnInsert:{id:'platform',platformName:'SafarOS',defaultCurrency:'INR',defaultTimezone:'Asia/Kolkata',defaultCountry:'IN',status:'active',maintenanceMode:false}},{upsert:true});
+    await platformAudit(db,session,request,{action:'settings.contact_recipient_updated',targetType:'settings',targetId:'platform'});
+    return json({settings:await db.collection('platformSettings').findOne({id:'platform'},{projection:{_id:0}})});
+  }
   const themeEdit = path.match(/^\/platform\/themes\/([^/]+)$/);
   if (themeEdit) {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
