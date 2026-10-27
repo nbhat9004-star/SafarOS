@@ -19,7 +19,7 @@ const IMG = {
 
 const EASE = [0.22, 1, 0.36, 1];
 const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
-const moneyFor = (amount, currency, locale) => { const value = Number(amount || 0); if (!value) return locale === 'ar' ? 'مجاناً' : 'Free'; const gcc = { 2900:129, 7900:349, 19900:899, 29000:1299 }; const shown = currency === 'AED' ? (gcc[value] ?? Math.round(value * 0.045 / 10) * 10) : value; try { return new Intl.NumberFormat(locale === 'ar' ? 'ar-AE' : 'en', { style:'currency', currency, maximumFractionDigits:0 }).format(shown); } catch { return `${shown.toLocaleString(locale === 'ar' ? 'ar' : 'en')} ${currency}`; } };
+const moneyFor = (amount, currency, locale) => { const value = Number(amount || 0); if (!value) return locale === 'ar' ? 'مجاناً' : 'Free'; const regionalPrices = { AED: { 2900: 129, 7900: 349, 19900: 899, 29000: 1290, 79000: 3490, 199000: 8990 } }; const configured = currency === 'INR' ? value : regionalPrices[currency]?.[value]; if (configured === undefined) return locale === 'ar' ? 'تواصل معنا لمعرفة السعر' : 'Contact for regional pricing'; try { return new Intl.NumberFormat(locale === 'ar' ? (currency === 'AED' ? 'ar-AE' : 'ar') : 'en', { style:'currency', currency, maximumFractionDigits:0 }).format(configured); } catch { return `${configured.toLocaleString(locale === 'ar' ? 'ar' : 'en')} ${currency}`; } };
 const WARM = 'bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400 bg-clip-text text-transparent';
 
 const scrollToId = (id) => {
