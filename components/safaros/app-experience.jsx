@@ -6700,15 +6700,31 @@ function SupportTickets({ session }) {
 function ChannelIntegrations({ session }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { (async () => { try { const d = await api('/communications/integrations'); setItems(d.integrations || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } })(); }, []);
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [config, setConfig] = useState({});
   const definitions = [
-    { id: 'website_chat', name: 'Website live chat', detail: 'Add a chat widget to your agency website so travellers can message your team.' },
-    { id: 'whatsapp', name: 'WhatsApp Business', detail: 'Connect an authorized WhatsApp Business account for inbound messages and agent replies.' },
-    { id: 'email', name: 'Email support', detail: 'Connect a support mailbox to synchronize customer email conversations.' },
+    { id: 'website_chat', name: 'Website live chat', detail: 'Register the website where your agency wants the SafarOS chat widget.', fields: [{ key: 'websiteUrl', label: 'Agency website URL', placeholder: 'https://travel.example.com' }] },
+    { id: 'whatsapp', name: 'WhatsApp Business', detail: 'Add the number and WhatsApp Business Account ID. Provider authorization is a separate step.', fields: [{ key: 'phoneNumber', label: 'Business phone number', placeholder: '+919876543210' }, { key: 'businessAccountId', label: 'WhatsApp Business Account ID', placeholder: 'Meta WhatsApp Business Account ID' }] },
+    { id: 'email', name: 'Email support', detail: 'Register your agency support address. Mailbox authorization and inbound sync are separate steps.', fields: [{ key: 'supportEmail', label: 'Support email address', placeholder: 'support@youragency.com' }] },
   ];
+  const load = async () => { setLoading(true); try { const d = await api('/communications/integrations'); setItems(d.integrations || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const begin = (d) => { const saved = items.find((x) => x.id === d.id); setConfig(saved?.config || {}); setEditing(d); };
+  const save = async () => {
+    setSaving(true);
+    try {
+      const d = await api('/communications/integrations/' + editing.id, { method: 'PUT', body: JSON.stringify({ config }) });
+      setItems((old) => old.map((x) => x.id === editing.id ? d.integration : x).concat(old.some((x) => x.id === editing.id) ? [] : [d.integration]));
+      toast.success('Channel details saved. Provider verification is still required.');
+      setEditing(null);
+    } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); }
+  };
   return <div className="space-y-3">
-    <div><h3 className="font-semibold">Connect your customer support channels</h3><p className="text-sm text-muted-foreground">Each channel belongs to this agency. Connections remain disabled until credentials and provider webhooks are configured.</p></div>
-    {loading ? <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" /> : definitions.map((d) => { const status = items.find((x) => x.id === d.id)?.status || 'not_connected'; return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="font-medium">{d.name}</div><p className="text-sm text-muted-foreground">{d.detail}</p><div className="mt-2"><Badge variant="outline">{status === 'connected' ? 'Connected' : status === 'pending' ? 'Setup pending' : 'Not connected'}</Badge></div></div><Button variant="outline" onClick={() => toast.info('Provider connection setup is not enabled yet. Configure credentials and webhook verification before connecting a live channel.')}>Setup guide</Button></CardContent></Card>; })}
+    <div><h3 className="font-semibold">Agency-owned support channels</h3><p className="text-sm text-muted-foreground">Each agency registers its own website, WhatsApp Business number and support mailbox. Details are tenant-scoped. Saving does not turn on live traffic until provider authorization and webhook verification are implemented.</p></div>
+    {loading ? <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" /> : definitions.map((d) => { const item = items.find((x) => x.id === d.id); const status = item?.status || 'not_connected'; return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="font-medium">{d.name}</div><p className="text-sm text-muted-foreground">{d.detail}</p><div className="mt-2"><Badge variant="outline">{status === 'connected' ? 'Connected' : status === 'pending' ? 'Setup pending' : 'Not connected'}</Badge></div></div><Button variant="outline" onClick={() => begin(d)}>{item?.config ? 'Edit details' : 'Configure'}</Button></CardContent></Card>; })}
+    {editing && <Card><CardContent className="space-y-4 p-4"><div><h4 className="font-semibold">Configure {editing.name}</h4><p className="text-sm text-muted-foreground">These are connection details only; never enter access tokens or passwords here.</p></div>{editing.fields.map((field) => <div key={field.key} className="space-y-1"><Label>{field.label}</Label><Input value={config[field.key] || ''} placeholder={field.placeholder} onChange={(e) => setConfig((v) => ({ ...v, [field.key]: e.target.value }))} /></div>)}<div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</Button><Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button></div></CardContent></Card>}
+    <p className="text-xs text-muted-foreground">Next stages: secure provider authorization, signed webhook verification, message ingestion/replies, and end-to-end tests. No channel is marked connected by saving these fields.</p>
   </div>;
 }
 
