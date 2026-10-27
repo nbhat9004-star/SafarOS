@@ -1,8 +1,9 @@
 .localeControl {
   position: fixed;
   z-index: 1000;
-  left: 16px;
-  bottom: 16px;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: auto;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #111827;
 }
@@ -53,6 +54,7 @@
   cursor: pointer;
 }
 @media (max-width: 480px) {
-  .localeControl { left: 10px; bottom: 10px; }
-  .localeTrigger { padding: 9px 12px; }
+  .localeControl { right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); left: auto; }
+  .localeTrigger { padding: 8px 10px; font-size: 12px; }
+  .localePanel { max-height: min(70dvh, 420px); overflow-y: auto; }
 }
