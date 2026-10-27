@@ -19,6 +19,7 @@ const IMG = {
 
 const EASE = [0.22, 1, 0.36, 1];
 const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const moneyFor = (amount, currency, locale) => { const value = Number(amount || 0); if (!value) return locale === 'ar' ? 'مجاناً' : 'Free'; const gcc = { 2900:129, 7900:349, 19900:899, 29000:1299 }; const shown = currency === 'AED' ? (gcc[value] ?? Math.round(value * 0.045 / 10) * 10) : value; try { return new Intl.NumberFormat(locale === 'ar' ? 'ar-AE' : 'en', { style:'currency', currency, maximumFractionDigits:0 }).format(shown); } catch { return `${shown.toLocaleString(locale === 'ar' ? 'ar' : 'en')} ${currency}`; } };
 const WARM = 'bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400 bg-clip-text text-transparent';
 
 const scrollToId = (id) => {
@@ -47,6 +48,7 @@ function SectionHead({ eyebrow, title, sub, dark = false }) {
 
 /* ---------------------------------------------------- header */
 const NAV = [['Demo', 'demo'], ['Features', 'features'], ['Pricing', 'pricing'], ['Early access', 'early-access']];
+const NAV_AR = [['العرض التوضيحي','demo'],['المميزات','features'],['الأسعار','pricing'],['التسجيل المبكر','early-access']];
 
 function Header() {
   const { locale } = useLocalization();
@@ -137,7 +139,7 @@ function Hero() {
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-white"><Play className="h-3 w-3 fill-current" /></span> {isArabic ? 'شاهد العرض التوضيحي' : 'Watch the demo'}
           </button>
           <button onClick={() => scrollToId('early-access')} data-testid="hero-cta-btn" className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_10px_40px_rgba(251,146,60,0.35)] transition hover:brightness-110">
-            Get early access <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            {isArabic ? 'احصل على وصول مبكر' : 'Get early access'} <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </button>
         </motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.8 }}
@@ -340,7 +342,11 @@ function Demo() {
     const t = setTimeout(() => setStep((s) => (s + 1) % TOUR.length), STEP_MS);
     return () => clearTimeout(t);
   }, [step, running]);
+  const { locale } = useLocalization();
+  const isArabic = locale === 'ar';
+  const tourAr = [ ['العملاء','استقبل كل استفسار','تصل استفسارات الموقع وواتساب والهاتف إلى مسار واحد دون أن يفوتك شيء.'], ['عروض الأسعار','أنشئ عرض سعر خلال دقائق','تُحسب التكاليف وهامش الربح والضرائب تلقائياً قبل إرسال العرض.'], ['خطط الرحلات','خطط الرحلة يوماً بيوم','فنادق وتنقلات وأنشطة يومية جاهزة للمشاركة مع المسافر.'], ['الحجوزات','أكد كل حجز','تابع تأكيدات الفنادق والسيارات والأنشطة في قائمة واحدة.'], ['الأسطول','نظّم السيارات والسائقين','عيّن السيارة والسائق المناسبين وتابع التعارضات وانتهاء المستندات.'], ['مساعد ذكي','اسأل مساعدك الذكي','احصل على ملخص للاستفسار والخطوة التالية خلال ثوانٍ.'] ];
   const cur = TOUR[step];
+  const currentText = isArabic ? { ...cur, module: tourAr[step][0], title: tourAr[step][1], caption: tourAr[step][2] } : cur;
   const Screen = SCREENS[cur.id];
   const pick = (i) => { setStep(i); };
 
@@ -385,7 +391,7 @@ function Demo() {
                 {TOUR.map((t, i) => { const Ic = t.icon; const on = i === step; return (
                   <button key={t.id} onClick={() => pick(i)} className={`relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition-colors ${on ? 'text-indigo-700' : 'text-slate-500 hover:text-slate-800'}`}>
                     {on && <motion.span layoutId="demo-side" className="absolute inset-0 rounded-lg bg-indigo-50" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
-                    <span className="relative flex items-center gap-2"><Ic className="h-4 w-4" /> {t.module}</span>
+                    <span className="relative flex items-center gap-2"><Ic className="h-4 w-4" /> {isArabic ? tourAr[i][0] : t.module}</span>
                   </button>
                 ); })}
                 <div className="mt-auto rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 p-2.5 text-[11px] text-orange-800"><Clock className="mb-1 h-3.5 w-3.5" />Trial: 14 days left</div>
@@ -395,11 +401,11 @@ function Demo() {
                 <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                   <AnimatePresence mode="wait">
                     <motion.div key={cur.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.3 }}>
-                      <div className="text-[11px] font-semibold uppercase tracking-wider text-orange-600">Step {step + 1} of {TOUR.length}</div>
-                      <h3 className="text-lg font-bold text-slate-900 sm:text-xl" data-testid="demo-step-title">{cur.title}</h3>
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-orange-600">{isArabic ? `الخطوة ${step + 1} من ${TOUR.length}` : `Step ${step + 1} of ${TOUR.length}`}</div>
+                      <h3 className="text-lg font-bold text-slate-900 sm:text-xl" data-testid="demo-step-title">{currentText.title}</h3>
                     </motion.div>
                   </AnimatePresence>
-                  <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-400 sm:flex"><Search className="h-3.5 w-3.5" /> Search clients, bookings…</div>
+                  <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-400 sm:flex"><Search className="h-3.5 w-3.5" /> {isArabic ? 'ابحث عن العملاء والحجوزات…' : 'Search clients, bookings…'}</div>
                 </div>
                 <AnimatePresence mode="wait">
                   <motion.div key={cur.id} initial={{ opacity: 0, y: 12, filter: 'blur(4px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }} exit={{ opacity: 0, y: -8, filter: 'blur(4px)' }} transition={{ duration: 0.35, ease: EASE }}>
@@ -413,11 +419,11 @@ function Demo() {
 
         <AnimatePresence mode="wait">
           <motion.p key={cur.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}
-            className="mx-auto mt-6 max-w-xl text-center text-sm leading-relaxed text-white/70 sm:text-base" data-testid="demo-caption">{cur.caption}</motion.p>
+            className="mx-auto mt-6 max-w-xl text-center text-sm leading-relaxed text-white/70 sm:text-base" data-testid="demo-caption">{currentText.caption}</motion.p>
         </AnimatePresence>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <a href="/signup" data-testid="demo-try-btn" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 hover:bg-white/90">Try it free for 14 days <ArrowRight className="h-4 w-4" /></a>
-          <button onClick={() => scrollToId('early-access')} className="inline-flex items-center gap-2 rounded-full border border-white/20 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/5">Book a guided demo</button>
+          <a href="/signup" data-testid="demo-try-btn" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 hover:bg-white/90">{isArabic ? 'جرّبه مجاناً لمدة 14 يوماً' : 'Try it free for 14 days'} <ArrowRight className="h-4 w-4" /></a>
+          <button onClick={() => scrollToId('early-access')} className="inline-flex items-center gap-2 rounded-full border border-white/20 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/5">{isArabic ? 'احجز عرضاً توضيحياً' : 'Book a guided demo'}</button>
         </div>
       </div>
     </section>
@@ -437,12 +443,16 @@ const FEATURES = [
 ];
 
 function Features() {
+  const { locale } = useLocalization(); const isArabic = locale === 'ar';
+  const features = isArabic ? [
+    {icon:Users,title:'العملاء وإدارة العلاقات',text:'اجمع كل الاستفسارات في مسار واحد مع تذكيرات للمتابعة.'},{icon:FileText,title:'عروض أسعار ذكية',text:'احسب هامش الربح والضرائب تلقائياً في كل عرض.'},{icon:MapIcon,title:'منشئ خطط الرحلات',text:'خطط يومية تشمل الفنادق والتنقلات والأنشطة.'},{icon:CalendarCheck,title:'الحجوزات',text:'تابع التأكيدات والقسائم والموردين من مكان واحد.'},{icon:Truck,title:'الأسطول والسائقون',text:'عيّن السيارات والسائقين وتابع انتهاء المستندات.'},{icon:Wallet,title:'المالية والمدفوعات',text:'الفواتير والتحصيلات والمبالغ المستحقة في لمحة.'},{icon:Globe,title:'موقع الوكالة',text:'موقع خاص بوكالتك يرسل الاستفسارات مباشرة إلى SafarOS.'},{icon:Bot,title:'مساعد الذكاء الاصطناعي',text:'ملخصات العملاء والمتابعات ومساعدة في إعداد الرحلات.'}
+  ] : FEATURES;
   return (
     <section id="features" className="so-section bg-[#FBF7F1] py-20 sm:py-28">
       <div className="mx-auto max-w-6xl px-6">
-        <SectionHead eyebrow="Features" title="Everything a travel agency needs." sub="Simple tools your whole team can learn in a day." />
+        <SectionHead eyebrow={isArabic?'المميزات':'Features'} title={isArabic?'كل ما تحتاجه وكالة السفر.':'Everything a travel agency needs.'} sub={isArabic?'أدوات بسيطة يستطيع فريقك تعلّمها في يوم واحد.':'Simple tools your whole team can learn in a day.'} />
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {FEATURES.map((f, i) => { const Ic = f.icon; return (
+          {features.map((f, i) => { const Ic = f.icon; return (
             <Reveal key={f.title} delay={(i % 4) * 0.06}>
               <div className="so-lift group h-full rounded-2xl border border-orange-100 bg-white p-5 shadow-sm hover:shadow-xl hover:shadow-orange-900/5" data-testid={`feature-card-${i}`}>
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-md shadow-indigo-900/20 transition group-hover:from-amber-400 group-hover:to-orange-500"><Ic className="h-5 w-5" /></span>
@@ -457,8 +467,8 @@ function Features() {
             <img src={IMG.feature} alt="Mountains at golden hour" loading="lazy" className="h-56 w-full object-cover sm:h-64" />
             <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/50 to-transparent" />
             <div className="absolute inset-0 flex flex-col justify-center p-6 sm:p-10">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-amber-300"><Smartphone className="h-4 w-4" /> Customer portal</div>
-              <h3 className="mt-2 max-w-md text-2xl font-bold text-white sm:text-3xl">Your travellers get their trip, vouchers and payments in one link.</h3>
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-amber-300"><Smartphone className="h-4 w-4" /> {isArabic ? 'بوابة العملاء' : 'Customer portal'}</div>
+              <h3 className="mt-2 max-w-md text-2xl font-bold text-white sm:text-3xl">{isArabic ? 'يحصل مسافروك على تفاصيل الرحلة والقسائم والمدفوعات عبر رابط واحد.' : 'Your travellers get their trip, vouchers and payments in one link.'}</h3>
             </div>
           </div>
         </Reveal>
@@ -475,15 +485,16 @@ const FEATURE_LABELS = {
 const limitText = (v) => (v === -1 ? 'Unlimited' : Number(v || 0).toLocaleString('en-IN'));
 
 function Pricing({ onChoose }) {
+  const { locale, currency } = useLocalization(); const isArabic = locale === 'ar';
   const [yearly, setYearly] = useState(false);
   const plans = (PLAN_CATALOG || []).filter((p) => p.status === 'active');
   return (
     <section id="pricing" className="so-section bg-white py-20 sm:py-28">
       <div className="mx-auto max-w-6xl px-6">
-        <SectionHead eyebrow="Pricing" title="Simple plans that grow with you." sub="Start with a free trial. Upgrade only when you're ready." />
+        <SectionHead eyebrow={isArabic?'الأسعار':'Pricing'} title={isArabic?'خطط بسيطة تنمو مع أعمالك.':'Simple plans that grow with you.'} sub={isArabic?'ابدأ بتجربة مجانية وانتقل إلى خطة مدفوعة عندما تكون مستعداً.':"Start with a free trial. Upgrade only when you're ready."} />
         <div className="mt-8 flex justify-center">
           <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 p-1 text-sm" data-testid="billing-toggle">
-            {[['Monthly', false], ['Yearly', true]].map(([l, v]) => (
+            {(isArabic ? [['شهري',false],['سنوي',true]] : [['Monthly',false],['Yearly',true]]).map(([l, v]) => (
               <button key={l} onClick={() => setYearly(v)} data-testid={`billing-${l.toLowerCase()}`} className={`relative rounded-full px-4 py-1.5 font-medium ${yearly === v ? 'text-white' : 'text-slate-600'}`}>
                 {yearly === v && <motion.span layoutId="bill" className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
                 <span className="relative">{l}{v && <span className="ml-1.5 rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-slate-900">2 months free</span>}</span>
@@ -503,8 +514,8 @@ function Pricing({ onChoose }) {
                   <h3 className="text-lg font-bold">{p.name}</h3>
                   <p className={`mt-1 min-h-[40px] text-sm ${popular ? 'text-white/60' : 'text-slate-500'}`}>{p.description}</p>
                   <div className="mt-5 flex items-end gap-1">
-                    <span className="text-4xl font-bold tracking-tight" data-testid={`plan-price-${p.id}`}>{price ? inr(price) : 'Free'}</span>
-                    <span className={`mb-1 text-sm ${popular ? 'text-white/50' : 'text-slate-400'}`}>{price ? (yearly ? '/year' : '/month') : `for ${p.trialDays || 14} days`}</span>
+                    <span className="text-4xl font-bold tracking-tight" data-testid={`plan-price-${p.id}`}>{moneyFor(price, currency, locale)}</span>
+                    <span className={`mb-1 text-sm ${popular ? 'text-white/50' : 'text-slate-400'}`}>{price ? (yearly ? (isArabic?'/سنة':'/year') : (isArabic?'/شهر':'/month')) : (isArabic?`لمدة ${p.trialDays||14} يوماً`:`for ${p.trialDays || 14} days`)}</span>
                   </div>
                   <ul className="mt-6 flex-1 space-y-2.5 text-sm">
                     <li className="flex items-start gap-2"><Check className={`mt-0.5 h-4 w-4 shrink-0 ${popular ? 'text-amber-400' : 'text-orange-500'}`} /><span><b>{limitText(p.limits?.teamMembers)}</b> team members</span></li>
@@ -524,7 +535,7 @@ function Pricing({ onChoose }) {
             );
           })}
         </div>
-        <p className="mt-6 text-center text-xs text-slate-400">Prices in Indian Rupees. Taxes extra where applicable.</p>
+        <p className="mt-6 text-center text-xs text-slate-400">{isArabic ? `الأسعار معروضة بعملة ${currency}. قد تُضاف الضرائب حسب الاقتضاء.` : `Prices in ${currency}. Taxes extra where applicable.`}</p>
       </div>
     </section>
   );
@@ -546,6 +557,7 @@ function Field({ label, required, children }) {
 const inputCls = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100';
 
 function EarlyAccess({ plan }) {
+  const { locale } = useLocalization(); const isArabic = locale === 'ar';
   const [f, setF] = useState(EMPTY);
   const [state, setState] = useState('idle'); // idle | sending | done
   const [error, setError] = useState('');
@@ -575,11 +587,11 @@ function EarlyAccess({ plan }) {
       <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/90 to-slate-950/60" />
       <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-6 lg:grid-cols-2">
         <Reveal>
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Early access</span>
-          <h2 className="mt-3 text-balance text-3xl font-bold tracking-tight text-white sm:text-5xl">Be one of the first agencies on <span className={WARM}>SafarOS.</span></h2>
-          <p className="mt-4 max-w-lg text-base leading-relaxed text-white/70 sm:text-lg">Tell us a little about your agency. We&apos;ll reach out to set up your workspace and give you a personal walkthrough.</p>
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">{isArabic?'التسجيل المبكر':'Early access'}</span>
+          <h2 className="mt-3 text-balance text-3xl font-bold tracking-tight text-white sm:text-5xl">{isArabic ? <>كن من أوائل الوكالات على <span className={WARM}>SafarOS.</span></> : <>Be one of the first agencies on <span className={WARM}>SafarOS.</span></>}</h2>
+          <p className="mt-4 max-w-lg text-base leading-relaxed text-white/70 sm:text-lg">{isArabic?'أخبرنا قليلاً عن وكالتك. سنتواصل معك لإعداد مساحة العمل وتقديم شرح مخصص لك.':<>Tell us a little about your agency. We&apos;ll reach out to set up your workspace and give you a personal walkthrough.</>}</p>
           <ul className="mt-7 space-y-3 text-sm text-white/80">
-            {['Free help moving your clients and suppliers in', 'A guided demo for your team', 'Early-bird pricing locked in for your agency'].map((t) => (
+            {(isArabic?['مساعدة مجانية في نقل بيانات العملاء والموردين','عرض توضيحي مخصص لفريقك','تثبيت سعر التسجيل المبكر لوكالتك']:['Free help moving your clients and suppliers in','A guided demo for your team','Early-bird pricing locked in for your agency']).map((t) => (
               <li key={t} className="flex items-center gap-3"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-400/15 text-amber-300"><Check className="h-3.5 w-3.5" /></span>{t}</li>
             ))}
           </ul>
@@ -600,33 +612,33 @@ function EarlyAccess({ plan }) {
                 </motion.div>
               ) : (
                 <motion.form key="form" onSubmit={submit} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4" noValidate data-testid="early-access-form">
-                  <div className="flex items-center gap-2 text-slate-900"><MessageCircle className="h-5 w-5 text-orange-500" /><h3 className="text-lg font-bold">Request early access</h3></div>
+                  <div className="flex items-center gap-2 text-slate-900"><MessageCircle className="h-5 w-5 text-orange-500" /><h3 className="text-lg font-bold">{isArabic?'طلب التسجيل المبكر':'Request early access'}</h3></div>
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Your name" required><input className={inputCls} value={f.name} onChange={set('name')} placeholder="Full name" data-testid="ea-name" /></Field>
-                    <Field label="Work email" required><input type="email" className={inputCls} value={f.email} onChange={set('email')} placeholder="you@agency.com" data-testid="ea-email" /></Field>
-                    <Field label="Phone / WhatsApp"><input className={inputCls} value={f.phone} onChange={set('phone')} placeholder="+91" data-testid="ea-phone" /></Field>
-                    <Field label="Agency name"><input className={inputCls} value={f.agencyName} onChange={set('agencyName')} placeholder="Your agency" data-testid="ea-agency" /></Field>
-                    <Field label="City"><input className={inputCls} value={f.city} onChange={set('city')} placeholder="e.g. Srinagar" data-testid="ea-city" /></Field>
-                    <Field label="Team size">
+                    <Field label={isArabic?'الاسم الكامل':'Your name'} required><input dir={isArabic?'rtl':'ltr'} className={inputCls} value={f.name} onChange={set('name')} placeholder={isArabic?'اكتب اسمك الكامل':'Full name'} data-testid="ea-name" /></Field>
+                    <Field label={isArabic?'البريد الإلكتروني للعمل':'Work email'} required><input dir="ltr" type="email" className={inputCls} value={f.email} onChange={set('email')} placeholder="you@agency.com" data-testid="ea-email" /></Field>
+                    <Field label={isArabic?'الهاتف / واتساب':'Phone / WhatsApp'}><input dir="ltr" className={inputCls} value={f.phone} onChange={set('phone')} placeholder={isArabic?'+971':'+91'} data-testid="ea-phone" /></Field>
+                    <Field label={isArabic?'اسم الوكالة':'Agency name'}><input dir={isArabic?'rtl':'ltr'} className={inputCls} value={f.agencyName} onChange={set('agencyName')} placeholder={isArabic?'اسم وكالتك':'Your agency'} data-testid="ea-agency" /></Field>
+                    <Field label={isArabic?'المدينة':'City'}><input dir={isArabic?'rtl':'ltr'} className={inputCls} value={f.city} onChange={set('city')} placeholder={isArabic?'مثال: سريناغار':'e.g. Srinagar'} data-testid="ea-city" /></Field>
+                    <Field label={isArabic?'حجم الفريق':'Team size'}>
                       <select className={inputCls} value={f.teamSize} onChange={set('teamSize')} data-testid="ea-team">
-                        <option value="">Select</option>
-                        {TEAM_SIZES.map((t) => <option key={t} value={t}>{t} {t === '1' ? 'person' : 'people'}</option>)}
+                        <option value="">{isArabic?'اختر':'Select'}</option>
+                        {TEAM_SIZES.map((t) => <option key={t} value={t}>{t} {isArabic?'أشخاص':t === '1' ? 'person' : 'people'}</option>)}
                       </select>
                     </Field>
                   </div>
-                  <Field label="Plan you're interested in">
+                  <Field label={isArabic?'الخطة التي تهمك':"Plan you're interested in"}>
                     <select className={inputCls} value={f.interestedPlan} onChange={set('interestedPlan')} data-testid="ea-plan">
-                      {PLAN_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      {PLAN_OPTIONS.map(([v, l]) => <option key={v} value={v}>{isArabic?({'Not sure yet':'لست متأكداً بعد','Trial':'تجريبية','Starter':'مبتدئة','Professional':'احترافية','Enterprise':'مؤسسات'}[l]||l):l}</option>)}
                     </select>
                   </Field>
-                  <Field label="Anything you'd like us to know?"><textarea rows={3} className={`${inputCls} resize-none`} value={f.message} onChange={set('message')} placeholder="Tell us how you work today…" data-testid="ea-message" /></Field>
+                  <Field label={isArabic?'هل ترغب في إضافة أي معلومات؟':"Anything you'd like us to know?"}><textarea dir={isArabic?'rtl':'ltr'} rows={3} className={`${inputCls} resize-none`} value={f.message} onChange={set('message')} placeholder={isArabic?'أخبرنا عن طريقة عملك الحالية…':'Tell us how you work today…'} data-testid="ea-message" /></Field>
                   <input type="text" tabIndex={-1} autoComplete="off" value={f.website} onChange={set('website')} className="hidden" aria-hidden="true" />
                   {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600" data-testid="ea-error">{error}</p>}
                   <button type="submit" disabled={state === 'sending'} data-testid="ea-submit"
                     className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-orange-500/25 transition hover:brightness-110 disabled:opacity-70">
-                    {state === 'sending' ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</> : <>Request early access <ArrowRight className="h-4 w-4" /></>}
+                    {state === 'sending' ? <><Loader2 className="h-4 w-4 animate-spin" /> {isArabic?'جارٍ الإرسال…':'Sending…'}</> : <>{isArabic?'طلب التسجيل المبكر':'Request early access'} <ArrowRight className="h-4 w-4" /></>}
                   </button>
-                  <p className="text-center text-[11px] text-slate-400">We only use your details to contact you about SafarOS.</p>
+                  <p className="text-center text-[11px] text-slate-400">{isArabic?'سنستخدم بياناتك للتواصل معك بشأن SafarOS فقط.':'We only use your details to contact you about SafarOS.'}</p>
                 </motion.form>
               )}
             </AnimatePresence>
@@ -647,10 +659,10 @@ function Footer() {
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600"><Layers className="h-3.5 w-3.5" /></span>
             <span className="font-bold">SafarOS</span>
           </div>
-          <p className="mt-1.5 text-xs text-white/45">The operating system for travel businesses.</p>
+          <p className="mt-1.5 text-xs text-white/45">{isArabic?'نظام تشغيل متكامل لشركات السفر.':'The operating system for travel businesses.'}</p>
         </div>
         <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-white/60">
-          {NAV.map(([l, id]) => <button key={id} onClick={() => scrollToId(id)} className="hover:text-white">{l}</button>)}
+          {(isArabic?NAV_AR:NAV).map(([l,id])=><button key={id} onClick={()=>scrollToId(id)} className="hover:text-white">{l}</button>)}
           <a href="/login" className="hover:text-white">Sign in</a>
         </nav>
       </div>
