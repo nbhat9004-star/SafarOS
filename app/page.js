@@ -573,10 +573,10 @@ function EarlyAccess({ plan }) {
     try {
       const res = await fetch('/api/early-access', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Something went wrong. Please try again.');
+      if (!res.ok) throw new Error(data?.error || (isArabic?'حدث خطأ. يرجى المحاولة مرة أخرى.':'Something went wrong. Please try again.'));
       setState('done');
     } catch (ex) {
-      setError(ex?.message || 'Something went wrong. Please try again.');
+      setError(ex?.message || (isArabic?'حدث خطأ. يرجى المحاولة مرة أخرى.':'Something went wrong. Please try again.'));
       setState('idle');
     }
   };
@@ -603,11 +603,11 @@ function EarlyAccess({ plan }) {
               {state === 'done' ? (
                 <motion.div key="done" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4, ease: EASE }} className="py-10 text-center" data-testid="early-access-success">
                   <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle2 className="h-7 w-7" /></span>
-                  <h3 className="mt-5 text-2xl font-bold text-slate-900">You&apos;re on the list!</h3>
-                  <p className="mx-auto mt-2 max-w-sm text-sm text-slate-600">Thanks, {f.name.split(' ')[0] || 'there'}. Our team will contact you at <b>{f.email}</b> shortly.</p>
+                  <h3 className="mt-5 text-2xl font-bold text-slate-900">{isArabic?'تم تسجيل طلبك بنجاح!':"You're on the list!"}</h3>
+                  <p className="mx-auto mt-2 max-w-sm text-sm text-slate-600">{isArabic?`شكراً ${f.name.split(' ')[0] || ''}. سيتواصل فريقنا معك قريباً عبر `:`Thanks, ${f.name.split(' ')[0] || 'there'}. Our team will contact you at `}<b dir="ltr">{f.email}</b>{isArabic?'.':' shortly.'}</p>
                   <div className="mt-6 flex flex-wrap justify-center gap-3">
-                    <a href="/signup" className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">Start free trial now <ArrowRight className="h-4 w-4" /></a>
-                    <button onClick={() => { setF(EMPTY); setState('idle'); }} className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-900">Send another</button>
+                    <a href="/signup" className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">{isArabic?'ابدأ التجربة المجانية الآن':'Start free trial now'} <ArrowRight className="h-4 w-4" /></a>
+                    <button onClick={() => { setF(EMPTY); setState('idle'); }} className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-900">{isArabic?'إرسال طلب آخر':'Send another'}</button>
                   </div>
                 </motion.div>
               ) : (
@@ -651,6 +651,8 @@ function EarlyAccess({ plan }) {
 
 /* ---------------------------------------------------- footer */
 function Footer() {
+  const { locale } = useLocalization();
+  const isArabic = locale === 'ar';
   return (
     <footer className="border-t border-white/10 bg-slate-950 py-10">
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-5 px-6 text-center sm:flex-row sm:justify-between sm:text-left">
@@ -663,7 +665,7 @@ function Footer() {
         </div>
         <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-white/60">
           {(isArabic?NAV_AR:NAV).map(([l,id])=><button key={id} onClick={()=>scrollToId(id)} className="hover:text-white">{l}</button>)}
-          <a href="/login" className="hover:text-white">Sign in</a>
+          <a href="/login" className="hover:text-white">{isArabic?'تسجيل الدخول':'Sign in'}</a>
         </nav>
       </div>
       <div className="mx-auto mt-6 max-w-6xl px-6 text-center text-xs text-white/35 sm:text-left">© {new Date().getFullYear()} SafarOS. All rights reserved.</div>
