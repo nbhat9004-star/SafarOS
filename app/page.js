@@ -497,8 +497,10 @@ const FEATURE_LABELS = {
 const limitText = (v) => (v === -1 ? 'Unlimited' : Number(v || 0).toLocaleString('en-IN'));
 
 function Pricing({ onChoose }) {
-  const { locale, currency } = useLocalization(); const isArabic = locale === 'ar';
+  const { locale, currency, countryCode } = useLocalization(); const isArabic = locale === 'ar';
   const [yearly, setYearly] = useState(false);
+  const [regionalPricing, setRegionalPricing] = useState(null);
+  useEffect(() => { let live = true; fetch('/api/public/regional-pricing/' + encodeURIComponent(countryCode || 'IN')).then(r => r.json()).then(d => { if(live) setRegionalPricing(d.pricing || null); }).catch(() => { if(live) setRegionalPricing(null); }); return () => { live = false; }; }, [countryCode]);
   const plans = (PLAN_CATALOG || []).filter((p) => p.status === 'active');
   return (
     <section id="pricing" className="so-section bg-white py-20 sm:py-28">
@@ -517,7 +519,7 @@ function Pricing({ onChoose }) {
         <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
           {plans.map((p, i) => {
             const popular = p.id === 'professional';
-            const price = yearly ? p.priceYearly : p.price;
+            const override = regionalPricing?.prices?.[p.slug]; const price = override ? Number(yearly ? override.yearly : override.monthly) : (yearly ? p.priceYearly : p.price); const displayCurrency = override ? regionalPricing.currency : currency;
             const feats = Object.entries(p.features || {}).filter(([, on]) => on).map(([k]) => FEATURE_LABELS[k]).filter(Boolean).map((f) => isArabic ? ({'Leads & CRM':'العملاء وإدارة العلاقات','Quotations':'عروض الأسعار','Tour packages':'الباقات السياحية','Finance':'المالية','Agency website':'موقع الوكالة','Messaging':'المراسلات','Fleet & drivers':'الأسطول والسائقون','Online payments':'المدفوعات الإلكترونية','AI Copilot':'مساعد الذكاء الاصطناعي','Customer portal':'بوابة العملاء','Analytics':'التحليلات'}[f] || f) : f);
             return (
               <Reveal key={p.id} delay={i * 0.06}>
@@ -526,7 +528,7 @@ function Pricing({ onChoose }) {
                   <h3 className="text-lg font-bold">{isArabic ? ({Trial:'التجربة المجانية',Starter:'المبتدئة',Professional:'الاحترافية',Enterprise:'المؤسسات'}[p.name] || p.name) : p.name}</h3>
                   <p className={`mt-1 min-h-[40px] text-sm ${popular ? 'text-white/60' : 'text-slate-500'}`}>{isArabic ? ({'Full access to evaluate SafarOS for a limited time':'وصول كامل لتجربة SafarOS لفترة محدودة.','Essentials for a small travel agency getting started.':'الأساسيات لوكالة سفر صغيرة في بداية عملها.','Scaling agencies that need automation, finance and analytics.':'للوكالات النامية التي تحتاج إلى الأتمتة والمالية والتحليلات.','Unlimited scale with every SafarOS capability unlocked.':'توسّع بلا حدود مع جميع إمكانات SafarOS.'}[p.description] || p.description) : p.description}</p>
                   <div className="mt-5 flex items-end gap-1">
-                    <span className="text-4xl font-bold tracking-tight" data-testid={`plan-price-${p.id}`}>{moneyFor(price, currency, locale)}</span>
+                    <span className="text-4xl font-bold tracking-tight" data-testid={`plan-price-${p.id}`}>{moneyFor(price, displayCurrency, locale)}</span>
                     <span className={`mb-1 text-sm ${popular ? 'text-white/50' : 'text-slate-400'}`}>{price ? (yearly ? (isArabic?'/سنة':'/year') : (isArabic?'/شهر':'/month')) : (isArabic?`لمدة ${p.trialDays||14} يوماً`:`for ${p.trialDays || 14} days`)}</span>
                   </div>
                   <ul className="mt-6 flex-1 space-y-2.5 text-sm">
