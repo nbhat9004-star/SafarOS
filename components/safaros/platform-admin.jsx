@@ -44,6 +44,8 @@ const NAV = [
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
   { id: 'plans', label: 'Plans', icon: Layers },
   { id: 'themes', label: 'Website Theme Library', icon: Palette },
+  { id: 'marketing', label: 'Public Pages & Contact', icon: Globe },
+  { id: 'regional_pricing', label: 'Country Subscription Pricing', icon: CreditCard },
   { id: 'ai', label: 'AI Platforms', icon: Bot },
   { id: 'api_integrations', label: 'API & Integrations', icon: KeyRound },
   { id: 'integrations', label: 'Integrations', icon: Plug },
@@ -692,7 +694,42 @@ function PlatformNavLinks({ section, onSelect }) {
   });
 }
 
-export default function PlatformAdmin() {
+export default 
+function MarketingPagesView() {
+ const blank={faq:{title:'Frequently Asked Questions',body:''},contact:{title:'Contact us',body:''},privacy:{title:'Privacy Policy',body:''}};
+ const [pages,setPages]=useState(blank),[recipient,setRecipient]=useState(''),[messages,setMessages]=useState([]),[busy,setBusy]=useState(false);
+ const load=async()=>{try{const [p,s,m]=await Promise.all([api('/marketing-content'),api('/settings'),api('/contact-messages')]);setPages(p.pages||blank);setRecipient(s.settings?.contactRecipientEmail||'');setMessages(m.messages||[]);}catch(e){toast.error(e.message);}};
+ useEffect(()=>{load();},[]);
+ const savePages=async()=>{setBusy(true);try{await api('/marketing-content',{method:'POST',body:JSON.stringify({pages})});toast.success('Public pages saved');}catch(e){toast.error(e.message);}finally{setBusy(false);}};
+ const saveRecipient=async()=>{setBusy(true);try{await api('/settings',{method:'PUT',body:JSON.stringify({contactRecipientEmail:recipient})});toast.success('Contact recipient email saved');}catch(e){toast.error(e.message);}finally{setBusy(false);}};
+ return <div className="space-y-6">
+  <Card><CardHeader><CardTitle>Public pages content</CardTitle></CardHeader><CardContent className="space-y-5">
+   <p className="text-sm text-muted-foreground">Edit the FAQ, Contact Us and Privacy Policy shown on the public website. Line breaks are preserved.</p>
+   {['faq','contact','privacy'].map(k=><div key={k} className="space-y-2 rounded-lg border p-4"><Label>{({faq:'FAQ',contact:'Contact Us',privacy:'Privacy Policy'})[k]} title</Label><Input value={pages[k]?.title||''} onChange={e=>setPages(v=>({...v,[k]:{...v[k],title:e.target.value}}))}/><Label>Page content</Label><Textarea rows={6} value={pages[k]?.body||''} onChange={e=>setPages(v=>({...v,[k]:{...v[k],body:e.target.value}}))}/></div>)}
+   <Button onClick={savePages} disabled={busy}>Save public pages</Button>
+  </CardContent></Card>
+  <Card><CardHeader><CardTitle>Contact form delivery</CardTitle></CardHeader><CardContent className="space-y-3"><Label>Recipient email address</Label><Input type="email" placeholder="team@yourdomain.com" value={recipient} onChange={e=>setRecipient(e.target.value)}/><p className="text-xs text-muted-foreground">Messages are stored in SafarOS and emailed here when the platform email provider is configured. If blank, Support Email is used.</p><Button onClick={saveRecipient} disabled={busy}>Save recipient email</Button></CardContent></Card>
+  <Card><CardHeader><CardTitle>Recent contact messages ({messages.length})</CardTitle></CardHeader><CardContent className="space-y-3">{messages.length?messages.map(m=><div key={m.id} className="rounded-lg border p-3 text-sm"><div className="font-medium">{m.subject||'No subject'} — {m.name}</div><div className="text-muted-foreground">{m.email} · {m.createdAt} · email: {m.emailDelivery||'pending'}</div><p className="mt-2 whitespace-pre-wrap">{m.message}</p></div>):<p className="text-sm text-muted-foreground">No contact messages yet.</p>}</CardContent></Card>
+ </div>;
+}
+function RegionalPricingView() {
+ const initial={countryCode:'SA',countryName:'Saudi Arabia',currency:'SAR',enabled:true,prices:{starter:{monthly:0,yearly:0},growth:{monthly:0,yearly:0},scale:{monthly:0,yearly:0}}};
+ const [entries,setEntries]=useState([]),[form,setForm]=useState(initial),[busy,setBusy]=useState(false);
+ const load=async()=>{try{const d=await api('/regional-pricing');setEntries(d.entries||[]);}catch(e){toast.error(e.message);}};
+ useEffect(()=>{load();},[]);
+ const setPrice=(plan,period,value)=>setForm(v=>({...v,prices:{...v.prices,[plan]:{...v.prices[plan],[period]:value}}}));
+ const save=async()=>{setBusy(true);try{await api('/regional-pricing',{method:'POST',body:JSON.stringify(form)});toast.success('Country pricing saved');await load();}catch(e){toast.error(e.message);}finally{setBusy(false);}};
+ return <div className="space-y-6"><Card><CardHeader><CardTitle>Configure country subscription prices</CardTitle></CardHeader><CardContent className="grid gap-4 md:grid-cols-2">
+  <div><Label>Country code (ISO-2)</Label><Input maxLength={2} value={form.countryCode} onChange={e=>setForm(v=>({...v,countryCode:e.target.value.toUpperCase()}))}/></div>
+  <div><Label>Country name</Label><Input value={form.countryName} onChange={e=>setForm(v=>({...v,countryName:e.target.value}))}/></div>
+  <div><Label>Currency (ISO-4217)</Label><Input maxLength={3} value={form.currency} onChange={e=>setForm(v=>({...v,currency:e.target.value.toUpperCase()}))}/></div>
+  <div className="flex items-center gap-2 pt-6"><input type="checkbox" checked={form.enabled} onChange={e=>setForm(v=>({...v,enabled:e.target.checked}))}/><Label>Enabled on public landing page</Label></div>
+  {['starter','growth','scale'].map(p=><div key={p} className="rounded-lg border p-3"><div className="mb-2 font-semibold capitalize">{p} plan</div><Label>Monthly price</Label><Input type="number" min="0" value={form.prices[p].monthly} onChange={e=>setPrice(p,'monthly',e.target.value)}/><Label className="mt-2 block">Yearly price</Label><Input type="number" min="0" value={form.prices[p].yearly} onChange={e=>setPrice(p,'yearly',e.target.value)}/></div>)}
+  <div className="md:col-span-2"><Button onClick={save} disabled={busy}>Save country prices</Button></div>
+ </CardContent></Card><Card><CardHeader><CardTitle>Configured countries</CardTitle></CardHeader><CardContent>{entries.length?<div className="space-y-2">{entries.map(e=><div key={e.countryCode} className="flex flex-wrap items-center justify-between gap-2 rounded border p-3 text-sm"><div><b>{e.countryName}</b> ({e.countryCode}) · {e.currency} · {e.enabled?'Enabled':'Disabled'}</div><Button variant="outline" size="sm" onClick={()=>setForm(e)}>Edit</Button></div>)}</div>:<p className="text-sm text-muted-foreground">No country overrides saved yet.</p>}</CardContent></Card></div>;
+}
+
+function PlatformAdmin() {
   const [admin, setAdmin] = useState(undefined); // undefined = loading, null = logged out
   const [section, setSection] = useState('dashboard');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -730,6 +767,8 @@ export default function PlatformAdmin() {
         {section === 'subscriptions' && <SubscriptionsView />}
         {section === 'plans' && <PlansView />}
         {section === 'themes' && <WebsiteThemesView />}
+        {section === 'marketing' && <MarketingPagesView />}
+        {section === 'regional_pricing' && <RegionalPricingView />}
         {section === 'ai' && <AiView />}
         {section === 'api_integrations' && <ProviderCredentialsView />}
         {section === 'integrations' && <IntegrationsView />}
