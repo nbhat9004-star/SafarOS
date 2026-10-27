@@ -389,7 +389,7 @@ function Demo() {
             <div className="flex items-center gap-2 border-b border-white/10 bg-slate-900 px-4 py-2.5">
               <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" /><span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
               <span className="ml-3 hidden rounded-md bg-white/5 px-3 py-0.5 text-[11px] text-white/45 sm:inline">app.safaros.com/{cur.id}</span>
-              <span className="ml-auto rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-medium text-amber-300"}>{isArabic?'بيانات تجريبية':'Sample data'}</span>
+              <span className="ml-auto rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-medium text-amber-300">{isArabic?'بيانات تجريبية':'Sample data'}</span>
               <button onClick={() => setPlaying((p) => !p)} data-testid="demo-play-toggle" aria-label={playing ? (isArabic?'إيقاف الجولة مؤقتاً':'Pause tour') : (isArabic?'تشغيل الجولة':'Play tour')}
                 className="flex h-7 items-center gap-1.5 rounded-full bg-white/10 px-2.5 text-[11px] font-medium text-white/80 hover:bg-white/15">
                 {playing ? <><Pause className="h-3 w-3" /> {isArabic?'إيقاف مؤقت':'Pause'}</> : <><Play className="h-3 w-3" /> {isArabic?'تشغيل':'Play'}</>}
