@@ -47,8 +47,8 @@ function SectionHead({ eyebrow, title, sub, dark = false }) {
 }
 
 /* ---------------------------------------------------- header */
-const NAV = [['Demo', 'demo'], ['Features', 'features'], ['Pricing', 'pricing'], ['Early access', 'early-access']];
-const NAV_AR = [['العرض التوضيحي','demo'],['المميزات','features'],['الأسعار','pricing'],['التسجيل المبكر','early-access']];
+const NAV = [['Demo', '/demo'], ['Features', '/features'], ['Solutions', '/solutions'], ['How it works', '/how-it-works'], ['Pricing', '/pricing'], ['FAQs', '/faq'], ['Contact', '/contact']];
+const NAV_AR = [['العرض التوضيحي','/demo'],['المميزات','/features'],['الحلول','/solutions'],['كيف يعمل','/how-it-works'],['الأسعار','/pricing'],['الأسئلة الشائعة','/faq'],['تواصل معنا','/contact']];
 
 function Header() {
   const { locale } = useLocalization();
@@ -71,8 +71,8 @@ function Header() {
             <span className="text-base font-bold tracking-tight">SafarOS</span>
           </a>
           <nav className="hidden items-center gap-1 md:flex">
-            {(isArabic ? NAV_AR : NAV).map(([label, id]) => (
-              <button key={id} onClick={() => go(id)} data-testid={`nav-${id}`} className="rounded-full px-3.5 py-1.5 text-sm font-medium text-white/70 transition-colors hover:text-white">{label}</button>
+            {(isArabic ? NAV_AR : NAV).map(([label, href]) => (
+              <a key={href} href={href} data-testid={`nav-${href.replaceAll('/', '')}`} className="rounded-full px-3 py-1.5 text-sm font-medium text-white/70 transition-colors hover:text-white">{label}</a>
             ))}
           </nav>
           <div className="hidden items-center gap-2 md:flex">
@@ -96,8 +96,8 @@ function Header() {
               <button onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 text-white" aria-label="Close menu"><X className="h-5 w-5" /></button>
             </div>
             <div className="flex-1 space-y-1 px-5 py-6">
-              {(isArabic ? NAV_AR : NAV).map(([label, id]) => (
-                <button key={id} onClick={() => go(id)} className="block w-full rounded-xl px-3 py-3 text-left text-lg font-medium text-white/90 hover:bg-white/5">{label}</button>
+              {(isArabic ? NAV_AR : NAV).map(([label, href]) => (
+                <a key={href} href={href} onClick={() => setOpen(false)} className="block w-full rounded-xl px-3 py-3 text-left text-lg font-medium text-white/90 hover:bg-white/5">{label}</a>
               ))}
             </div>
             <div className="border-t border-white/10 p-5">
