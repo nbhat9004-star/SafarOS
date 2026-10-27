@@ -329,6 +329,8 @@ function AiScreen() {
 
 const SCREENS = { lead: LeadScreen, quote: QuoteScreen, itinerary: ItineraryScreen, booking: BookingScreen, fleet: FleetScreen, ai: AiScreen };
 
+const DEMO_REGION_BY_CURRENCY = { AED: { agency: 'Desert Gate Travel', destination: 'Dubai & Abu Dhabi', traveller: 'Aarav Mehta', origin: 'Mumbai', trip: 'Dubai · 4 travellers · 5 nights', addOn: 'desert safari' }, SAR: { agency: 'Riyadh Horizons', destination: 'AlUla & Riyadh', traveller: 'Omar Hassan', origin: 'Jeddah', trip: 'AlUla · 4 travellers · 5 nights', addOn: 'AlUla heritage tour' }, QAR: { agency: 'Pearl Route Travel', destination: 'Doha & Qatar', traveller: 'Aarav Mehta', origin: 'Mumbai', trip: 'Doha · 4 travellers · 5 nights', addOn: 'desert experience' }, KWD: { agency: 'Kuwait Journey Co.', destination: 'Kuwait & the Gulf', traveller: 'Aarav Mehta', origin: 'Mumbai', trip: 'Kuwait · 4 travellers · 5 nights', addOn: 'city experience' }, BHD: { agency: 'Pearl Island Travel', destination: 'Bahrain', traveller: 'Aarav Mehta', origin: 'Mumbai', trip: 'Bahrain · 4 travellers · 5 nights', addOn: 'island tour' }, OMR: { agency: 'Oman Trails', destination: 'Muscat & Oman', traveller: 'Aarav Mehta', origin: 'Mumbai', trip: 'Oman · 4 travellers · 5 nights', addOn: 'wadi excursion' }, INR: { agency: 'Kashmir Trails', destination: 'Kashmir', traveller: 'Aarav Mehta', origin: 'Mumbai', trip: 'Kashmir · 4 travellers · 5 nights', addOn: 'Gulmarg snow activity' } };
+
 function Demo() {
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -342,8 +344,9 @@ function Demo() {
     const t = setTimeout(() => setStep((s) => (s + 1) % TOUR.length), STEP_MS);
     return () => clearTimeout(t);
   }, [step, running]);
-  const { locale } = useLocalization();
+  const { locale, currency } = useLocalization();
   const isArabic = locale === 'ar';
+  const region = DEMO_REGION_BY_CURRENCY[currency] || { agency: 'Global Travel Co.', destination: 'your destination', traveller: 'Alex Morgan', origin: 'London', trip: 'Your destination · 4 travellers · 5 nights', addOn: 'a local experience' };
   const tourAr = [ ['العملاء','استقبل كل استفسار','تصل استفسارات الموقع وواتساب والهاتف إلى مسار واحد دون أن يفوتك شيء.'], ['عروض الأسعار','أنشئ عرض سعر خلال دقائق','تُحسب التكاليف وهامش الربح والضرائب تلقائياً قبل إرسال العرض.'], ['خطط الرحلات','خطط الرحلة يوماً بيوم','فنادق وتنقلات وأنشطة يومية جاهزة للمشاركة مع المسافر.'], ['الحجوزات','أكد كل حجز','تابع تأكيدات الفنادق والسيارات والأنشطة في قائمة واحدة.'], ['الأسطول','نظّم السيارات والسائقين','عيّن السيارة والسائق المناسبين وتابع التعارضات وانتهاء المستندات.'], ['مساعد ذكي','اسأل مساعدك الذكي','احصل على ملخص للاستفسار والخطوة التالية خلال ثوانٍ.'] ];
   const cur = TOUR[step];
   const currentText = isArabic ? { ...cur, module: tourAr[step][0], title: tourAr[step][1], caption: tourAr[step][2] } : cur;
@@ -355,7 +358,7 @@ function Demo() {
       <div className="so-aurora absolute -left-20 top-20 h-80 w-80 rounded-full bg-indigo-600/25 blur-[120px]" />
       <div className="so-aurora absolute -right-10 bottom-10 h-80 w-80 rounded-full bg-orange-500/15 blur-[120px]" />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
-        <SectionHead dark eyebrow="Live product tour" title={<>See SafarOS <span className={WARM}>in action.</span></>} sub="Follow one Kashmir trip from enquiry to drop-off. Tap any step to jump in." />
+        <SectionHead dark eyebrow={isArabic?'جولة مباشرة داخل المنتج':'Live product tour'} title={isArabic?<>شاهد SafarOS <span className={WARM}>أثناء العمل.</span></>:<>See SafarOS <span className={WARM}>in action.</span></>} sub={isArabic?`تابع رحلة إلى ${region.destination} من الاستفسار حتى التوصيل. اضغط على أي خطوة للانتقال إليها.`:`Follow a ${region.destination} trip from enquiry to drop-off. Tap any step to jump in.`} />
 
         {/* step chips */}
         <Reveal delay={0.05} className="mt-10">
@@ -364,7 +367,7 @@ function Demo() {
               <button key={t.id} onClick={() => pick(i)} data-testid={`demo-step-${t.id}`}
                 className={`relative flex shrink-0 items-center gap-2 overflow-hidden rounded-full border px-3.5 py-2 text-sm font-medium transition-colors ${on ? 'border-amber-400/60 bg-white/10 text-white' : 'border-white/10 text-white/55 hover:text-white'}`}>
                 <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${on ? 'bg-amber-400 text-slate-950' : 'bg-white/10'}`}>{i + 1}</span>
-                <Ic className="h-4 w-4" /> {t.module}
+                <Ic className="h-4 w-4" /> {isArabic ? tourAr[i][0] : t.module}
                 {on && <motion.span key={`${step}-${running}`} className="absolute bottom-0 left-0 h-0.5 bg-amber-400" initial={{ width: '0%' }} animate={{ width: running ? '100%' : '0%' }} transition={{ duration: running ? STEP_MS / 1000 : 0, ease: 'linear' }} />}
               </button>
             ); })}
@@ -377,24 +380,24 @@ function Demo() {
             <div className="flex items-center gap-2 border-b border-white/10 bg-slate-900 px-4 py-2.5">
               <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" /><span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" /><span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
               <span className="ml-3 hidden rounded-md bg-white/5 px-3 py-0.5 text-[11px] text-white/45 sm:inline">app.safaros.com/{cur.id}</span>
-              <span className="ml-auto rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-medium text-amber-300">Sample data</span>
-              <button onClick={() => setPlaying((p) => !p)} data-testid="demo-play-toggle" aria-label={playing ? 'Pause tour' : 'Play tour'}
+              <span className="ml-auto rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-medium text-amber-300"}>{isArabic?'بيانات تجريبية':'Sample data'}</span>
+              <button onClick={() => setPlaying((p) => !p)} data-testid="demo-play-toggle" aria-label={playing ? (isArabic?'إيقاف الجولة مؤقتاً':'Pause tour') : (isArabic?'تشغيل الجولة':'Play tour')}
                 className="flex h-7 items-center gap-1.5 rounded-full bg-white/10 px-2.5 text-[11px] font-medium text-white/80 hover:bg-white/15">
-                {playing ? <><Pause className="h-3 w-3" /> Pause</> : <><Play className="h-3 w-3" /> Play</>}
+                {playing ? <><Pause className="h-3 w-3" /> {isArabic?'إيقاف مؤقت':'Pause'}</> : <><Play className="h-3 w-3" /> {isArabic?'تشغيل':'Play'}</>}
               </button>
             </div>
             <div className="flex min-h-[460px] bg-slate-50">
               {/* sidebar */}
               <aside className="hidden w-48 shrink-0 flex-col border-r border-slate-200 bg-white p-3 md:flex">
-                <div className="mb-4 flex items-center gap-2 px-1"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white"><Layers className="h-3.5 w-3.5" /></span><div className="leading-tight"><div className="text-xs font-bold text-slate-900">Kashmir Trails</div><div className="text-[10px] text-slate-400">Sample agency</div></div></div>
-                <div className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-slate-400"><LayoutDashboard className="h-4 w-4" /> Dashboard</div>
+                <div className="mb-4 flex items-center gap-2 px-1"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white"><Layers className="h-3.5 w-3.5" /></span><div className="leading-tight"><div className="text-xs font-bold text-slate-900">{region.agency}</div><div className="text-[10px] text-slate-400">{isArabic?'وكالة تجريبية':'Sample agency'}</div></div></div>
+                <div className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-slate-400"><LayoutDashboard className="h-4 w-4" /> {isArabic?'لوحة التحكم':'Dashboard'}</div>
                 {TOUR.map((t, i) => { const Ic = t.icon; const on = i === step; return (
                   <button key={t.id} onClick={() => pick(i)} className={`relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition-colors ${on ? 'text-indigo-700' : 'text-slate-500 hover:text-slate-800'}`}>
                     {on && <motion.span layoutId="demo-side" className="absolute inset-0 rounded-lg bg-indigo-50" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
                     <span className="relative flex items-center gap-2"><Ic className="h-4 w-4" /> {isArabic ? tourAr[i][0] : t.module}</span>
                   </button>
                 ); })}
-                <div className="mt-auto rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 p-2.5 text-[11px] text-orange-800"><Clock className="mb-1 h-3.5 w-3.5" />Trial: 14 days left</div>
+                <div className="mt-auto rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 p-2.5 text-[11px] text-orange-800"><Clock className="mb-1 h-3.5 w-3.5" />{isArabic?'التجربة: 14 يوماً متبقية':'Trial: 14 days left'}</div>
               </aside>
               {/* main */}
               <div className="min-w-0 flex-1 p-4 sm:p-6">
@@ -409,7 +412,7 @@ function Demo() {
                 </div>
                 <AnimatePresence mode="wait">
                   <motion.div key={cur.id} initial={{ opacity: 0, y: 12, filter: 'blur(4px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }} exit={{ opacity: 0, y: -8, filter: 'blur(4px)' }} transition={{ duration: 0.35, ease: EASE }}>
-                    <Screen />
+                    <Screen locale={locale} currency={currency} region={region} />
                   </motion.div>
                 </AnimatePresence>
               </div>
