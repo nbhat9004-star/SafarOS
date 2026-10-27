@@ -26,6 +26,8 @@ import {
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { can } from '@/lib/rbac';
+import { useLocalization } from '@/components/safaros/localization-provider';
+import { GCC_COUNTRIES, getCountryDefaults } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
@@ -40,7 +42,7 @@ import {
   Banknote, Printer, Undo2,
   MessageSquare, Sparkles, Send, Bot, Megaphone, UserCog, ExternalLink,
   Palette, Gauge, PieChart, Compass, Star, LayoutGrid, ChevronRight,
-  Upload, Download, Database, Loader2, AlertCircle, FileSpreadsheet,
+  Upload, Download, Database, Loader2, AlertCircle, FileSpreadsheet, Ticket, Plug,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -82,15 +84,18 @@ function formatJoined(iso) {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function AuthView({ onAuthed, initialTab = 'login' }) {
+  const { locale, countryCode, currency, updatePreferences } = useLocalization();
+  const isArabic = locale === 'ar';
+  const t = (en, ar) => isArabic ? ar : en;
   const [tab, setTab] = useState(initialTab === 'signup' ? 'signup' : 'login');
   const [loading, setLoading] = useState(false);
-  const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '' });
+  const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '', countryCode });
   const [login, setLogin] = useState({ email: '', password: '' });
 
   const doSignup = async () => {
     setLoading(true);
     try {
-      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify(signup) });
+      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: signup.countryCode || countryCode, currency }) });
       toast.success('Agency workspace created');
       onAuthed();
     } catch (e) { toast.error(e.message); } finally { setLoading(false); }
@@ -105,7 +110,7 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 so-font">
+    <div className="min-h-screen grid lg:grid-cols-2 so-font" lang={locale} dir={isArabic ? 'rtl' : 'ltr'}>
       <div className="relative hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-violet-700 via-indigo-700 to-blue-800 text-white overflow-hidden">
         <div className="relative z-10">
           <a href="/" className="flex items-center gap-2 text-xl font-bold tracking-tight hover:opacity-90">
@@ -132,42 +137,48 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
             <a href="/" className="text-sm text-muted-foreground inline-flex items-center gap-1 mb-2 hover:text-foreground">
               <ArrowLeft className="h-4 w-4" /> Back to safaros.com
             </a>
-            <CardTitle>{tab === 'signup' ? 'Create your SafarOS workspace' : 'Welcome back'}</CardTitle>
-            <CardDescription>{tab === 'signup' ? 'Bring your travel business into one intelligent operating system.' : 'Sign in to continue to your workspace.'}</CardDescription>
+            <CardTitle>{tab === 'signup' ? t('Create your SafarOS workspace', 'أنشئ مساحة عمل SafarOS') : t('Welcome back', 'مرحباً بعودتك')}</CardTitle>
+            <CardDescription>{tab === 'signup' ? t('Bring your travel business into one intelligent operating system.', 'اجمع أعمال السفر في نظام تشغيل ذكي واحد.') : t('Sign in to continue to your workspace.', 'سجّل الدخول للمتابعة إلى مساحة عملك.')}</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList className="grid grid-cols-2 w-full">
-                <TabsTrigger value="signup">Create workspace</TabsTrigger>
-                <TabsTrigger value="login">Sign in</TabsTrigger>
+                <TabsTrigger value="signup">{t('Create workspace', 'إنشاء مساحة عمل')}</TabsTrigger>
+                <TabsTrigger value="login">{t('Sign in', 'تسجيل الدخول')}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="signup" className="space-y-3 mt-4">
                 <div className="space-y-1.5">
-                  <Label>Your name</Label>
+                  <Label>{t('Your name', 'اسمك')}</Label>
                   <Input placeholder="Jane Doe" value={signup.name}
                     onChange={(e) => setSignup({ ...signup, name: e.target.value })} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Business email</Label>
+                  <Label>{t('Business email', 'البريد الإلكتروني للعمل')}</Label>
                   <Input type="email" placeholder="jane@agency.com" value={signup.email}
                     onChange={(e) => setSignup({ ...signup, email: e.target.value })} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Password</Label>
+                  <Label>{t('Password', 'كلمة المرور')}</Label>
                   <Input type="password" placeholder="........" value={signup.password}
                     onChange={(e) => setSignup({ ...signup, password: e.target.value })} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Agency name</Label>
+                  <Label>{t('Agency name', 'اسم الوكالة')}</Label>
                   <Input placeholder="Wanderlust Travels" value={signup.agencyName}
                     onChange={(e) => setSignup({ ...signup, agencyName: e.target.value })} />
                 </div>
+                <div className="space-y-1.5">
+                  <Label>{t('Country', 'الدولة')}</Label>
+                  <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup({ ...signup, countryCode: code }); if (defaults) updatePreferences({ countryCode: code }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    {Object.values(GCC_COUNTRIES).map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+                  </select>
+                </div>
                 <Button className="w-full" onClick={doSignup} disabled={loading}>
-                  {loading ? 'Creating...' : 'Create Workspace'}
+                  {loading ? t('Creating...', 'جارٍ الإنشاء...') : t('Create Workspace', 'إنشاء مساحة العمل')}
                 </Button>
                 <button type="button" onClick={() => setTab('login')} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">
-                  Already have an account? <span className="font-medium text-foreground">Sign in</span>
+                  {t('Already have an account?', 'لديك حساب بالفعل؟')} <span className="font-medium text-foreground">{t('Sign in', 'تسجيل الدخول')}</span>
                 </button>
               </TabsContent>
 
@@ -6640,6 +6651,8 @@ function Communications({ session, tab, onNav }) {
   const TABS = [
     { id: 'inbox', label: 'Inbox', icon: MessageSquare },
     { id: 'conversations', label: 'Conversations', icon: Contact },
+    { id: 'support', label: 'Support Tickets', icon: Ticket },
+    { id: 'integrations', label: 'Channel Integrations', icon: Plug },
     { id: 'templates', label: 'Templates', icon: FileText },
     { id: 'activity', label: 'Activity', icon: Activity },
   ];
@@ -6651,7 +6664,68 @@ function Communications({ session, tab, onNav }) {
     {(current === 'inbox' || current === 'activity') && <CommInbox activity={current === 'activity'} canCreate={canCreate} />}
     {current === 'conversations' && <CommConversations />}
     {current === 'templates' && <CommTemplates role={role} />}
+    {current === 'support' && <SupportTickets session={session} />}
+    {current === 'integrations' && <ChannelIntegrations session={session} />}
   </div>);
+}
+
+function SupportTickets({ session }) {
+  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true);
+  const [show, setShow] = useState(false); const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ subject: '', description: '', priority: 'normal', status: 'open', clientId: '' });
+  const canCreate = can(session.user.role, 'communications:create');
+  const load = async () => { setLoading(true); try { const d = await api('/communications/tickets'); setRows(d.tickets || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const save = async () => {
+    if (!form.subject.trim()) { toast.error('Ticket subject is required'); return; }
+    setSaving(true);
+    try { await api('/communications/tickets', { method: 'POST', body: JSON.stringify(form) }); toast.success('Support ticket created'); setForm({ subject: '', description: '', priority: 'normal', status: 'open', clientId: '' }); setShow(false); load(); }
+    catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); }
+  };
+  const update = async (id, status) => { try { await api(`/communications/tickets/${id}`, { method: 'PUT', body: JSON.stringify({ status }) }); load(); } catch (e) { toast.error(friendlyError(e)); } };
+  const counts = { open: rows.filter((r) => r.status === 'open').length, pending: rows.filter((r) => r.status === 'pending').length, resolved: rows.filter((r) => r.status === 'resolved').length };
+  return <div className="space-y-4">
+    <div className="grid gap-3 sm:grid-cols-3">{[['Open', counts.open], ['Pending', counts.pending], ['Resolved', counts.resolved]].map(([label, n]) => <Card key={label}><CardContent className="p-4"><div className="text-sm text-muted-foreground">{label}</div><div className="text-2xl font-semibold">{n}</div></CardContent></Card>)}</div>
+    <div className="flex justify-end">{canCreate && <Button onClick={() => setShow((v) => !v)}><Plus className="h-4 w-4 mr-1" /> New ticket</Button>}</div>
+    {show && <Card><CardContent className="grid gap-3 p-4">
+      <div className="space-y-1"><Label>Subject</Label><Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="e.g. Customer needs to change booking dates" /></div>
+      <div className="space-y-1"><Label>Description</Label><Textarea rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+      <div className="space-y-1"><Label>Priority</Label><Select value={form.priority} onValueChange={(priority) => setForm({ ...form, priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="low">Low</SelectItem><SelectItem value="normal">Normal</SelectItem><SelectItem value="high">High</SelectItem><SelectItem value="urgent">Urgent</SelectItem></SelectContent></Select></div>
+      <div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Creating…' : 'Create ticket'}</Button><Button variant="outline" onClick={() => setShow(false)}>Cancel</Button></div>
+    </CardContent></Card>}
+    {loading ? <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" /> : rows.length === 0 ? <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No support tickets yet. Create a ticket to track a customer issue.</CardContent></Card> : <div className="space-y-2">{rows.map((r) => <Card key={r.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><div className="font-medium">{r.subject}</div><div className="text-sm text-muted-foreground whitespace-pre-wrap">{r.description || 'No description provided'}</div><div className="mt-1 flex flex-wrap gap-2 text-xs"><Badge variant="outline">{r.priority} priority</Badge><Badge variant="outline">{r.status}</Badge><span className="text-muted-foreground">{new Date(r.createdAt).toLocaleString()}</span></div></div><Select value={r.status} onValueChange={(v) => update(r.id, v)}><SelectTrigger className="w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="open">Open</SelectItem><SelectItem value="pending">Pending</SelectItem><SelectItem value="resolved">Resolved</SelectItem><SelectItem value="closed">Closed</SelectItem></SelectContent></Select></CardContent></Card>)}</div>}
+  </div>;
+}
+
+function ChannelIntegrations({ session }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [config, setConfig] = useState({});
+  const definitions = [
+    { id: 'website_chat', name: 'Website live chat', detail: 'Register the website where your agency wants the SafarOS chat widget.', fields: [{ key: 'websiteUrl', label: 'Agency website URL', placeholder: 'https://travel.example.com' }] },
+    { id: 'whatsapp', name: 'WhatsApp Business', detail: 'Add the number and WhatsApp Business Account ID. Provider authorization is a separate step.', fields: [{ key: 'phoneNumber', label: 'Business phone number', placeholder: '+919876543210' }, { key: 'businessAccountId', label: 'WhatsApp Business Account ID', placeholder: 'Meta WhatsApp Business Account ID' }] },
+    { id: 'email', name: 'Email support', detail: 'Register your agency support address. Mailbox authorization and inbound sync are separate steps.', fields: [{ key: 'supportEmail', label: 'Support email address', placeholder: 'support@youragency.com' }] },
+  ];
+  const load = async () => { setLoading(true); try { const d = await api('/communications/integrations'); setItems(d.integrations || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+  useEffect(() => { load(); }, []);
+  const begin = (d) => { const saved = items.find((x) => x.id === d.id); setConfig(saved?.config || {}); setEditing(d); };
+  const save = async () => {
+    setSaving(true);
+    try {
+      const d = await api('/communications/integrations/' + editing.id, { method: 'PUT', body: JSON.stringify({ config }) });
+      setItems((old) => old.map((x) => x.id === editing.id ? d.integration : x).concat(old.some((x) => x.id === editing.id) ? [] : [d.integration]));
+      toast.success('Channel details saved. Provider verification is still required.');
+      setEditing(null);
+    } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); }
+  };
+  return <div className="space-y-3">
+    <div><h3 className="font-semibold">Agency-owned support channels</h3><p className="text-sm text-muted-foreground">Each agency registers its own website, WhatsApp Business number and support mailbox. Details are tenant-scoped. Saving does not turn on live traffic until provider authorization and webhook verification are implemented.</p></div>
+    {loading ? <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" /> : definitions.map((d) => { const item = items.find((x) => x.id === d.id); const status = item?.status || 'not_connected'; return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="font-medium">{d.name}</div><p className="text-sm text-muted-foreground">{d.detail}</p><div className="mt-2"><Badge variant="outline">{status === 'connected' ? 'Connected' : status === 'pending' ? 'Setup pending' : 'Not connected'}</Badge></div></div><Button variant="outline" onClick={() => begin(d)}>{item?.config ? 'Edit details' : 'Configure'}</Button></CardContent></Card>; })}
+    {editing && <Card><CardContent className="space-y-4 p-4"><div><h4 className="font-semibold">Configure {editing.name}</h4><p className="text-sm text-muted-foreground">These are connection details only; never enter access tokens or passwords here.</p></div>{editing.fields.map((field) => <div key={field.key} className="space-y-1"><Label>{field.label}</Label><Input value={config[field.key] || ''} placeholder={field.placeholder} onChange={(e) => setConfig((v) => ({ ...v, [field.key]: e.target.value }))} /></div>)}<div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</Button><Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button></div></CardContent></Card>}
+    <p className="text-xs text-muted-foreground">Next stages: secure provider authorization, signed webhook verification, message ingestion/replies, and end-to-end tests. No channel is marked connected by saving these fields.</p>
+  </div>;
 }
 
 // ======================= AI COPILOT UI (Phase 5.4) =======================
