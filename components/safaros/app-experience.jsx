@@ -42,7 +42,7 @@ import {
   Banknote, Printer, Undo2,
   MessageSquare, Sparkles, Send, Bot, Megaphone, UserCog, ExternalLink,
   Palette, Gauge, PieChart, Compass, Star, LayoutGrid, ChevronRight,
-  Upload, Download, Database, Loader2, AlertCircle, FileSpreadsheet,
+  Upload, Download, Database, Loader2, AlertCircle, FileSpreadsheet, Ticket, Plug,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
