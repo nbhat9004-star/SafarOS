@@ -193,8 +193,8 @@ function LeadScreen({ locale = 'en', region = {} }) {
             {ci === 0 && (
               <motion.div initial={{ opacity: 0, y: -18, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: 0.5, duration: 0.5, ease: EASE }}
                 className="rounded-lg border-2 border-amber-400 bg-white p-2.5 shadow-md">
-                <div className="flex items-center justify-between"><span className="text-[13px] font-semibold text-slate-900"{region.traveller || 'Aarav Mehta'}</span><span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-700">{isArabic?'الآن':'Just now'}</span></div>
-                <div className="mt-0.5 text-[11px] text-slate-500"{region.trip || 'Your destination · 4 travellers · 5 nights'}</div>
+                <div className="flex items-center justify-between"><span className="text-[13px] font-semibold text-slate-900">{region.traveller || 'Aarav Mehta'}</span><span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-700">{isArabic?'الآن':'Just now'}</span></div>
+                <div className="mt-0.5 text-[11px] text-slate-500">{region.trip || 'Your destination · 4 travellers · 5 nights'}</div>
                 <div className="mt-1.5 flex items-center gap-1 text-[10px] text-indigo-600"><Globe className="h-3 w-3" /> {isArabic?'استفسار من الموقع':'Website enquiry'}</div>
               </motion.div>
             )}
