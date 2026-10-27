@@ -1135,7 +1135,7 @@ async function resolveCommRefs(db, session, body) {
 
 async function commGet(db, session, path, sp) {
   if (path === '/communications/integrations') {
-    const rows = await db.collection('communicationIntegrations').find(tenantFilter(session), { projection: { _id: 0, id: 1, status: 1, updatedAt: 1 } }).toArray();
+    const rows = await db.collection('communicationIntegrations').find(tenantFilter(session), { projection: { _id: 0, id: 1, status: 1, updatedAt: 1, config: 1 } }).toArray();
     const defaults = [
       { id: 'website_chat', status: 'not_connected' },
       { id: 'whatsapp', status: 'not_connected' },
@@ -1207,6 +1207,22 @@ async function commPost(db, session, path, body) {
 async function commPut(db, session, path, body) {
   const now = new Date().toISOString();
   const parts = path.split('/');
+  if (parts[2] === 'integrations' && parts[3]) {
+    const id = parts[3];
+    const allowed = { website_chat: ['websiteUrl'], whatsapp: ['phoneNumber', 'businessAccountId'], email: ['supportEmail'] };
+    if (!allowed[id]) return err('Unknown support channel', 404);
+    const previous = await db.collection('communicationIntegrations').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    const incoming = body.config && typeof body.config === 'object' ? body.config : {};
+    const config = { ...(previous?.config || {}) };
+    for (const key of allowed[id]) if (incoming[key] !== undefined) config[key] = str(incoming[key], key === 'websiteUrl' ? 300 : 180).trim();
+    if (id === 'website_chat' && config.websiteUrl) { try { const u = new URL(config.websiteUrl); if (!['http:', 'https:'].includes(u.protocol)) return err('Website URL must use HTTP or HTTPS'); config.websiteUrl = u.origin; } catch { return err('Enter a valid website URL including https://'); } }
+    if (id === 'email' && config.supportEmail && !EMAIL_RE.test(config.supportEmail)) return err('Enter a valid support email address');
+    if (id === 'whatsapp' && config.phoneNumber && !/^\\+?[0-9 ()-]{7,25}$/.test(config.phoneNumber)) return err('Enter a valid WhatsApp phone number');
+    if (!allowed[id].every((key) => Boolean(config[key]))) return err('Complete all required fields before saving this channel');
+    const doc = withAgency(session, { id, status: 'pending', config, updatedAt: now, updatedBy: session.userId });
+    await db.collection('communicationIntegrations').updateOne(tenantFilter(session, { id }), { $set: doc }, { upsert: true });
+    return json({ integration: { id, status: 'pending', config, updatedAt: now }, message: 'Saved as setup pending. Live traffic stays disabled until provider verification is implemented.' });
+  }
   if (parts[2] === 'tickets' && parts[3]) {
     const id = parts[3];
     const set = { updatedAt: now };
