@@ -1737,7 +1737,7 @@ async function publicGet(db, path) {
     return json({pages:d?.pages || {faq:{title:'Frequently Asked Questions',body:'How does SafarOS work?\nSafarOS helps travel agencies manage their business in one place.'},contact:{title:'Contact us',body:'Have a question? Send us a message.'},privacy:{title:'Privacy Policy',body:'We use submitted information to respond to enquiries and operate SafarOS. We do not sell personal information.'}}});
   }
   if (path.startsWith('/public/regional-pricing')) {
-    const country = String(new URL('http://local'+path).searchParams.get('country') || 'IN').toUpperCase().slice(0,2);
+    const country = String(path.split('/')[3] || 'IN').toUpperCase().slice(0,2);
     const d = await db.collection('platformRegionalPricing').findOne({countryCode:country,enabled:true},{projection:{_id:0}});
     const fallback = await db.collection('platformRegionalPricing').findOne({countryCode:'IN',enabled:true},{projection:{_id:0}});
     return json({pricing:d || fallback || null, requestedCountry:country});
@@ -3074,7 +3074,7 @@ async function platformPost(db, session, path, body, request) {
     const countryCode=String(body.countryCode||'').toUpperCase().slice(0,2),countryName=str(body.countryName,100),currency=String(body.currency||'').toUpperCase().slice(0,3);
     if(!/^[A-Z]{2}$/.test(countryCode)||!countryName||!/^[A-Z]{3}$/.test(currency))return err('Country code, country name and 3-letter currency are required');
     const prices={};
-    for(const p of ['starter','growth','scale']){const monthly=Number(body.prices?.[p]?.monthly),yearly=Number(body.prices?.[p]?.yearly);if(!Number.isFinite(monthly)||monthly<0||!Number.isFinite(yearly)||yearly<0)return err('Prices must be non-negative numbers');prices[p]={monthly,yearly};}
+    for(const p of ['starter','professional','enterprise']){const monthly=Number(body.prices?.[p]?.monthly),yearly=Number(body.prices?.[p]?.yearly);if(!Number.isFinite(monthly)||monthly<0||!Number.isFinite(yearly)||yearly<0)return err('Prices must be non-negative numbers');prices[p]={monthly,yearly};}
     const entry={countryCode,countryName,currency,prices,enabled:body.enabled!==false,updatedAt:now,updatedBy:session.adminId};
     await db.collection('platformRegionalPricing').updateOne({countryCode},{$set:entry,$setOnInsert:{createdAt:now}},{upsert:true});
     await platformAudit(db,session,request,{action:'regional_pricing.updated',targetType:'regional_pricing',targetId:countryCode,metadata:{currency}});
