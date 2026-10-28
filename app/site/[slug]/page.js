@@ -85,12 +85,44 @@ export default async function PublicSitePage({ params }) {
   if (!data || !data.published) notFound();
 
   const settings = data.settings || {};
-  const pages = Array.isArray(data.pages) ? data.pages : [];
+  const savedPages = Array.isArray(data.pages) ? data.pages : [];
   const agency = data.agency || { name: settings.siteTitle || 'Travel Agency' };
   const homePage = pages.find(p => p.pageType === 'home') || pages[0];
   const primaryColor = /^#[0-9a-fA-F]{6}$/.test(settings.primaryColor || '') ? settings.primaryColor : '#6366f1';
   const themeKey = ['luxe-voyage','wildtrail','atlas-journeys','coastline','roots-routes','happy-trails','meridian'].includes(settings.theme) ? settings.theme : 'atlas-journeys';
   const siteTitle = settings.siteTitle || agency.name;
+  // Never publish an empty shell just because the agency has not created pages yet.
+  // Show a polished, theme-aware starter homepage until real pages are saved.
+  const fallbackPages = [{
+    id: 'safaros-starter-home',
+    title: 'Discover Your Next Journey',
+    slug: 'home',
+    pageType: 'home',
+    status: 'published',
+    sortOrder: 0,
+    content: `
+      <section style="padding:clamp(2.5rem,8vw,6rem) clamp(1.25rem,5vw,4rem);border-radius:1.5rem;background:linear-gradient(125deg,${primaryColor},${settings.secondaryColor || '#0f172a'});color:#fff;overflow:hidden">
+        <p style="margin:0 0 1rem;font-size:.78rem;letter-spacing:.18em;text-transform:uppercase;font-weight:800;opacity:.9">Thoughtfully planned · Unforgettable journeys</p>
+        <h2 style="max-width:850px;margin:0;font-size:clamp(2.4rem,7vw,5rem);line-height:1.04;letter-spacing:-.045em;color:#fff">The world is waiting. Let’s make it yours.</h2>
+        <p style="max-width:650px;margin:1.25rem 0 0;font-size:clamp(1rem,2vw,1.2rem);line-height:1.8;color:#fff;opacity:.92">${settings.tagline || 'Discover remarkable places, thoughtfully curated stays and travel experiences tailored around you.'}</p>
+        <a href="#starter-packages" style="display:inline-block;margin-top:1.75rem;padding:.9rem 1.3rem;background:#fff;color:${primaryColor};border-radius:999px;text-decoration:none;font-weight:800">Explore journeys ↗</a>
+      </section>
+      <section style="padding:3rem 0 1rem">
+        <p style="margin:0;color:${primaryColor};font-size:.75rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase">Travel your way</p>
+        <h2 style="margin:.5rem 0 1.5rem;font-size:clamp(1.8rem,4vw,2.7rem);color:#172033">A little inspiration for your next escape</h2>
+        <div id="starter-packages" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:1rem">
+          <article style="padding:1.4rem;border:1px solid #e2e8f0;border-radius:1rem;background:#fff"><div style="height:8px;width:3rem;border-radius:99px;background:${primaryColor}"></div><p style="margin:.9rem 0 .4rem;color:${primaryColor};font-size:.75rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em">Nature & adventure</p><h3 style="margin:.3rem 0;font-size:1.25rem;color:#172033">Find your wild</h3><p style="margin:0;color:#64748b;line-height:1.7">Mountain views, fresh air and memorable days exploring somewhere new.</p></article>
+          <article style="padding:1.4rem;border:1px solid #e2e8f0;border-radius:1rem;background:#fff"><div style="height:8px;width:3rem;border-radius:99px;background:${settings.secondaryColor || '#0f172a'}"></div><p style="margin:.9rem 0 .4rem;color:${primaryColor};font-size:.75rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em">Culture & discovery</p><h3 style="margin:.3rem 0;font-size:1.25rem;color:#172033">Meet the local stories</h3><p style="margin:0;color:#64748b;line-height:1.7">Explore historic streets, regional flavours and places rich with character.</p></article>
+          <article style="padding:1.4rem;border:1px solid #e2e8f0;border-radius:1rem;background:#fff"><div style="height:8px;width:3rem;border-radius:99px;background:${primaryColor}"></div><p style="margin:.9rem 0 .4rem;color:${primaryColor};font-size:.75rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em">Rest & recharge</p><h3 style="margin:.3rem 0;font-size:1.25rem;color:#172033">Take the scenic route</h3><p style="margin:0;color:#64748b;line-height:1.7">Slow down with beautiful stays, open horizons and time for yourself.</p></article>
+        </div>
+      </section>
+      <section style="margin:2rem 0 0;padding:2rem clamp(1rem,4vw,2.5rem);border-radius:1.25rem;background:#f8fafc;text-align:center">
+        <h2 style="margin:0;color:#172033;font-size:clamp(1.5rem,4vw,2.2rem)">Your next story starts here.</h2>
+        <p style="max-width:600px;margin:.75rem auto 1.2rem;color:#64748b;line-height:1.7">Tell us what you have in mind and we’ll help you plan a journey that feels right for you.</p>
+        <a href="#contact" style="display:inline-block;padding:.85rem 1.2rem;background:${primaryColor};color:#fff;border-radius:999px;text-decoration:none;font-weight:800">Plan your trip ↗</a>
+      </section>`
+  }];
+  const pages = savedPages.length ? savedPages : fallbackPages;
 
   return (
     <div className={`safar-public-site theme-${themeKey}`} style={{ minHeight: '100vh', margin: 0, fontFamily: settings.font || 'system-ui, sans-serif', backgroundColor: '#fff', color: '#000', overflowWrap: 'anywhere' }}>
