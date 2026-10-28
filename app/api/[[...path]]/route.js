@@ -247,8 +247,7 @@ function computeQuotation(body) {
   discountAmount = round2(Math.min(discountAmount, subtotal)); // never produce a negative total
   const taxable = Math.max(0, round2(subtotal - discountAmount));
   const tax = { percent: Math.min(Math.max(0, num(body.tax && body.tax.percent, 0)), 100) };
-  const taxAmount = round2(taxable * tax.percent / 100);
-  const grandTotal = round2(taxable + taxAmount);
+  const taxAmount = round2(taxable * tax.percent / 100);  const grandTotal = round2(taxable + taxAmount);
   const expectedProfit = round2(taxable - internalCost);
   return { items, subtotal, internalCost, discount, discountAmount, tax, taxAmount, grandTotal, expectedProfit };
 }
@@ -497,8 +496,7 @@ function validateBookingCore(body) {
   const serviceItems = computeBookingServices(body.serviceItems);
   for (const it of serviceItems) { if (it.quantity < 0 || it.unitPrice < 0) return { error: 'Service quantity and price cannot be negative' }; }
   return {
-    value: {
-      customerType, customerId, destination, startDate, endDate,
+    value: {      customerType, customerId, destination, startDate, endDate,
       adults: Math.max(0, Math.floor(num(body.adults, 0))),
       children: Math.max(0, Math.floor(num(body.children, 0))),
       nights: Math.max(0, Math.floor(num(body.nights, 0))),
@@ -747,8 +745,7 @@ async function financeGet(db, session, path, sp) {
     return json({ [keyMap[path]]: rows });
   }
   // detail: /finance/<col>/<id>
-  const parts = path.split('/'); // ['', 'finance', col, id]
-  if (parts.length === 4) {
+  const parts = path.split('/'); // ['', 'finance', col, id]  if (parts.length === 4) {
     const colMap = { transactions: 'financialTransactions', receivables: 'customerReceivables', payables: 'supplierPayables', expenses: 'expenses', invoices: 'invoices' };
     const col = colMap[parts[2]];
     if (col) { const rec = await db.collection(col).findOne(tenantFilter(session, { id: parts[3] }), { projection: { _id: 0 } }); if (!rec) return err('Not found', 404); return json({ record: rec }); }
@@ -997,8 +994,7 @@ async function paymentsGet(db, session, path) {
     }
     const refunds = await db.collection('paymentRefunds').find(tenantFilter(session, { paymentId: id }), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
     let linked = null;
-    if (rec.receivableId) { const r = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: rec.receivableId }), { projection: { _id: 0 } }); if (r) linked = { kind: 'receivable', totalAmount: r.totalAmount, paidAmount: r.receivedAmount, outstandingAmount: r.outstandingAmount }; }
-    else if (rec.payableId) { const p = await db.collection('supplierPayables').findOne(tenantFilter(session, { id: rec.payableId }), { projection: { _id: 0 } }); if (p) linked = { kind: 'payable', totalAmount: p.totalAmount, paidAmount: p.paidAmount, outstandingAmount: p.outstandingAmount }; }
+    if (rec.receivableId) { const r = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: rec.receivableId }), { projection: { _id: 0 } }); if (r) linked = { kind: 'receivable', totalAmount: r.totalAmount, paidAmount: r.receivedAmount, outstandingAmount: r.outstandingAmount }; }    else if (rec.payableId) { const p = await db.collection('supplierPayables').findOne(tenantFilter(session, { id: rec.payableId }), { projection: { _id: 0 } }); if (p) linked = { kind: 'payable', totalAmount: p.totalAmount, paidAmount: p.paidAmount, outstandingAmount: p.outstandingAmount }; }
     else if (rec.invoiceId) { const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: rec.invoiceId }), { projection: { _id: 0 } }); if (inv) linked = { kind: 'invoice', invoiceNumber: inv.invoiceNumber, totalAmount: inv.total, paidAmount: inv.paidAmount, outstandingAmount: inv.outstandingAmount }; }
     return json({ payment: rec, refunds, linked });
   }
@@ -1247,8 +1243,7 @@ async function commPut(db, session, path, body) {
     if (body.status !== undefined) set.status = body.status === 'archived' ? 'archived' : 'active';
     if (Array.isArray(body.variables)) set.variables = body.variables.slice(0, 40).map((v) => str(v, 60));
     const r = await db.collection('communicationTemplates').updateOne(tenantFilter(session, { id }), { $set: set });
-    if (!r.matchedCount) return err('Template not found', 404);
-    const t = await db.collection('communicationTemplates').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    if (!r.matchedCount) return err('Template not found', 404);    const t = await db.collection('communicationTemplates').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
     return json({ template: t });
   }
   const id = parts[2];
@@ -1497,8 +1492,7 @@ async function portalAccessCreate(db, session, body) {
   const password = String(body.password || '');
   if (password.length < 6) return err('Password must be at least 6 characters');
   const now = new Date().toISOString();
-  const existingForClient = await db.collection('portalUsers').findOne(tenantFilter(session, { clientId: client.id }));
-  const existingByEmail = await db.collection('portalUsers').findOne({ email });
+  const existingForClient = await db.collection('portalUsers').findOne(tenantFilter(session, { clientId: client.id }));  const existingByEmail = await db.collection('portalUsers').findOne({ email });
   if (existingByEmail && (!existingForClient || existingByEmail.id !== existingForClient.id)) return err('That email is already used for another portal account');
   const passwordHash = await hashPassword(password);
   if (existingForClient) {
@@ -1738,6 +1732,9 @@ async function publicGet(db, path) {
     const fallback = await db.collection('platformRegionalPricing').findOne({countryCode:'IN',enabled:true},{projection:{_id:0}});
     return json({pricing:d || fallback || null, requestedCountry:country});
   }
+  return err('not found', 404);
+}
+
 async function publicGet(db, path) {
   const parts = path.split('/'); // ['', 'public', 'site', slug, ...]
   const slug = parts[3];
@@ -1747,8 +1744,7 @@ async function publicGet(db, path) {
   const settings = await db.collection('websiteSettings').findOne({ agencyId: agency.id }, { projection: { _id: 0 } });
   const published = Boolean(settings && settings.status === 'published');
   const sub = parts[4];
-  if (sub === 'sitemap.xml') {
-    const pages = published ? await db.collection('websitePages').find({ agencyId: agency.id, status: 'published', noindex: { $ne: true } }, { projection: { _id: 0, slug: 1, updatedAt: 1 } }).toArray() : [];
+  if (sub === 'sitemap.xml') {    const pages = published ? await db.collection('websitePages').find({ agencyId: agency.id, status: 'published', noindex: { $ne: true } }, { projection: { _id: 0, slug: 1, updatedAt: 1 } }).toArray() : [];
     const base = `${process.env.NEXT_PUBLIC_BASE_URL || ''}/site/${slug}`;
     const urls = [`<url><loc>${base}</loc></url>`, ...pages.map((p) => `<url><loc>${base}/${p.slug}</loc>${p.updatedAt ? `<lastmod>${String(p.updatedAt).slice(0, 10)}</lastmod>` : ''}</url>`)];
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>`;
@@ -1800,6 +1796,9 @@ async function publicPost(db, path, body) {
     }
     return json({ok:true,emailDelivery},201);
   }
+  return err('not found', 404);
+}
+
 async function publicPost(db, path, body) {
   const parts = path.split('/');
   const slug = parts[3];
@@ -1997,8 +1996,7 @@ async function billingGet(db, session, path) {
   }
   if (path === '/billing/usage') {
     const sub = await ensureSubscription(db, session);
-    const plan = getPlan(sub.planId) || getPlan('trial');
-    const f = tenantFilter(session);
+    const plan = getPlan(sub.planId) || getPlan('trial');    const f = tenantFilter(session);
     const [teamMembers, clients, leads, bookings, quotations, packages, websitePages] = await Promise.all([
       db.collection('users').countDocuments(f),
       db.collection('clients').countDocuments(f),
@@ -2247,8 +2245,7 @@ async function integrationsPut(db, session, path, body) {
     const cat = CATALOG_BY_PROVIDER[provider];
     if (!cat) return err('Unknown integration', 404);
     if (cat.managed === 'env') return err('This provider is managed via server environment');
-    const doc = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
-    if (!doc) return err('Integration is not configured yet', 404);
+    const doc = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });    if (!doc) return err('Integration is not configured yet', 404);
     const enabled = !!body.enabled;
     const missing = cat.fields.filter((f) => f.required && (f.type === 'secret' ? !(doc.secretHints || {})[f.key] : !(doc.configurationMetadata || {})[f.key]));
     const status = !enabled ? 'disabled' : (missing.length ? 'configuration_required' : 'connected');
@@ -2497,8 +2494,7 @@ function buildDemoRecords() {
     ['lead', LD(6), 'Gulmarg, Kashmir', 150, 4, 2, 1, 'draft', 0, [['Hotel', 'Ski-in family room, Gulmarg – 4 nights', 4, 6500, 8800], ['Transport', 'Airport transfers & local SUV – 5 days', 5, 2500, 3400], ['Activity', 'Beginner ski lessons – 2 days', 2, 3500, 5000], ['Activity', 'Gulmarg Gondola tickets', 3, 1600, 2100]]],
     ['client', C(5), 'Leh · Nubra · Pangong, Ladakh', 30, 6, 2, 0, 'approved', 1500, [['Hotel', 'Leh Heights Hotel – 4 nights', 4, 5200, 7000], ['Hotel', 'Nubra desert camp – 1 night', 1, 6000, 8000], ['Hotel', 'Pangong lakeside camp – 1 night', 1, 6500, 8500], ['Transport', 'Private SUV with driver – 7 days', 7, 3200, 4300], ['Other', 'Inner-line permits & monument fees', 2, 900, 1200]]],
     ['lead', LD(7), 'Munnar · Alleppey, Kerala', -20, 5, 2, 0, 'rejected', 0, [['Hotel', 'Munnar tea-estate resort – 3 nights', 3, 4500, 6000], ['Houseboat', 'Alleppey premium houseboat – 1 night', 1, 9000, 12000], ['Transport', 'Private sedan – 6 days', 6, 2400, 3200]]],
-    ['lead', LD(4), 'Pahalgam · Sonamarg, Kashmir', 60, 5, 2, 2, 'sent', 2500, [['Hotel', 'River View Hotel Pahalgam – 3 nights', 3, 4800, 6500], ['Hotel', 'Sonamarg glacier-view stay – 2 nights', 2, 5000, 6800], ['Transport', 'Private tempo traveller – 6 days', 6, 2800, 3800], ['Guide', 'Thajiwas glacier guide & ponies', 1, 2500, 3500]]],
-  ];
+    ['lead', LD(4), 'Pahalgam · Sonamarg, Kashmir', 60, 5, 2, 2, 'sent', 2500, [['Hotel', 'River View Hotel Pahalgam – 3 nights', 3, 4800, 6500], ['Hotel', 'Sonamarg glacier-view stay – 2 nights', 2, 5000, 6800], ['Transport', 'Private tempo traveller – 6 days', 6, 2800, 3800], ['Guide', 'Thajiwas glacier guide & ponies', 1, 2500, 3500]]],  ];
   const quotations = QT.map(([type, rec, destination, start, nights, adults, children, status, disc, items], i) => {
     const n = i + 1;
     const body = { customerType: type, customerId: rec.id, destination, startDate: demoDay(start), endDate: demoDay(start + nights), adults, children, rooms: Math.max(1, Math.ceil(adults / 2)), nights,
@@ -2747,8 +2743,7 @@ const PLATFORM_WEBSITE_THEME_DEFAULTS = [
 function platformReadPerm(path) {
   if (path.startsWith('/platform/themes')) return 'themes:manage';
   if (path === '/platform/dashboard') return 'platform:dashboard';
-  if (path.startsWith('/platform/agencies')) return 'agencies:read';
-  if (path.startsWith('/platform/users')) return 'users:read';
+  if (path.startsWith('/platform/agencies')) return 'agencies:read';  if (path.startsWith('/platform/users')) return 'users:read';
   if (path.startsWith('/platform/subscriptions') || path === '/platform/billing') return 'subscriptions:read';
   if (path.startsWith('/platform/plans')) return 'plans:read';
   if (path.startsWith('/platform/ai-platforms')) return 'ai:read';
@@ -2997,8 +2992,7 @@ async function platformGet(db, session, path, sp) {
       db.collection('bookings').countDocuments({}),
       db.collection('saasInvoices').find({ status: 'paid' }, { projection: { _id: 0, amount: 1 } }).toArray(),
     ]);
-    const byMonth = (arr) => { const m = {}; for (const x of arr) { const d = x.createdAt ? String(x.createdAt).slice(0, 7) : ''; if (d) m[d] = (m[d] || 0) + 1; } return Object.entries(m).sort().map(([month, count]) => ({ month, count })); };
-    const planDist = {}; for (const s of subs) { planDist[s.planId] = (planDist[s.planId] || 0) + 1; }
+    const byMonth = (arr) => { const m = {}; for (const x of arr) { const d = x.createdAt ? String(x.createdAt).slice(0, 7) : ''; if (d) m[d] = (m[d] || 0) + 1; } return Object.entries(m).sort().map(([month, count]) => ({ month, count })); };    const planDist = {}; for (const s of subs) { planDist[s.planId] = (planDist[s.planId] || 0) + 1; }
     return json({
       agencyGrowth: byMonth(agencies), userGrowth: byMonth(users),
       subscriptionDistribution: Object.entries(planDist).map(([plan, count]) => ({ plan, count })),
@@ -3247,8 +3241,7 @@ async function platformPut(db, session, path, body, request) {
   // Landing-page early-access request status update.
   const eaM = path.match(/^\/platform\/early-access\/([^/]+)$/);
   if (eaM) {
-    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
-    const status = String(body.status || '');
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);    const status = String(body.status || '');
     if (!EARLY_ACCESS_STATUSES.includes(status)) return err(`status must be one of ${EARLY_ACCESS_STATUSES.join(', ')}`);
     const r = await db.collection('earlyAccessRequests').updateOne({ id: eaM[1] }, { $set: { status, updatedAt: now } });
     if (r.matchedCount === 0) return err('Request not found', 404);
@@ -3498,493 +3491,3 @@ export async function GET(request, context) {
       } catch (e) {
         const code = e.status && e.status >= 400 && e.status < 500 ? 400 : 502;
         return err(e.message || 'Discovery search failed', code);
-      }
-    }
-    if (path === '/discovery/photo') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
-      const name = new URL(request.url).searchParams.get('name') || '';
-      try {
-        const db = await getDb();
-        const key = await resolveProviderSecret(db, 'google_places', 'apiKey');
-        const photo = await fetchPlacePhoto(name, { apiKey: key });
-        if (!photo) return err('not found', 404);
-        return new NextResponse(Buffer.from(photo.buffer), { status: 200, headers: { 'Content-Type': photo.contentType, 'Cache-Control': 'private, max-age=86400' } });
-      } catch { return err('not found', 404); }
-    }
-
-    // ---- Universal Global Search (tenant-scoped, RBAC-aware) ----
-    if (path === '/search') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      const q = String(new URL(request.url).searchParams.get('q') || '').trim();
-      if (q.length < 2) return json({ query: q, total: 0, groups: [] });
-      const db = await getDb();
-      const out = await globalSearch(db, session, q.slice(0, 120));
-      return json(out);
-    }
-
-    // ---- Data Import: supported targets + history ----
-    if (path === '/import/targets') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      const targets = Object.entries(IMPORT_META)
-        .filter(([, m]) => can(session.role, m.perm))
-        .map(([key, m]) => ({ key, label: m.label, fields: IMPORT_FIELDS[key].map((f) => ({ key: f.key, label: f.label, required: !!f.required })) }));
-      return json({ targets });
-    }
-    if (path === '/import/history') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      const db = await getDb();
-      const jobs = await db.collection('importJobs').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(50).toArray();
-      return json({ jobs });
-    }
-
-    // ---- Data Export (CSV, tenant-scoped, RBAC per entity) ----
-    if (path.startsWith('/export/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      const entity = path.split('/')[2];
-      const spec = EXPORT_SPECS[entity];
-      if (!spec) return err('Unknown export entity', 404);
-      if (!can(session.role, spec.perm)) return err('forbidden', 403);
-      const db = await getDb();
-      const rows = await db.collection(entity).find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(10000).toArray();
-      const csv = toCsv(spec.columns, rows);
-      const stamp = new Date().toISOString().slice(0, 10);
-      return new NextResponse(csv, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': `attachment; filename="safaros-${entity}-${stamp}.csv"`,
-          'Cache-Control': 'no-store',
-        },
-      });
-    }
-
-    // ---- Kashmir Travel Intelligence (read) ----
-    if (path === '/travel-rules' || path.startsWith('/travel-rules/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'travelrules:read')) return err('forbidden', 403);
-      const db = await getDb();
-      if (path === '/travel-rules') {
-        const sp = new URL(request.url).searchParams;
-        const q = {}; const cat = sp.get('category'); if (cat) q.serviceCategory = cat;
-        const rules = await db.collection('travelRules').find(tenantFilter(session, q), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
-        return json({ rules, meta: { categories: RULE_SERVICE_CATEGORIES, seasons: RULE_SEASONS, conditions: RULE_CONDITIONS, surchargeTypes: RULE_SURCHARGE_TYPES } });
-      }
-      if (path === '/travel-rules/meta') {
-        return json({ categories: RULE_SERVICE_CATEGORIES, seasons: RULE_SEASONS, conditions: RULE_CONDITIONS, surchargeTypes: RULE_SURCHARGE_TYPES });
-      }
-      const id = path.split('/')[2];
-      const rule = await db.collection('travelRules').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
-      if (!rule) return err('Rule not found', 404);
-      return json({ rule });
-    }
-
-    // ---- Universal Document Vault (read) ----
-    if (path === '/documents' || path === '/documents/expiring' || path === '/documents/meta' || path.startsWith('/documents/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);      if (!can(session.role, 'documents:read')) return err('forbidden', 403);
-      const db = await getDb();
-      if (path === '/documents/meta') return json({ entityTypes: DOCUMENT_ENTITY_TYPES, categories: DOCUMENT_CATEGORIES, maxBytes: DOCUMENT_MAX_BYTES });
-      if (path === '/documents') {
-        const sp = new URL(request.url).searchParams;
-        const q = {};
-        if (sp.get('entityType')) q.entityType = sp.get('entityType');
-        if (sp.get('entityId')) q.entityId = sp.get('entityId');
-        if (sp.get('category')) q.category = sp.get('category');
-        const docs = await db.collection('documentVault').find(tenantFilter(session, q), { projection: { _id: 0, data: 0 } }).sort({ createdAt: -1 }).limit(500).toArray();
-        return json({ documents: docs });
-      }
-      if (path === '/documents/expiring') {
-        const now = new Date(); const soon = new Date(now.getTime() + 30 * 86400000).toISOString().slice(0, 10); const today = now.toISOString().slice(0, 10);
-        const docs = await db.collection('documentVault').find(tenantFilter(session, { expiryDate: { $gte: '1900-01-01', $lte: soon } }), { projection: { _id: 0, data: 0 } }).sort({ expiryDate: 1 }).limit(200).toArray();
-        return json({ documents: docs.map((d) => ({ ...d, expired: d.expiryDate && d.expiryDate < today })) });
-      }
-      // /documents/:id/download
-      const parts = path.split('/');
-      if (parts.length === 4 && parts[3] === 'download') {
-        const doc = await db.collection('documentVault').findOne(tenantFilter(session, { id: parts[2] }));
-        if (!doc || !doc.data) return err('Document not found', 404);
-        const buf = Buffer.from(doc.data, 'base64');
-        return new NextResponse(buf, { status: 200, headers: { 'Content-Type': doc.fileType || 'application/octet-stream', 'Content-Disposition': `attachment; filename="${encodeURIComponent(doc.fileName || doc.name)}"`, 'Cache-Control': 'private, no-store' } });
-      }
-      const doc = await db.collection('documentVault').findOne(tenantFilter(session, { id: parts[2] }), { projection: { _id: 0, data: 0 } });
-      if (!doc) return err('Document not found', 404);
-      return json({ document: doc });
-    }
-
-    // ---- Custom Fields & Modules (read) ----
-    if (path === '/custom-fields' || path === '/custom-fields/values') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'customization:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const sp = new URL(request.url).searchParams;
-      if (path === '/custom-fields/values') {
-        const entityType = sp.get('entityType') || ''; const entityId = sp.get('entityId') || '';
-        if (!entityType || !entityId) return err('entityType and entityId are required');
-        const rec = await db.collection('customFieldValues').findOne(tenantFilter(session, { entityType, entityId }), { projection: { _id: 0 } });
-        return json({ values: rec ? rec.values : {} });
-      }
-      const q = {}; const et = sp.get('entityType'); if (et) q.entityType = et;
-      const defs = await db.collection('customFieldDefinitions').find(tenantFilter(session, q), { projection: { _id: 0 } }).sort({ order: 1, createdAt: 1 }).toArray();
-      return json({ fields: defs, meta: { entities: CUSTOM_FIELD_ENTITIES, fieldTypes: CUSTOM_FIELD_TYPES } });
-    }
-    if (path === '/custom-modules' || path.startsWith('/custom-modules/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'customization:read')) return err('forbidden', 403);
-      const db = await getDb();
-      if (path === '/custom-modules') {
-        const mods = await db.collection('customModules').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
-        return json({ modules: mods });
-      }
-      const mod = await db.collection('customModules').findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
-      if (!mod) return err('Module not found', 404);
-      return json({ module: mod });
-    }
-
-    if (path.startsWith('/billing/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      const perm = path === '/billing/invoices' ? 'billing:read' : 'subscription:read';
-      if (!can(session.role, perm)) return err('forbidden', 403);
-      const db = await getDb();
-      return billingGet(db, session, path);
-    }
-
-    if (path === '/integrations' || path.startsWith('/integrations/') || path === '/webhooks' || path === '/dev/api-keys') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'integrations:read')) return err('forbidden', 403);
-      const db = await getDb();
-      return integrationsGet(db, session, path);
-    }
-
-    if (path === '/auth/me') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      const db = await getDb();
-      const user = await db.collection('users').findOne(
-        { id: session.userId }, { projection: { _id: 0, passwordHash: 0 } });
-      const agency = await db.collection('agencies').findOne(
-        { id: session.agencyId }, { projection: { _id: 0 } });
-      if (!user || !agency) return err('unauthenticated', 401);
-      return json({ user, agency });
-    }
-
-    if (path === '/agency') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      const db = await getDb();
-      const agency = await db.collection('agencies').findOne(
-        { id: session.agencyId }, { projection: { _id: 0 } });
-      return json({ agency });
-    }
-
-    if (path === '/members') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'members:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const members = await db.collection('users')
-        .find(tenantFilter(session), { projection: { _id: 0, passwordHash: 0 } })
-        .sort({ createdAt: 1 }).toArray();
-      return json({ members });
-    }
-
-    if (path === '/clients') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'clients:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const clients = await db.collection('clients')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
-        .sort({ createdAt: -1 }).toArray();
-      return json({ clients });
-    }
-
-    // ---- CRM reads (all agency-scoped via tenantFilter) ----
-    if (path === '/crm/stats') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'crm:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const f = tenantFilter(session);
-      const [totalLeads, activeLeads, totalClients, followUpsDue, openTasks] = await Promise.all([
-        db.collection('leads').countDocuments(f),
-        db.collection('leads').countDocuments(tenantFilter(session, { status: { $in: ['new', 'contacted', 'qualified'] } })),
-        db.collection('clients').countDocuments(f),
-        db.collection('followUps').countDocuments(tenantFilter(session, { status: 'pending' })),
-        db.collection('tasks').countDocuments(tenantFilter(session, { status: 'open' })),
-      ]);
-      return json({ stats: { totalLeads, activeLeads, totalClients, followUpsDue, openTasks } });
-    }
-
-    if (path === '/leads') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'leads:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const leads = await db.collection('leads')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
-        .sort({ createdAt: -1 }).toArray();
-      return json({ leads });
-    }
-
-    if (path === '/followups') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'followups:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const followUps = await db.collection('followUps')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
-        .sort({ createdAt: -1 }).toArray();
-      return json({ followUps });
-    }
-
-    if (path === '/tasks') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'tasks:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const tasks = await db.collection('tasks')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
-        .sort({ createdAt: -1 }).toArray();
-      return json({ tasks });
-    }
-
-    if (path === '/activities') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'activities:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const activities = await db.collection('activities')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
-        .sort({ createdAt: -1 }).limit(50).toArray();
-      return json({ activities });
-    }
-
-    if (path === '/quotations') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'quotations:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const quotations = await db.collection('quotations')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
-        .sort({ createdAt: -1 }).toArray();
-      // Repair missing quotation links from existing non-cancelled bookings, so the UI
-      // shows "View Booking" for quotations that were converted before link backfilling.
-      const quotationIds = quotations.map((q) => q.id).filter(Boolean);
-      if (quotationIds.length) {
-        const linkedBookings = await db.collection('bookings')
-          .find(tenantFilter(session, { quotationId: { $in: quotationIds }, status: { $ne: 'cancelled' } }),
-            { projection: { _id: 0, id: 1, bookingNumber: 1, quotationId: 1, createdAt: 1 } })
-          .sort({ createdAt: 1 }).toArray();
-        const firstBookingByQuotation = new Map();
-        for (const booking of linkedBookings) {
-          if (booking.quotationId && !firstBookingByQuotation.has(booking.quotationId)) {
-            firstBookingByQuotation.set(booking.quotationId, booking);
-          }
-        }
-        for (const quotation of quotations) {
-          if (quotation.convertedBookingId) continue;
-          const linked = firstBookingByQuotation.get(quotation.id);
-          if (!linked) continue;
-          await db.collection('quotations').updateOne(
-            tenantFilter(session, { id: quotation.id, convertedBookingId: { $in: [null, ''] } }),
-            { $set: { convertedBookingId: linked.id, convertedBookingNumber: linked.bookingNumber || '' } });
-          quotation.convertedBookingId = linked.id;
-          quotation.convertedBookingNumber = linked.bookingNumber || '';
-        }
-      }
-      return json({ quotations });
-    }
-
-    if (path.startsWith('/quotations/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'quotations:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const quotation = await db.collection('quotations')
-        .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
-      if (!quotation) return err('Quotation not found', 404);
-      if (!quotation.convertedBookingId) {
-        const linked = await db.collection('bookings').findOne(
-          tenantFilter(session, { quotationId: quotation.id, status: { $ne: 'cancelled' } }),
-          { projection: { _id: 0, id: 1, bookingNumber: 1 }, sort: { createdAt: 1 } });
-        if (linked) {
-          await db.collection('quotations').updateOne(
-            tenantFilter(session, { id: quotation.id, convertedBookingId: { $in: [null, ''] } }),
-            { $set: { convertedBookingId: linked.id, convertedBookingNumber: linked.bookingNumber || '' } });
-          quotation.convertedBookingId = linked.id;
-          quotation.convertedBookingNumber = linked.bookingNumber || '';
-        }
-      }
-      return json({ quotation });
-    }
-
-    if (path === '/packages') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'packages:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const packages = await db.collection('packages')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
-        .sort({ createdAt: -1 }).toArray();
-      return json({ packages });
-    }
-
-    if (path.startsWith('/packages/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'packages:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const pkg = await db.collection('packages')
-        .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
-      if (!pkg) return err('Package not found', 404);
-      return json({ package: pkg });
-    }
-
-    if (path === '/itineraries') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'itineraries:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const itineraries = await db.collection('itineraries')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
-        .sort({ createdAt: -1 }).toArray();
-      return json({ itineraries });
-    }
-
-    if (path.startsWith('/itineraries/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'itineraries:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const itinerary = await db.collection('itineraries')
-        .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
-      if (!itinerary) return err('Itinerary not found', 404);
-      return json({ itinerary });
-    }
-
-    if (path === '/suppliers') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const suppliers = await db.collection('suppliers')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
-        .sort({ createdAt: -1 }).toArray();
-      return json({ suppliers });
-    }
-
-    if (path.startsWith('/suppliers/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const supplier = await db.collection('suppliers')
-        .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
-      if (!supplier) return err('Supplier not found', 404);
-      return json({ supplier });
-    }
-
-    if (path === '/bookings') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'bookings:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const bookings = await db.collection('bookings')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
-        .sort({ createdAt: -1 }).toArray();
-      return json({ bookings });
-    }
-
-    if (path.startsWith('/bookings/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'bookings:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const booking = await db.collection('bookings')
-        .findOne(tenantFilter(session, { id: path.split('/')[2] }), { projection: { _id: 0 } });
-      if (!booking) return err('Booking not found', 404);
-      return json({ booking });
-    }
-
-    if (path === '/sync/status') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      // Authenticated reachability + server clock reference for the offline sync engine.
-      // agencyId is derived server-side only; never trusted from the client.
-      return json({ ok: true, serverTime: new Date().toISOString(), agencyId: session.agencyId });
-    }
-
-    if (path.startsWith('/finance')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'finance:read')) return err('forbidden', 403);
-      const db = await getDb();
-      return financeGet(db, session, path, new URL(request.url).searchParams);
-    }
-
-    if (path.startsWith('/payments')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'payments:read')) return err('forbidden', 403);
-      const db = await getDb();
-      return paymentsGet(db, session, path);
-    }
-
-    if (path.startsWith('/communications')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'communications:read')) return err('forbidden', 403);
-      const db = await getDb();
-      return commGet(db, session, path, new URL(request.url).searchParams);
-    }
-
-    if (path.startsWith('/ai/')) {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'ai:use')) return err('forbidden', 403);
-      const db = await getDb();
-      return aiGet(db, session, path);
-    }
-
-    if (path === '/portal-access') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'portal:manage')) return err('forbidden', 403);
-      const db = await getDb();
-      return portalAccessGet(db, session, new URL(request.url).searchParams);
-    }
-
-    if (path.startsWith('/portal/')) {
-      const ps = getPortalSession(request);
-      if (!ps) return err('unauthenticated', 401);
-      const db = await getDb();
-      return portalGet(db, ps, path);
-    }
-
-    if (path === '/fleet/stats') {
-      const session = getSession(request);
-      if (!session) return err('unauthenticated', 401);
-      if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
-      const db = await getDb();
-      const [vehicles, drivers] = await Promise.all([
-        db.collection('vehicles').find(tenantFilter(session), { projection: { _id: 0, status: 1 } }).toArray(),
-        db.collection('drivers').find(tenantFilter(session), { projection: { _id: 0, status: 1 } }).toArray(),
-      ]);
-      const by = (arr, s) => arr.filter((x) => x.status === s).length;
-      const activeAssignments = await db.collection('bookings').countDocuments(tenantFilter(session, { assignmentStatus: { $in: ['assigned', 'in_transit'] } }));
-      return json({ stats: {
-        vehicles: { total: vehicles.length, available: by(vehicles, 'available'), assigned: by(vehicles, 'assigned'), in_transit: by(vehicles, 'in_transit'), maintenance: by(vehicles, 'maintenance'), inactive: by(vehicles, 'inactive') },
-        drivers: { total: drivers.length, available: by(drivers, 'available'), assigned: by(drivers, 'assigned'), on_trip: by(drivers, 'on_trip'), leave: by(drivers, 'leave'), inactive: by(drivers, 'inactive') },
-        activeAssignments,
-      } });
