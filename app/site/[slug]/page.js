@@ -194,21 +194,58 @@ export default async function PublicSitePage({ params }) {
         {homePage ? (
           <section id={homePage.slug} style={{ marginBottom: '3rem', scrollMarginTop: '1rem' }}>
             <h2 style={{ fontSize: '2.5rem', marginBottom: '1rem', fontFamily: settings.font || 'inherit', color: primaryColor }}>{homePage.title}</h2>
-            <div style={{ fontSize: '1.125rem', lineHeight: '1.75' }} dangerouslySetInnerHTML={{ __html: homePage.content || '' }} />
+            <div style={{ fontSize: '1.125rem', lineHeight: '1.75' }} dangerouslySetInnerHTML={{ __html: typeof homePage.content === 'string' ? homePage.content : '' }} />
           </section>
         ) : null}
 
         {pages.filter(p => p.slug !== homePage?.slug).map(page => (
           <section key={page.slug} id={page.slug} style={{ marginBottom: '3rem', paddingTop: '2rem', scrollMarginTop: '1rem' }}>
             <h2 style={{ fontSize: '2rem', marginBottom: '1rem', fontFamily: settings.font || 'inherit', color: primaryColor }}>{page.title}</h2>
-            <div style={{ fontSize: '1.125rem', lineHeight: '1.75' }} dangerouslySetInnerHTML={{ __html: page.content || '' }} />
+            <div style={{ fontSize: '1.125rem', lineHeight: '1.75' }} dangerouslySetInnerHTML={{ __html: typeof page.content === 'string' ? page.content : '' }} />
           </section>
         ))}
 
         {pages.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '4rem 1rem', color: '#6b7280' }}>
-            <h2>Welcome to {agency.name}</h2>
-            <p>{settings.tagline || 'Website coming soon.'}</p>
+          <div className="site-demo-home">
+            <section style={{ padding: 'clamp(3.5rem, 9vw, 7rem) clamp(1rem, 6vw, 5rem)', color: '#fff', background: `linear-gradient(120deg, ${primaryColor}ee, ${primaryColor}88), linear-gradient(45deg, ${settings.secondaryColor || '#0f766e'}, #172033)` }}>
+              <div style={{ maxWidth: 1050, margin: '0 auto' }}>
+                <p style={{ fontSize: '.78rem', letterSpacing: '.17em', textTransform: 'uppercase', fontWeight: 700 }}>Made for curious travellers</p>
+                <h2 style={{ maxWidth: 850, fontSize: 'clamp(2.5rem, 7vw, 5.4rem)', lineHeight: 1.03, letterSpacing: '-.045em', margin: '1rem 0', color: '#fff' }}>Find a little more world.</h2>
+                <p style={{ maxWidth: 650, fontSize: 'clamp(1rem, 2vw, 1.2rem)', lineHeight: 1.8 }}>Discover remarkable destinations with flexible holidays, local insight and planning that feels effortless.</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.8rem', marginTop: '2rem' }}>
+                  <a href="#site-demo-packages" style={{ background: '#fff', color: primaryColor, padding: '.95rem 1.3rem', borderRadius: 999, textDecoration: 'none', fontWeight: 800 }}>Explore journeys ↗</a>
+                  <a href="#site-demo-about" style={{ border: '1px solid #ffffff99', color: '#fff', padding: '.95rem 1.3rem', borderRadius: 999, textDecoration: 'none', fontWeight: 700 }}>Why travel with us</a>
+                </div>
+                <p style={{ fontSize: '.75rem', marginTop: '2rem', color: '#ffffffcc' }}>WEBSITE PREVIEW · CUSTOMISE YOUR CONTENT BEFORE LAUNCH</p>
+              </div>
+            </section>
+            <section id="site-demo-packages" style={{ maxWidth: 1200, margin: '0 auto', padding: '3.5rem clamp(1rem, 5vw, 4rem)' }}>
+              <p style={{ color: primaryColor, fontSize: '.75rem', letterSpacing: '.15em', textTransform: 'uppercase', fontWeight: 800 }}>Handpicked for you</p>
+              <h2 style={{ fontSize: 'clamp(1.8rem, 4vw, 2.7rem)', margin: '.3rem 0 1.5rem', color: '#172033' }}>Journeys to remember</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 250px), 1fr))', gap: '1.1rem' }}>
+                {[
+                  ['Classic Europe Tour', '9 days · Europe', 'Iconic cities, rail journeys and time to explore at your own pace', 'From $1,890'],
+                  ['Island Hopping', '7 days · Greece', 'Whitewashed villages, blue-water coves and island-to-island discovery', 'From $1,490'],
+                  ['Japan Highlights', '10 days · Japan', 'Tradition, contemporary culture and unforgettable food experiences', 'From $2,750'],
+                ].map(([title, duration, description, price]) => (
+                  <article key={title} style={{ overflow: 'hidden', border: '1px solid #e7eaf0', borderRadius: '1.1rem', background: '#fff' }}>
+                    <div style={{ height: 115, background: `linear-gradient(135deg, ${primaryColor}, ${settings.secondaryColor || '#0f766e'})` }} />
+                    <div style={{ padding: '1.2rem' }}>
+                      <p style={{ margin: '0 0 .45rem', color: primaryColor, fontSize: '.78rem', fontWeight: 700 }}>{duration}</p>
+                      <h3 style={{ margin: '.3rem 0 .65rem', fontSize: '1.2rem', color: '#172033' }}>{title}</h3>
+                      <p style={{ color: '#64748b', lineHeight: 1.65 }}>{description}</p>
+                      <strong>{price}</strong>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+            <section id="site-demo-about" style={{ padding: '3rem 1.2rem', textAlign: 'center', maxWidth: 850, margin: '0 auto' }}>
+              <p style={{ color: primaryColor, fontSize: '.75rem', letterSpacing: '.15em', textTransform: 'uppercase', fontWeight: 800 }}>Travel, thoughtfully</p>
+              <h2 style={{ fontSize: 'clamp(1.8rem, 4vw, 2.7rem)', color: '#172033' }}>A little less planning stress. A lot more anticipation.</h2>
+              <p style={{ lineHeight: 1.8, color: '#64748b' }}>From your first idea to the journey home, we bring together local knowledge and responsive support to help you travel with confidence.</p>
+              <p style={{ fontSize: '.8rem', color: '#64748b', marginTop: '1.5rem' }}>This is sample preview content. Apply a website template to save editable pages for this agency.</p>
+            </section>
           </div>
         )}
       </main>
