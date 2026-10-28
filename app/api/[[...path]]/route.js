@@ -247,7 +247,8 @@ function computeQuotation(body) {
   discountAmount = round2(Math.min(discountAmount, subtotal)); // never produce a negative total
   const taxable = Math.max(0, round2(subtotal - discountAmount));
   const tax = { percent: Math.min(Math.max(0, num(body.tax && body.tax.percent, 0)), 100) };
-  const taxAmount = round2(taxable * tax.percent / 100);  const grandTotal = round2(taxable + taxAmount);
+  const taxAmount = round2(taxable * tax.percent / 100);
+  const grandTotal = round2(taxable + taxAmount);
   const expectedProfit = round2(taxable - internalCost);
   return { items, subtotal, internalCost, discount, discountAmount, tax, taxAmount, grandTotal, expectedProfit };
 }
@@ -396,7 +397,8 @@ function normalizeItineraryDays(rawDays) {
       breakfast: str(d.meals && d.meals.breakfast, 300),
       lunch: str(d.meals && d.meals.lunch, 300),
       dinner: str(d.meals && d.meals.dinner, 300),
-    },    transport: {
+    },
+    transport: {
       type: str(d.transport && d.transport.type, 120),
       pickupLocation: str(d.transport && d.transport.pickupLocation, 200),
       dropLocation: str(d.transport && d.transport.dropLocation, 200),
@@ -496,7 +498,8 @@ function validateBookingCore(body) {
   const serviceItems = computeBookingServices(body.serviceItems);
   for (const it of serviceItems) { if (it.quantity < 0 || it.unitPrice < 0) return { error: 'Service quantity and price cannot be negative' }; }
   return {
-    value: {      customerType, customerId, destination, startDate, endDate,
+    value: {
+      customerType, customerId, destination, startDate, endDate,
       adults: Math.max(0, Math.floor(num(body.adults, 0))),
       children: Math.max(0, Math.floor(num(body.children, 0))),
       nights: Math.max(0, Math.floor(num(body.nights, 0))),
@@ -794,7 +797,8 @@ async function financePost(db, session, path, body) {
     const taxable = Math.max(0, round2(subtotal - discount));
     // GST/Tax foundation: configurable percent + inclusive/exclusive. Falls back to flat tax.
     const taxPercent = Math.min(Math.max(0, num(body.taxPercent, 0)), 100);
-    const taxInclusive = !!body.taxInclusive;    let tax; let total;
+    const taxInclusive = !!body.taxInclusive;
+    let tax; let total;
     if (taxPercent > 0) {
       if (taxInclusive) { tax = round2(taxable - (taxable * 100) / (100 + taxPercent)); total = taxable; }
       else { tax = round2(taxable * taxPercent / 100); total = round2(taxable + tax); }
@@ -995,7 +999,8 @@ async function paymentsGet(db, session, path) {
     }
     const refunds = await db.collection('paymentRefunds').find(tenantFilter(session, { paymentId: id }), { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
     let linked = null;
-    if (rec.receivableId) { const r = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: rec.receivableId }), { projection: { _id: 0 } }); if (r) linked = { kind: 'receivable', totalAmount: r.totalAmount, paidAmount: r.receivedAmount, outstandingAmount: r.outstandingAmount }; }    else if (rec.payableId) { const p = await db.collection('supplierPayables').findOne(tenantFilter(session, { id: rec.payableId }), { projection: { _id: 0 } }); if (p) linked = { kind: 'payable', totalAmount: p.totalAmount, paidAmount: p.paidAmount, outstandingAmount: p.outstandingAmount }; }
+    if (rec.receivableId) { const r = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: rec.receivableId }), { projection: { _id: 0 } }); if (r) linked = { kind: 'receivable', totalAmount: r.totalAmount, paidAmount: r.receivedAmount, outstandingAmount: r.outstandingAmount }; }
+    else if (rec.payableId) { const p = await db.collection('supplierPayables').findOne(tenantFilter(session, { id: rec.payableId }), { projection: { _id: 0 } }); if (p) linked = { kind: 'payable', totalAmount: p.totalAmount, paidAmount: p.paidAmount, outstandingAmount: p.outstandingAmount }; }
     else if (rec.invoiceId) { const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: rec.invoiceId }), { projection: { _id: 0 } }); if (inv) linked = { kind: 'invoice', invoiceNumber: inv.invoiceNumber, totalAmount: inv.total, paidAmount: inv.paidAmount, outstandingAmount: inv.outstandingAmount }; }
     return json({ payment: rec, refunds, linked });
   }
@@ -1192,7 +1197,8 @@ async function commPost(db, session, path, body) {
     if (!message && !str(body.subject, 200)) return err('Message is required');
     const refs = await resolveCommRefs(db, session, body);
     const doc = withAgency(session, { id: uuidv4(), type: COMM_TYPES.includes(body.type) ? body.type : 'message', channel, ...refs, subject: str(body.subject, 200), message, direction, status, externalMessageId: str(body.externalMessageId, 200), createdBy: session.userId, createdAt: now, updatedAt: now });
-    await db.collection('communications').insertOne(doc);    await logActivity(db, session, { type: 'communication_logged', message: `${channel} ${direction} communication logged`, refType: 'communication', refId: doc.id });
+    await db.collection('communications').insertOne(doc);
+    await logActivity(db, session, { type: 'communication_logged', message: `${channel} ${direction} communication logged`, refType: 'communication', refId: doc.id });
     const { _id, ...safe } = doc; return json({ communication: safe }, 201);
   }
   return err('not found', 404);
@@ -1244,7 +1250,8 @@ async function commPut(db, session, path, body) {
     if (body.status !== undefined) set.status = body.status === 'archived' ? 'archived' : 'active';
     if (Array.isArray(body.variables)) set.variables = body.variables.slice(0, 40).map((v) => str(v, 60));
     const r = await db.collection('communicationTemplates').updateOne(tenantFilter(session, { id }), { $set: set });
-    if (!r.matchedCount) return err('Template not found', 404);    const t = await db.collection('communicationTemplates').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    if (!r.matchedCount) return err('Template not found', 404);
+    const t = await db.collection('communicationTemplates').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
     return json({ template: t });
   }
   const id = parts[2];
@@ -1493,7 +1500,8 @@ async function portalAccessCreate(db, session, body) {
   const password = String(body.password || '');
   if (password.length < 6) return err('Password must be at least 6 characters');
   const now = new Date().toISOString();
-  const existingForClient = await db.collection('portalUsers').findOne(tenantFilter(session, { clientId: client.id }));  const existingByEmail = await db.collection('portalUsers').findOne({ email });
+  const existingForClient = await db.collection('portalUsers').findOne(tenantFilter(session, { clientId: client.id }));
+  const existingByEmail = await db.collection('portalUsers').findOne({ email });
   if (existingByEmail && (!existingForClient || existingByEmail.id !== existingForClient.id)) return err('That email is already used for another portal account');
   const passwordHash = await hashPassword(password);
   if (existingForClient) {
@@ -1589,7 +1597,8 @@ function buildPageFields(body, { partial = false } = {}) {
   if (!partial || body.pageType !== undefined) out.pageType = PAGE_TYPES.includes(body.pageType) ? body.pageType : 'custom';
   if (!partial || body.content !== undefined) out.content = str(body.content, 50000);
   if (!partial || body.status !== undefined) out.status = WEBSITE_STATUS.includes(body.status) ? body.status : 'draft';
-  if (!partial || body.seoTitle !== undefined) out.seoTitle = str(body.seoTitle, 200);  if (!partial || body.seoDescription !== undefined) out.seoDescription = str(body.seoDescription, 400);
+  if (!partial || body.seoTitle !== undefined) out.seoTitle = str(body.seoTitle, 200);
+  if (!partial || body.seoDescription !== undefined) out.seoDescription = str(body.seoDescription, 400);
   if (!partial || body.canonicalUrl !== undefined) out.canonicalUrl = str(body.canonicalUrl, 400);
   if (!partial || body.noindex !== undefined) out.noindex = Boolean(body.noindex);
   if (!partial || body.ogTitle !== undefined) out.ogTitle = str(body.ogTitle, 200);
@@ -1723,20 +1732,6 @@ function publicPage(p) {
 }
 
 async function publicGet(db, path) {
-  if (path === '/public/marketing-content') {
-    const d = await db.collection('platformMarketingContent').findOne({id:'public-pages'},{projection:{_id:0,id:0}});
-    return json({pages:d?.pages || {faq:{title:'Frequently Asked Questions',body:'How does SafarOS work?\nSafarOS helps travel agencies manage their business in one place.'},contact:{title:'Contact us',body:'Have a question? Send us a message.'},privacy:{title:'Privacy Policy',body:'We use submitted information to respond to enquiries and operate SafarOS. We do not sell personal information.'}}});
-  }
-  if (path.startsWith('/public/regional-pricing')) {
-    const country = String(path.split('/')[3] || 'IN').toUpperCase().slice(0,2);
-    const d = await db.collection('platformRegionalPricing').findOne({countryCode:country,enabled:true},{projection:{_id:0}});
-    const fallback = await db.collection('platformRegionalPricing').findOne({countryCode:'IN',enabled:true},{projection:{_id:0}});
-    return json({pricing:d || fallback || null, requestedCountry:country});
-  }
-  return err('not found', 404);
-}
-
-async function publicGet(db, path) {
   const parts = path.split('/'); // ['', 'public', 'site', slug, ...]
   const slug = parts[3];
   if (!slug) return err('not found', 404);
@@ -1745,7 +1740,8 @@ async function publicGet(db, path) {
   const settings = await db.collection('websiteSettings').findOne({ agencyId: agency.id }, { projection: { _id: 0 } });
   const published = Boolean(settings && settings.status === 'published');
   const sub = parts[4];
-  if (sub === 'sitemap.xml') {    const pages = published ? await db.collection('websitePages').find({ agencyId: agency.id, status: 'published', noindex: { $ne: true } }, { projection: { _id: 0, slug: 1, updatedAt: 1 } }).toArray() : [];
+  if (sub === 'sitemap.xml') {
+    const pages = published ? await db.collection('websitePages').find({ agencyId: agency.id, status: 'published', noindex: { $ne: true } }, { projection: { _id: 0, slug: 1, updatedAt: 1 } }).toArray() : [];
     const base = `${process.env.NEXT_PUBLIC_BASE_URL || ''}/site/${slug}`;
     const urls = [`<url><loc>${base}</loc></url>`, ...pages.map((p) => `<url><loc>${base}/${p.slug}</loc>${p.updatedAt ? `<lastmod>${String(p.updatedAt).slice(0, 10)}</lastmod>` : ''}</url>`)];
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>`;
@@ -1776,28 +1772,6 @@ async function publicGet(db, path) {
       url: `${process.env.NEXT_PUBLIC_BASE_URL || ''}/site/${slug}`,
     },
   });
-}
-
-async function publicPost(db, path, body) {
-  if (path === '/public/contact') {
-    if (body.website) return json({ok:true});
-    const name=str(body.name,120), email=str(body.email,160).toLowerCase(), subject=str(body.subject,180), message=str(body.message,3000);
-    if(!name || !email || !message) return err('Name, email and message are required');
-    if(!EMAIL_RE.test(email)) return err('Please enter a valid email address');
-    const now=new Date().toISOString(), id=uuidv4();
-    await db.collection('platformContactMessages').insertOne({id,name,email,subject,message,status:'new',createdAt:now});
-    const settings=await db.collection('platformSettings').findOne({id:'platform'},{projection:{_id:0,contactRecipientEmail:1,supportEmail:1}});
-    const to=String(settings?.contactRecipientEmail || settings?.supportEmail || '').trim().toLowerCase();
-    let emailDelivery='not_configured';
-    if(to && EMAIL_ADDR_RE.test(to)){
-      const esc=v=>String(v||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-      const sent=await sendEmail(db,{to,subject:'SafarOS contact: '+(subject||'New message'),text:'From: '+name+' <'+email+'>\n\n'+message,html:emailLayout('New contact form message','<p><b>From:</b> '+esc(name)+' ('+esc(email)+')</p><p><b>Subject:</b> '+esc(subject)+'</p><p>'+esc(message).replace(/\n/g,'<br>')+'</p>')});
-      emailDelivery=sent.ok?'sent':'failed';
-      await db.collection('platformContactMessages').updateOne({id},{$set:{emailDelivery,emailError:sent.ok?'':str(sent.error,300)}});
-    }
-    return json({ok:true,emailDelivery},201);
-  }
-  return err('not found', 404);
 }
 
 async function publicPost(db, path, body) {
@@ -1993,11 +1967,13 @@ async function billingGet(db, session, path) {
   if (path === '/billing/invoices') {
     const invoices = await db.collection('saasInvoices')
       .find(tenantFilter(session), { projection: { _id: 0 } })
-      .sort({ createdAt: -1 }).limit(100).toArray();    return json({ invoices });
+      .sort({ createdAt: -1 }).limit(100).toArray();
+    return json({ invoices });
   }
   if (path === '/billing/usage') {
     const sub = await ensureSubscription(db, session);
-    const plan = getPlan(sub.planId) || getPlan('trial');    const f = tenantFilter(session);
+    const plan = getPlan(sub.planId) || getPlan('trial');
+    const f = tenantFilter(session);
     const [teamMembers, clients, leads, bookings, quotations, packages, websitePages] = await Promise.all([
       db.collection('users').countDocuments(f),
       db.collection('clients').countDocuments(f),
@@ -2246,7 +2222,8 @@ async function integrationsPut(db, session, path, body) {
     const cat = CATALOG_BY_PROVIDER[provider];
     if (!cat) return err('Unknown integration', 404);
     if (cat.managed === 'env') return err('This provider is managed via server environment');
-    const doc = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });    if (!doc) return err('Integration is not configured yet', 404);
+    const doc = await db.collection('integrations').findOne(tenantFilter(session, { provider }), { projection: { _id: 0 } });
+    if (!doc) return err('Integration is not configured yet', 404);
     const enabled = !!body.enabled;
     const missing = cat.fields.filter((f) => f.required && (f.type === 'secret' ? !(doc.secretHints || {})[f.key] : !(doc.configurationMetadata || {})[f.key]));
     const status = !enabled ? 'disabled' : (missing.length ? 'configuration_required' : 'connected');
@@ -2390,7 +2367,8 @@ async function ensureSuperAdmin(db, request = null) {
   }
 }
 
-async function platformLogin(db, body, request) {  await ensureSuperAdmin(db, request); // ensure the initial Super Admin exists in production
+async function platformLogin(db, body, request) {
+  await ensureSuperAdmin(db, request); // ensure the initial Super Admin exists in production
   const email = String(body.email || '').toLowerCase();
   const password = String(body.password || '');
   if (!email || !password) return err('email and password required');
@@ -2495,7 +2473,8 @@ function buildDemoRecords() {
     ['lead', LD(6), 'Gulmarg, Kashmir', 150, 4, 2, 1, 'draft', 0, [['Hotel', 'Ski-in family room, Gulmarg – 4 nights', 4, 6500, 8800], ['Transport', 'Airport transfers & local SUV – 5 days', 5, 2500, 3400], ['Activity', 'Beginner ski lessons – 2 days', 2, 3500, 5000], ['Activity', 'Gulmarg Gondola tickets', 3, 1600, 2100]]],
     ['client', C(5), 'Leh · Nubra · Pangong, Ladakh', 30, 6, 2, 0, 'approved', 1500, [['Hotel', 'Leh Heights Hotel – 4 nights', 4, 5200, 7000], ['Hotel', 'Nubra desert camp – 1 night', 1, 6000, 8000], ['Hotel', 'Pangong lakeside camp – 1 night', 1, 6500, 8500], ['Transport', 'Private SUV with driver – 7 days', 7, 3200, 4300], ['Other', 'Inner-line permits & monument fees', 2, 900, 1200]]],
     ['lead', LD(7), 'Munnar · Alleppey, Kerala', -20, 5, 2, 0, 'rejected', 0, [['Hotel', 'Munnar tea-estate resort – 3 nights', 3, 4500, 6000], ['Houseboat', 'Alleppey premium houseboat – 1 night', 1, 9000, 12000], ['Transport', 'Private sedan – 6 days', 6, 2400, 3200]]],
-    ['lead', LD(4), 'Pahalgam · Sonamarg, Kashmir', 60, 5, 2, 2, 'sent', 2500, [['Hotel', 'River View Hotel Pahalgam – 3 nights', 3, 4800, 6500], ['Hotel', 'Sonamarg glacier-view stay – 2 nights', 2, 5000, 6800], ['Transport', 'Private tempo traveller – 6 days', 6, 2800, 3800], ['Guide', 'Thajiwas glacier guide & ponies', 1, 2500, 3500]]],  ];
+    ['lead', LD(4), 'Pahalgam · Sonamarg, Kashmir', 60, 5, 2, 2, 'sent', 2500, [['Hotel', 'River View Hotel Pahalgam – 3 nights', 3, 4800, 6500], ['Hotel', 'Sonamarg glacier-view stay – 2 nights', 2, 5000, 6800], ['Transport', 'Private tempo traveller – 6 days', 6, 2800, 3800], ['Guide', 'Thajiwas glacier guide & ponies', 1, 2500, 3500]]],
+  ];
   const quotations = QT.map(([type, rec, destination, start, nights, adults, children, status, disc, items], i) => {
     const n = i + 1;
     const body = { customerType: type, customerId: rec.id, destination, startDate: demoDay(start), endDate: demoDay(start + nights), adults, children, rooms: Math.max(1, Math.ceil(adults / 2)), nights,
@@ -2744,7 +2723,8 @@ const PLATFORM_WEBSITE_THEME_DEFAULTS = [
 function platformReadPerm(path) {
   if (path.startsWith('/platform/themes')) return 'themes:manage';
   if (path === '/platform/dashboard') return 'platform:dashboard';
-  if (path.startsWith('/platform/agencies')) return 'agencies:read';  if (path.startsWith('/platform/users')) return 'users:read';
+  if (path.startsWith('/platform/agencies')) return 'agencies:read';
+  if (path.startsWith('/platform/users')) return 'users:read';
   if (path.startsWith('/platform/subscriptions') || path === '/platform/billing') return 'subscriptions:read';
   if (path.startsWith('/platform/plans')) return 'plans:read';
   if (path.startsWith('/platform/ai-platforms')) return 'ai:read';
@@ -2787,7 +2767,8 @@ async function earlyAccessSubmit(db, body) {
   if (existing) {
     // Only overwrite with values the visitor actually filled in this time.
     const changes = Object.fromEntries(Object.entries(fields).filter(([k, v]) => v && !(k === 'interestedPlan' && v === 'not_sure')));
-    await db.collection('earlyAccessRequests').updateOne({ id: existing.id }, { $set: { ...changes, updatedAt: now } });    return json({ ok: true, id: existing.id, updated: true });
+    await db.collection('earlyAccessRequests').updateOne({ id: existing.id }, { $set: { ...changes, updatedAt: now } });
+    return json({ ok: true, id: existing.id, updated: true });
   }
   const doc = { id: uuidv4(), ...fields, status: 'new', source: 'landing_page', createdAt: now, updatedAt: now };
   await db.collection('earlyAccessRequests').insertOne(doc);
@@ -2993,7 +2974,8 @@ async function platformGet(db, session, path, sp) {
       db.collection('bookings').countDocuments({}),
       db.collection('saasInvoices').find({ status: 'paid' }, { projection: { _id: 0, amount: 1 } }).toArray(),
     ]);
-    const byMonth = (arr) => { const m = {}; for (const x of arr) { const d = x.createdAt ? String(x.createdAt).slice(0, 7) : ''; if (d) m[d] = (m[d] || 0) + 1; } return Object.entries(m).sort().map(([month, count]) => ({ month, count })); };    const planDist = {}; for (const s of subs) { planDist[s.planId] = (planDist[s.planId] || 0) + 1; }
+    const byMonth = (arr) => { const m = {}; for (const x of arr) { const d = x.createdAt ? String(x.createdAt).slice(0, 7) : ''; if (d) m[d] = (m[d] || 0) + 1; } return Object.entries(m).sort().map(([month, count]) => ({ month, count })); };
+    const planDist = {}; for (const s of subs) { planDist[s.planId] = (planDist[s.planId] || 0) + 1; }
     return json({
       agencyGrowth: byMonth(agencies), userGrowth: byMonth(users),
       subscriptionDistribution: Object.entries(planDist).map(([plan, count]) => ({ plan, count })),
@@ -3010,19 +2992,6 @@ async function platformGet(db, session, path, sp) {
     return json({ logs });
   }
 
-  if (path === '/platform/marketing-content') {
-    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
-    const d=await db.collection('platformMarketingContent').findOne({id:'public-pages'},{projection:{_id:0}});
-    return json({pages:d?.pages || {faq:{title:'Frequently Asked Questions',body:''},contact:{title:'Contact us',body:''},privacy:{title:'Privacy Policy',body:''}}});
-  }
-  if (path === '/platform/regional-pricing') {
-    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
-    return json({entries:await db.collection('platformRegionalPricing').find({},{projection:{_id:0}}).sort({countryName:1}).toArray()});
-  }
-  if (path === '/platform/contact-messages') {
-    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
-    return json({messages:await db.collection('platformContactMessages').find({},{projection:{_id:0}}).sort({createdAt:-1}).limit(300).toArray()});
-  }
   if (path === '/platform/settings/email') {
     if (!canPlatform(session.role, 'settings:manage')) return err('forbidden', 403); // Super Admin only
     return json({ email: emailSettingsView(await loadEmailSettings(db)) });
@@ -3049,25 +3018,6 @@ async function platformGet(db, session, path, sp) {
 
 async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
-  if(path==='/platform/marketing-content'){
-    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
-    const pages={};
-    for(const k of ['faq','contact','privacy']){pages[k]={title:str(body.pages?.[k]?.title,180),body:str(body.pages?.[k]?.body,12000)};if(!pages[k].title)return err('A title is required for '+k);}
-    await db.collection('platformMarketingContent').updateOne({id:'public-pages'},{$set:{pages,updatedAt:now,updatedBy:session.adminId},$setOnInsert:{id:'public-pages',createdAt:now}},{upsert:true});
-    await platformAudit(db,session,request,{action:'marketing_content.updated',targetType:'marketing_content',targetId:'public-pages'});
-    return json({ok:true,pages});
-  }
-  if(path==='/platform/regional-pricing'){
-    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
-    const countryCode=String(body.countryCode||'').toUpperCase().slice(0,2),countryName=str(body.countryName,100),currency=String(body.currency||'').toUpperCase().slice(0,3);
-    if(!/^[A-Z]{2}$/.test(countryCode)||!countryName||!/^[A-Z]{3}$/.test(currency))return err('Country code, country name and 3-letter currency are required');
-    const prices={};
-    for(const p of ['starter','professional','enterprise']){const monthly=Number(body.prices?.[p]?.monthly),yearly=Number(body.prices?.[p]?.yearly);if(!Number.isFinite(monthly)||monthly<0||!Number.isFinite(yearly)||yearly<0)return err('Prices must be non-negative numbers');prices[p]={monthly,yearly};}
-    const entry={countryCode,countryName,currency,prices,enabled:body.enabled!==false,updatedAt:now,updatedBy:session.adminId};
-    await db.collection('platformRegionalPricing').updateOne({countryCode},{$set:entry,$setOnInsert:{createdAt:now}},{upsert:true});
-    await platformAudit(db,session,request,{action:'regional_pricing.updated',targetType:'regional_pricing',targetId:countryCode,metadata:{currency}});
-    return json({ok:true,entry});
-  }
   if (path === '/platform/themes') {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
     const name = str(body.name, 80);
@@ -3184,7 +3134,8 @@ async function platformPost(db, session, path, body, request) {
     if (!canPlatform(session.role, 'integrations:manage')) return err('forbidden', 403);
     const provider = credTest[1];
     const def = getProviderDef(provider);
-    if (!def) return err('Unknown provider', 404);    if (!def.testable) return err('This provider does not support a connection test', 400);
+    if (!def) return err('Unknown provider', 404);
+    if (!def.testable) return err('This provider does not support a connection test', 400);
     const { values } = await resolveProviderConfig(db, provider);
     const result = await testProviderConnection(provider, values);
     await db.collection(PLATFORM_CRED_COLLECTION).updateOne(
@@ -3210,14 +3161,6 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
-  if(path==='/platform/settings'){
-    if(!canPlatform(session.role,'settings:manage')) return err('forbidden',403);
-    const recipient=String(body.contactRecipientEmail||'').trim().toLowerCase();
-    if(recipient&&!EMAIL_ADDR_RE.test(recipient))return err('Enter a valid contact-form recipient email address');
-    await db.collection('platformSettings').updateOne({id:'platform'},{$set:{contactRecipientEmail:recipient,updatedAt:now,updatedBy:session.adminId},$setOnInsert:{id:'platform',platformName:'SafarOS',defaultCurrency:'INR',defaultTimezone:'Asia/Kolkata',defaultCountry:'IN',status:'active',maintenanceMode:false}},{upsert:true});
-    await platformAudit(db,session,request,{action:'settings.contact_recipient_updated',targetType:'settings',targetId:'platform'});
-    return json({settings:await db.collection('platformSettings').findOne({id:'platform'},{projection:{_id:0}})});
-  }
   const themeEdit = path.match(/^\/platform\/themes\/([^/]+)$/);
   if (themeEdit) {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
@@ -3242,7 +3185,8 @@ async function platformPut(db, session, path, body, request) {
   // Landing-page early-access request status update.
   const eaM = path.match(/^\/platform\/early-access\/([^/]+)$/);
   if (eaM) {
-    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);    const status = String(body.status || '');
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const status = String(body.status || '');
     if (!EARLY_ACCESS_STATUSES.includes(status)) return err(`status must be one of ${EARLY_ACCESS_STATUSES.join(', ')}`);
     const r = await db.collection('earlyAccessRequests').updateOne({ id: eaM[1] }, { $set: { status, updatedAt: now } });
     if (r.matchedCount === 0) return err('Request not found', 404);
@@ -3494,7 +3438,7 @@ export async function GET(request, context) {
         return err(e.message || 'Discovery search failed', code);
       }
     }
-        if (path === '/discovery/photo') {
+    if (path === '/discovery/photo') {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
