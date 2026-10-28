@@ -745,7 +745,8 @@ async function financeGet(db, session, path, sp) {
     return json({ [keyMap[path]]: rows });
   }
   // detail: /finance/<col>/<id>
-  const parts = path.split('/'); // ['', 'finance', col, id]  if (parts.length === 4) {
+  const parts = path.split('/'); // ['', 'finance', col, id]
+  if (parts.length === 4) {
     const colMap = { transactions: 'financialTransactions', receivables: 'customerReceivables', payables: 'supplierPayables', expenses: 'expenses', invoices: 'invoices' };
     const col = colMap[parts[2]];
     if (col) { const rec = await db.collection(col).findOne(tenantFilter(session, { id: parts[3] }), { projection: { _id: 0 } }); if (!rec) return err('Not found', 404); return json({ record: rec }); }
