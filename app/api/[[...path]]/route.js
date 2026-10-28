@@ -3492,3 +3492,9 @@ export async function GET(request, context) {
       } catch (e) {
         const code = e.status && e.status >= 400 && e.status < 500 ? 400 : 502;
         return err(e.message || 'Discovery search failed', code);
+      }
+    }
+  } catch (e) {
+    return err(e.message || 'Internal server error', 500);
+  }
+}
