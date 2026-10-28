@@ -87,7 +87,7 @@ export default async function PublicSitePage({ params }) {
   const settings = data.settings || {};
   const savedPages = Array.isArray(data.pages) ? data.pages : [];
   const agency = data.agency || { name: settings.siteTitle || 'Travel Agency' };
-  const homePage = pages.find(p => p.pageType === 'home') || pages[0];
+  const homePage = savedPages.find(p => p.pageType === 'home') || savedPages[0] || null;
   const primaryColor = /^#[0-9a-fA-F]{6}$/.test(settings.primaryColor || '') ? settings.primaryColor : '#6366f1';
   const themeKey = ['luxe-voyage','wildtrail','atlas-journeys','coastline','roots-routes','happy-trails','meridian'].includes(settings.theme) ? settings.theme : 'atlas-journeys';
   const siteTitle = settings.siteTitle || agency.name;
