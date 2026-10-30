@@ -816,11 +816,23 @@ async function financePost(db, session, path, body) {
     }), { projection: { _id: 0, amount: 1, refundedAmount: 1 } }).toArray() : [];
     const priorPaid = round2(priorBookingPayments.reduce((sum, p) =>
       sum + Math.max(0, (Number(p.amount) || 0) - (Number(p.refundedAmount) || 0)), 0));
-    const paidAmount = Math.min(total, priorPaid);
+    if (priorPaid > total + 0.001) {
+      return err('Completed booking payments exceed this invoice total. Reconcile the booking payments before creating the invoice.');
+    }
+    const paidAmount = priorPaid;
     const outstandingAmount = Math.max(0, round2(total - paidAmount));
     const invoiceStatus = paidAmount >= total && total > 0 ? 'paid' : (paidAmount > 0 ? 'partially_paid' : status);
     const doc = withAgency(session, { id: uuidv4(), invoiceNumber, clientId: refs.clientId, clientName: refs.clientName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, quotationId: refs.quotationId, issueDate: str(body.issueDate, 40) || today10(), dueDate: str(body.dueDate, 40), subtotal, discount, taxPercent, taxInclusive, tax, total, paidAmount, outstandingAmount, currency: DEFAULT_CURRENCY, status: invoiceStatus, notes: str(body.notes, 2000), createdAt: now, updatedAt: now });
-    await db.collection('invoices').insertOne(doc); const { _id, ...safe } = doc;
+    await db.collection('invoices').insertOne(doc);
+    // Claim the previously-unallocated booking payments so a later invoice cannot
+    // accidentally apply the same payments a second time.
+    if (refs.bookingId && priorBookingPayments.length) {
+      await db.collection('payments').updateMany(tenantFilter(session, {
+        type: 'customer', bookingId: refs.bookingId, status: { $in: ['completed', 'partially_refunded'] },
+        invoiceId: { $in: ['', null] },
+      }), { $set: { invoiceId: doc.id, updatedAt: now } });
+    }
+    const { _id, ...safe } = doc;
     await logActivity(db, session, { type: 'invoice_created', message: `Invoice ${invoiceNumber} created`, refType: 'invoice', refId: safe.id });
     return json({ invoice: safe }, 201);
   }
