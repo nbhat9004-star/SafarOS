@@ -808,8 +808,31 @@ async function financePost(db, session, path, body) {
     }
     const status = ['draft', 'issued'].includes(body.status) ? body.status : 'draft';
     const invoiceNumber = await nextInvoiceNumber(db, session);
-    const doc = withAgency(session, { id: uuidv4(), invoiceNumber, clientId: refs.clientId, clientName: refs.clientName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, quotationId: refs.quotationId, issueDate: str(body.issueDate, 40) || today10(), dueDate: str(body.dueDate, 40), subtotal, discount, taxPercent, taxInclusive, tax, total, paidAmount: 0, outstandingAmount: total, currency: DEFAULT_CURRENCY, status, notes: str(body.notes, 2000), createdAt: now, updatedAt: now });
-    await db.collection('invoices').insertOne(doc); const { _id, ...safe } = doc;
+    // Carry forward completed customer payments already recorded against this booking
+    // before the invoice existed. Payments already linked to another invoice are excluded.
+    const priorBookingPayments = refs.bookingId ? await db.collection('payments').find(tenantFilter(session, {
+      type: 'customer', bookingId: refs.bookingId, status: { $in: ['completed', 'partially_refunded'] },
+      invoiceId: { $in: ['', null] },
+    }), { projection: { _id: 0, amount: 1, refundedAmount: 1 } }).toArray() : [];
+    const priorPaid = round2(priorBookingPayments.reduce((sum, p) =>
+      sum + Math.max(0, (Number(p.amount) || 0) - (Number(p.refundedAmount) || 0)), 0));
+    if (priorPaid > total + 0.001) {
+      return err('Completed booking payments exceed this invoice total. Reconcile the booking payments before creating the invoice.');
+    }
+    const paidAmount = priorPaid;
+    const outstandingAmount = Math.max(0, round2(total - paidAmount));
+    const invoiceStatus = paidAmount >= total && total > 0 ? 'paid' : (paidAmount > 0 ? 'partially_paid' : status);
+    const doc = withAgency(session, { id: uuidv4(), invoiceNumber, clientId: refs.clientId, clientName: refs.clientName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, quotationId: refs.quotationId, issueDate: str(body.issueDate, 40) || today10(), dueDate: str(body.dueDate, 40), subtotal, discount, taxPercent, taxInclusive, tax, total, paidAmount, outstandingAmount, currency: DEFAULT_CURRENCY, status: invoiceStatus, notes: str(body.notes, 2000), createdAt: now, updatedAt: now });
+    await db.collection('invoices').insertOne(doc);
+    // Claim the previously-unallocated booking payments so a later invoice cannot
+    // accidentally apply the same payments a second time.
+    if (refs.bookingId && priorBookingPayments.length) {
+      await db.collection('payments').updateMany(tenantFilter(session, {
+        type: 'customer', bookingId: refs.bookingId, status: { $in: ['completed', 'partially_refunded'] },
+        invoiceId: { $in: ['', null] },
+      }), { $set: { invoiceId: doc.id, updatedAt: now } });
+    }
+    const { _id, ...safe } = doc;
     await logActivity(db, session, { type: 'invoice_created', message: `Invoice ${invoiceNumber} created`, refType: 'invoice', refId: safe.id });
     return json({ invoice: safe }, 201);
   }
@@ -943,16 +966,28 @@ async function applyPaymentSettlement(db, session, { type, amount, receivable, p
 
 // Reverse a previously-applied completed payment (when it is cancelled/failed after the fact).
 async function reversePaymentSettlement(db, session, payment, now) {
-  const amount = nonNeg(payment.amount);
+  // Only the net amount still retained by the business should be reversed.
+  const amount = Math.max(0, round2(nonNeg(payment.amount) - nonNeg(payment.refundedAmount)));
   if (amount <= 0) return;
   if (payment.type === 'customer') {
     if (payment.receivableId) {
       const r = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: payment.receivableId }));
       if (r) { const newPaid = Math.max(0, round2((r.receivedAmount || 0) - amount)); const outstanding = Math.max(0, round2(r.totalAmount - newPaid)); await db.collection('customerReceivables').updateOne(tenantFilter(session, { id: r.id }), { $set: { receivedAmount: newPaid, outstandingAmount: outstanding, status: settleStatus(r.totalAmount, newPaid, r.status === 'cancelled'), updatedAt: now } }); }
     }
-    if (payment.invoiceId) {
-      const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: payment.invoiceId }));
-      if (inv && inv.status !== 'cancelled') { const invPaid = Math.max(0, round2((inv.paidAmount || 0) - amount)); const invOut = Math.max(0, round2(inv.total - invPaid)); const base = settleStatus(inv.total, invPaid, false); const invStatus = base === 'pending' ? (inv.status === 'draft' ? 'draft' : 'issued') : base; await db.collection('invoices').updateOne(tenantFilter(session, { id: inv.id }), { $set: { paidAmount: invPaid, outstandingAmount: invOut, status: invStatus, updatedAt: now } }); }
+    // Resolve invoice through either the payment's direct link or its receivable.
+    const linkedReceivable = !payment.invoiceId && payment.receivableId
+      ? await db.collection('customerReceivables').findOne(tenantFilter(session, { id: payment.receivableId }))
+      : null;
+    const invoiceId = payment.invoiceId || (linkedReceivable && linkedReceivable.invoiceId) || '';
+    if (invoiceId) {
+      const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: invoiceId }));
+      if (inv && inv.status !== 'cancelled') {
+        const invPaid = Math.max(0, round2((inv.paidAmount || 0) - amount));
+        const invOut = Math.max(0, round2(inv.total - invPaid));
+        const base = settleStatus(inv.total, invPaid, false);
+        const invStatus = base === 'pending' ? (inv.status === 'draft' ? 'draft' : 'issued') : base;
+        await db.collection('invoices').updateOne(tenantFilter(session, { id: inv.id }), { $set: { paidAmount: invPaid, outstandingAmount: invOut, status: invStatus, updatedAt: now } });
+      }
     }
   } else if (payment.payableId) {
     const p = await db.collection('supplierPayables').findOne(tenantFilter(session, { id: payment.payableId }));
@@ -965,11 +1000,11 @@ async function reversePaymentSettlement(db, session, payment, now) {
 async function paymentsGet(db, session, path) {
   if (path === '/payments/dashboard') {
     const [pays, refunds] = await Promise.all([
-      db.collection('payments').find(tenantFilter(session), { projection: { _id: 0, type: 1, amount: 1, status: 1, paymentDate: 1 } }).toArray(),
+      db.collection('payments').find(tenantFilter(session), { projection: { _id: 0, type: 1, amount: 1, refundedAmount: 1, status: 1, paymentDate: 1 } }).toArray(),
       db.collection('paymentRefunds').find(tenantFilter(session, { status: 'completed' }), { projection: { _id: 0, amount: 1 } }).toArray(),
     ]);
     const done = (p) => p.status === 'completed' || p.status === 'partially_refunded' || p.status === 'refunded';
-    const sum = (arr) => round2(arr.reduce((s, x) => s + (Number(x.amount) || 0), 0));
+    const sum = (arr) => round2(arr.reduce((s, x) => s + Math.max(0, (Number(x.amount) || 0) - (Number(x.refundedAmount) || 0)), 0));
     const completed = pays.filter(done);
     const today = today10(); const month = today.slice(0, 7);
     return json({ dashboard: {
@@ -1021,14 +1056,43 @@ async function paymentsPost(db, session, path, body) {
     const amount = nonNeg(body.amount);
     if (amount <= 0) return err('Refund amount must be greater than zero');
     const already = nonNeg(pay.refundedAmount);
-    const refundable = round2(pay.amount - already);
+    const refundStatus = REFUND_STATUSES.includes(body.status) ? body.status : 'completed';
+    // Pending refunds reserve refundable balance but do not change settlement balances yet.
+    const pendingRows = await db.collection('paymentRefunds').find(tenantFilter(session, { paymentId: pay.id, status: 'pending' }), { projection: { _id: 0, amount: 1 } }).toArray();
+    const pendingTotal = round2(pendingRows.reduce((sum, row) => sum + nonNeg(row.amount), 0));
+    const refundable = round2(pay.amount - already - pendingTotal);
     if (amount > refundable + 0.001) return err('Refund exceeds the refundable amount');
-    const refund = withAgency(session, { id: uuidv4(), paymentId: pay.id, paymentNumber: pay.paymentNumber, amount, refundDate: str(body.refundDate, 40) || today10(), refundReference: str(body.refundReference, 200), status: REFUND_STATUSES.includes(body.status) ? body.status : 'completed', notes: str(body.notes, 2000), createdBy: session.userId, createdAt: now });
+    const refund = withAgency(session, { id: uuidv4(), paymentId: pay.id, paymentNumber: pay.paymentNumber, amount, refundDate: str(body.refundDate, 40) || today10(), refundReference: str(body.refundReference, 200), status: refundStatus, notes: str(body.notes, 2000), createdBy: session.userId, createdAt: now });
     await db.collection('paymentRefunds').insertOne(refund);
-    const newRefunded = round2(already + amount);
-    const pStatus = newRefunded >= round2(pay.amount) - 0.001 ? 'refunded' : 'partially_refunded';
-    await db.collection('payments').updateOne(tenantFilter(session, { id }), { $set: { refundedAmount: newRefunded, status: pStatus, updatedAt: now } });
     if (refund.status === 'completed') {
+      const newRefunded = round2(already + amount);
+      const pStatus = newRefunded >= round2(pay.amount) - 0.001 ? 'refunded' : 'partially_refunded';
+      await db.collection('payments').updateOne(tenantFilter(session, { id }), { $set: { refundedAmount: newRefunded, status: pStatus, updatedAt: now } });
+      // A completed refund reverses the refunded portion of the original settlement.
+      // Keep receivable and invoice balances aligned with the net customer payment.
+      if (pay.receivableId) {
+        const recv = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: pay.receivableId }));
+        if (recv) {
+          const receivedAmount = Math.max(0, round2((recv.receivedAmount || 0) - amount));
+          const outstandingAmount = Math.max(0, round2(recv.totalAmount - receivedAmount));
+          await db.collection('customerReceivables').updateOne(tenantFilter(session, { id: recv.id }), { $set: {
+            receivedAmount, outstandingAmount, status: settleStatus(recv.totalAmount, receivedAmount, recv.status === 'cancelled'), updatedAt: now,
+          } });
+        }
+      }
+      const refundInvoiceId = pay.invoiceId || (pay.receivableId
+        ? ((await db.collection('customerReceivables').findOne(tenantFilter(session, { id: pay.receivableId }))) || {}).invoiceId
+        : '');
+      if (refundInvoiceId) {
+        const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: refundInvoiceId }));
+        if (inv && inv.status !== 'cancelled') {
+          const paidAmount = Math.max(0, round2((inv.paidAmount || 0) - amount));
+          const outstandingAmount = Math.max(0, round2(inv.total - paidAmount));
+          const base = settleStatus(inv.total, paidAmount, false);
+          const status = base === 'pending' ? (inv.status === 'draft' ? 'draft' : 'issued') : base;
+          await db.collection('invoices').updateOne(tenantFilter(session, { id: inv.id }), { $set: { paidAmount, outstandingAmount, status, updatedAt: now } });
+        }
+      }
       await createTxn(db, session, { type: 'expense', category: 'refund', amount, clientId: pay.clientId || '', clientName: pay.clientName || '', bookingId: pay.bookingId || '', bookingNumber: pay.bookingNumber || '', referenceType: 'refund', referenceId: refund.id, paymentMethod: pay.paymentMethod, transactionDate: refund.refundDate, status: 'completed', description: `Refund against ${pay.paymentNumber}`, notes: str(body.notes, 2000) });
     }
     await logActivity(db, session, { type: 'payment_refunded', message: `Refund of ${amount} recorded against ${pay.paymentNumber}`, refType: 'payment', refId: pay.id });
@@ -1063,6 +1127,9 @@ async function paymentsPost(db, session, path, body) {
       clientId: refs.clientId, clientName: refs.clientName, supplierId: refs.supplierId, supplierName: refs.supplierName,
       bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, invoiceId: refs.invoiceId,
       receivableId: receivable ? receivable.id : '', payableId: payable ? payable.id : '',
+      // Persist the effective invoice link, including one inherited from the receivable,
+      // so later cancellation/refund can reverse the same invoice settlement.
+      invoiceId: refs.invoiceId || (receivable && receivable.invoiceId) || '',
       amount, currency: str(body.currency, 8) || DEFAULT_CURRENCY,
       paymentMethod: PAYMENT_METHODS.includes(body.paymentMethod) ? body.paymentMethod : 'other',
       transactionReference: str(body.transactionReference, 200), paymentDate: str(body.paymentDate, 40) || today10(),
@@ -1085,8 +1152,58 @@ async function paymentsPost(db, session, path, body) {
 
 async function paymentsPut(db, session, path, body) {
   const now = new Date().toISOString();
-  const parts = path.split('/'); // ['', 'payments', id, 'status']
+  const parts = path.split('/');
   const id = parts[2]; const action = parts[3];
+
+  // Complete or cancel a previously pending refund:
+  // PUT /payments/:paymentId/refunds/:refundId { status: 'completed' | 'cancelled' }
+  if (action === 'refunds' && parts.length === 5) {
+    if (!can(session.role, 'payments:refund')) return err('forbidden', 403);
+    const refundId = parts[4];
+    const to = body.status;
+    if (!['completed', 'cancelled'].includes(to)) return err('Refund status must be completed or cancelled');
+    const pay = await db.collection('payments').findOne(tenantFilter(session, { id }));
+    if (!pay) return err('Payment not found', 404);
+    const refund = await db.collection('paymentRefunds').findOne(tenantFilter(session, { id: refundId, paymentId: id }));
+    if (!refund) return err('Refund not found', 404);
+    if (refund.status !== 'pending') return err('Only a pending refund can be updated');
+    if (to === 'completed') {
+      const newRefunded = round2(nonNeg(pay.refundedAmount) + nonNeg(refund.amount));
+      if (newRefunded > nonNeg(pay.amount) + 0.001) return err('Refund exceeds the remaining refundable amount');
+      const pStatus = newRefunded >= round2(pay.amount) - 0.001 ? 'refunded' : 'partially_refunded';
+      await db.collection('payments').updateOne(tenantFilter(session, { id }), { $set: { refundedAmount: newRefunded, status: pStatus, updatedAt: now } });
+      if (pay.receivableId) {
+        const recv = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: pay.receivableId }));
+        if (recv) {
+          const receivedAmount = Math.max(0, round2((recv.receivedAmount || 0) - refund.amount));
+          const outstandingAmount = Math.max(0, round2(recv.totalAmount - receivedAmount));
+          await db.collection('customerReceivables').updateOne(tenantFilter(session, { id: recv.id }), { $set: {
+            receivedAmount, outstandingAmount, status: settleStatus(recv.totalAmount, receivedAmount, recv.status === 'cancelled'), updatedAt: now,
+          } });
+        }
+      }
+      const invoiceId = pay.invoiceId || (pay.receivableId
+        ? ((await db.collection('customerReceivables').findOne(tenantFilter(session, { id: pay.receivableId }))) || {}).invoiceId
+        : '');
+      if (invoiceId) {
+        const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: invoiceId }));
+        if (inv && inv.status !== 'cancelled') {
+          const paidAmount = Math.max(0, round2((inv.paidAmount || 0) - refund.amount));
+          const outstandingAmount = Math.max(0, round2(inv.total - paidAmount));
+          const base = settleStatus(inv.total, paidAmount, false);
+          const status = base === 'pending' ? (inv.status === 'draft' ? 'draft' : 'issued') : base;
+          await db.collection('invoices').updateOne(tenantFilter(session, { id: inv.id }), { $set: { paidAmount, outstandingAmount, status, updatedAt: now } });
+        }
+      }
+      await createTxn(db, session, { type: 'expense', category: 'refund', amount: refund.amount, clientId: pay.clientId || '', clientName: pay.clientName || '', bookingId: pay.bookingId || '', bookingNumber: pay.bookingNumber || '', referenceType: 'refund', referenceId: refund.id, paymentMethod: pay.paymentMethod, transactionDate: refund.refundDate, status: 'completed', description: `Refund against ${pay.paymentNumber}`, notes: refund.notes || '' });
+    }
+    await db.collection('paymentRefunds').updateOne(tenantFilter(session, { id: refundId, paymentId: id }), { $set: { status: to, updatedAt: now } });
+    await logActivity(db, session, { type: to === 'completed' ? 'payment_refunded' : 'payment_refund_cancelled', message: `Refund ${refund.id} marked ${to}`, refType: 'payment', refId: id });
+    const updatedPayment = await db.collection('payments').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+    const updatedRefund = await db.collection('paymentRefunds').findOne(tenantFilter(session, { id: refundId }), { projection: { _id: 0 } });
+    return json({ payment: updatedPayment, refund: updatedRefund });
+  }
+
   if (action !== 'status') return err('not found', 404);
   const to = body.status;
   if (!PAYMENT_STATUSES.includes(to)) return err('Invalid payment status');
