@@ -999,11 +999,11 @@ async function reversePaymentSettlement(db, session, payment, now) {
 async function paymentsGet(db, session, path) {
   if (path === '/payments/dashboard') {
     const [pays, refunds] = await Promise.all([
-      db.collection('payments').find(tenantFilter(session), { projection: { _id: 0, type: 1, amount: 1, status: 1, paymentDate: 1 } }).toArray(),
+      db.collection('payments').find(tenantFilter(session), { projection: { _id: 0, type: 1, amount: 1, refundedAmount: 1, status: 1, paymentDate: 1 } }).toArray(),
       db.collection('paymentRefunds').find(tenantFilter(session, { status: 'completed' }), { projection: { _id: 0, amount: 1 } }).toArray(),
     ]);
     const done = (p) => p.status === 'completed' || p.status === 'partially_refunded' || p.status === 'refunded';
-    const sum = (arr) => round2(arr.reduce((s, x) => s + (Number(x.amount) || 0), 0));
+    const sum = (arr) => round2(arr.reduce((s, x) => s + Math.max(0, (Number(x.amount) || 0) - (Number(x.refundedAmount) || 0)), 0));
     const completed = pays.filter(done);
     const today = today10(); const month = today.slice(0, 7);
     return json({ dashboard: {
@@ -1063,6 +1063,31 @@ async function paymentsPost(db, session, path, body) {
     const pStatus = newRefunded >= round2(pay.amount) - 0.001 ? 'refunded' : 'partially_refunded';
     await db.collection('payments').updateOne(tenantFilter(session, { id }), { $set: { refundedAmount: newRefunded, status: pStatus, updatedAt: now } });
     if (refund.status === 'completed') {
+      // A completed refund reverses the refunded portion of the original settlement.
+      // Keep receivable and invoice balances aligned with the net customer payment.
+      if (pay.receivableId) {
+        const recv = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: pay.receivableId }));
+        if (recv) {
+          const receivedAmount = Math.max(0, round2((recv.receivedAmount || 0) - amount));
+          const outstandingAmount = Math.max(0, round2(recv.totalAmount - receivedAmount));
+          await db.collection('customerReceivables').updateOne(tenantFilter(session, { id: recv.id }), { $set: {
+            receivedAmount, outstandingAmount, status: settleStatus(recv.totalAmount, receivedAmount, recv.status === 'cancelled'), updatedAt: now,
+          } });
+        }
+      }
+      const refundInvoiceId = pay.invoiceId || (pay.receivableId
+        ? ((await db.collection('customerReceivables').findOne(tenantFilter(session, { id: pay.receivableId }))) || {}).invoiceId
+        : '');
+      if (refundInvoiceId) {
+        const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: refundInvoiceId }));
+        if (inv && inv.status !== 'cancelled') {
+          const paidAmount = Math.max(0, round2((inv.paidAmount || 0) - amount));
+          const outstandingAmount = Math.max(0, round2(inv.total - paidAmount));
+          const base = settleStatus(inv.total, paidAmount, false);
+          const status = base === 'pending' ? (inv.status === 'draft' ? 'draft' : 'issued') : base;
+          await db.collection('invoices').updateOne(tenantFilter(session, { id: inv.id }), { $set: { paidAmount, outstandingAmount, status, updatedAt: now } });
+        }
+      }
       await createTxn(db, session, { type: 'expense', category: 'refund', amount, clientId: pay.clientId || '', clientName: pay.clientName || '', bookingId: pay.bookingId || '', bookingNumber: pay.bookingNumber || '', referenceType: 'refund', referenceId: refund.id, paymentMethod: pay.paymentMethod, transactionDate: refund.refundDate, status: 'completed', description: `Refund against ${pay.paymentNumber}`, notes: str(body.notes, 2000) });
     }
     await logActivity(db, session, { type: 'payment_refunded', message: `Refund of ${amount} recorded against ${pay.paymentNumber}`, refType: 'payment', refId: pay.id });
