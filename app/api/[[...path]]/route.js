@@ -808,7 +808,18 @@ async function financePost(db, session, path, body) {
     }
     const status = ['draft', 'issued'].includes(body.status) ? body.status : 'draft';
     const invoiceNumber = await nextInvoiceNumber(db, session);
-    const doc = withAgency(session, { id: uuidv4(), invoiceNumber, clientId: refs.clientId, clientName: refs.clientName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, quotationId: refs.quotationId, issueDate: str(body.issueDate, 40) || today10(), dueDate: str(body.dueDate, 40), subtotal, discount, taxPercent, taxInclusive, tax, total, paidAmount: 0, outstandingAmount: total, currency: DEFAULT_CURRENCY, status, notes: str(body.notes, 2000), createdAt: now, updatedAt: now });
+    // Carry forward completed customer payments already recorded against this booking
+    // before the invoice existed. Payments already linked to another invoice are excluded.
+    const priorBookingPayments = refs.bookingId ? await db.collection('payments').find(tenantFilter(session, {
+      type: 'customer', bookingId: refs.bookingId, status: { $in: ['completed', 'partially_refunded'] },
+      invoiceId: { $in: ['', null] },
+    }), { projection: { _id: 0, amount: 1, refundedAmount: 1 } }).toArray() : [];
+    const priorPaid = round2(priorBookingPayments.reduce((sum, p) =>
+      sum + Math.max(0, (Number(p.amount) || 0) - (Number(p.refundedAmount) || 0)), 0));
+    const paidAmount = Math.min(total, priorPaid);
+    const outstandingAmount = Math.max(0, round2(total - paidAmount));
+    const invoiceStatus = paidAmount >= total && total > 0 ? 'paid' : (paidAmount > 0 ? 'partially_paid' : status);
+    const doc = withAgency(session, { id: uuidv4(), invoiceNumber, clientId: refs.clientId, clientName: refs.clientName, bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, quotationId: refs.quotationId, issueDate: str(body.issueDate, 40) || today10(), dueDate: str(body.dueDate, 40), subtotal, discount, taxPercent, taxInclusive, tax, total, paidAmount, outstandingAmount, currency: DEFAULT_CURRENCY, status: invoiceStatus, notes: str(body.notes, 2000), createdAt: now, updatedAt: now });
     await db.collection('invoices').insertOne(doc); const { _id, ...safe } = doc;
     await logActivity(db, session, { type: 'invoice_created', message: `Invoice ${invoiceNumber} created`, refType: 'invoice', refId: safe.id });
     return json({ invoice: safe }, 201);
@@ -950,9 +961,20 @@ async function reversePaymentSettlement(db, session, payment, now) {
       const r = await db.collection('customerReceivables').findOne(tenantFilter(session, { id: payment.receivableId }));
       if (r) { const newPaid = Math.max(0, round2((r.receivedAmount || 0) - amount)); const outstanding = Math.max(0, round2(r.totalAmount - newPaid)); await db.collection('customerReceivables').updateOne(tenantFilter(session, { id: r.id }), { $set: { receivedAmount: newPaid, outstandingAmount: outstanding, status: settleStatus(r.totalAmount, newPaid, r.status === 'cancelled'), updatedAt: now } }); }
     }
-    if (payment.invoiceId) {
-      const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: payment.invoiceId }));
-      if (inv && inv.status !== 'cancelled') { const invPaid = Math.max(0, round2((inv.paidAmount || 0) - amount)); const invOut = Math.max(0, round2(inv.total - invPaid)); const base = settleStatus(inv.total, invPaid, false); const invStatus = base === 'pending' ? (inv.status === 'draft' ? 'draft' : 'issued') : base; await db.collection('invoices').updateOne(tenantFilter(session, { id: inv.id }), { $set: { paidAmount: invPaid, outstandingAmount: invOut, status: invStatus, updatedAt: now } }); }
+    // Resolve invoice through either the payment's direct link or its receivable.
+    const linkedReceivable = !payment.invoiceId && payment.receivableId
+      ? await db.collection('customerReceivables').findOne(tenantFilter(session, { id: payment.receivableId }))
+      : null;
+    const invoiceId = payment.invoiceId || (linkedReceivable && linkedReceivable.invoiceId) || '';
+    if (invoiceId) {
+      const inv = await db.collection('invoices').findOne(tenantFilter(session, { id: invoiceId }));
+      if (inv && inv.status !== 'cancelled') {
+        const invPaid = Math.max(0, round2((inv.paidAmount || 0) - amount));
+        const invOut = Math.max(0, round2(inv.total - invPaid));
+        const base = settleStatus(inv.total, invPaid, false);
+        const invStatus = base === 'pending' ? (inv.status === 'draft' ? 'draft' : 'issued') : base;
+        await db.collection('invoices').updateOne(tenantFilter(session, { id: inv.id }), { $set: { paidAmount: invPaid, outstandingAmount: invOut, status: invStatus, updatedAt: now } });
+      }
     }
   } else if (payment.payableId) {
     const p = await db.collection('supplierPayables').findOne(tenantFilter(session, { id: payment.payableId }));
@@ -1063,6 +1085,9 @@ async function paymentsPost(db, session, path, body) {
       clientId: refs.clientId, clientName: refs.clientName, supplierId: refs.supplierId, supplierName: refs.supplierName,
       bookingId: refs.bookingId, bookingNumber: refs.bookingNumber, invoiceId: refs.invoiceId,
       receivableId: receivable ? receivable.id : '', payableId: payable ? payable.id : '',
+      // Persist the effective invoice link, including one inherited from the receivable,
+      // so later cancellation/refund can reverse the same invoice settlement.
+      invoiceId: refs.invoiceId || (receivable && receivable.invoiceId) || '',
       amount, currency: str(body.currency, 8) || DEFAULT_CURRENCY,
       paymentMethod: PAYMENT_METHODS.includes(body.paymentMethod) ? body.paymentMethod : 'other',
       transactionReference: str(body.transactionReference, 200), paymentDate: str(body.paymentDate, 40) || today10(),
