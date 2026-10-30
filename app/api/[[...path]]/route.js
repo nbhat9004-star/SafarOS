@@ -966,7 +966,8 @@ async function applyPaymentSettlement(db, session, { type, amount, receivable, p
 
 // Reverse a previously-applied completed payment (when it is cancelled/failed after the fact).
 async function reversePaymentSettlement(db, session, payment, now) {
-  const amount = nonNeg(payment.amount);
+  // Only the net amount still retained by the business should be reversed.
+  const amount = Math.max(0, round2(nonNeg(payment.amount) - nonNeg(payment.refundedAmount)));
   if (amount <= 0) return;
   if (payment.type === 'customer') {
     if (payment.receivableId) {
@@ -1055,14 +1056,18 @@ async function paymentsPost(db, session, path, body) {
     const amount = nonNeg(body.amount);
     if (amount <= 0) return err('Refund amount must be greater than zero');
     const already = nonNeg(pay.refundedAmount);
-    const refundable = round2(pay.amount - already);
+    const refundStatus = REFUND_STATUSES.includes(body.status) ? body.status : 'completed';
+    // Pending refunds reserve refundable balance but do not change settlement balances yet.
+    const pendingRows = await db.collection('paymentRefunds').find(tenantFilter(session, { paymentId: pay.id, status: 'pending' }), { projection: { _id: 0, amount: 1 } }).toArray();
+    const pendingTotal = round2(pendingRows.reduce((sum, row) => sum + nonNeg(row.amount), 0));
+    const refundable = round2(pay.amount - already - pendingTotal);
     if (amount > refundable + 0.001) return err('Refund exceeds the refundable amount');
-    const refund = withAgency(session, { id: uuidv4(), paymentId: pay.id, paymentNumber: pay.paymentNumber, amount, refundDate: str(body.refundDate, 40) || today10(), refundReference: str(body.refundReference, 200), status: REFUND_STATUSES.includes(body.status) ? body.status : 'completed', notes: str(body.notes, 2000), createdBy: session.userId, createdAt: now });
+    const refund = withAgency(session, { id: uuidv4(), paymentId: pay.id, paymentNumber: pay.paymentNumber, amount, refundDate: str(body.refundDate, 40) || today10(), refundReference: str(body.refundReference, 200), status: refundStatus, notes: str(body.notes, 2000), createdBy: session.userId, createdAt: now });
     await db.collection('paymentRefunds').insertOne(refund);
-    const newRefunded = round2(already + amount);
-    const pStatus = newRefunded >= round2(pay.amount) - 0.001 ? 'refunded' : 'partially_refunded';
-    await db.collection('payments').updateOne(tenantFilter(session, { id }), { $set: { refundedAmount: newRefunded, status: pStatus, updatedAt: now } });
     if (refund.status === 'completed') {
+      const newRefunded = round2(already + amount);
+      const pStatus = newRefunded >= round2(pay.amount) - 0.001 ? 'refunded' : 'partially_refunded';
+      await db.collection('payments').updateOne(tenantFilter(session, { id }), { $set: { refundedAmount: newRefunded, status: pStatus, updatedAt: now } });
       // A completed refund reverses the refunded portion of the original settlement.
       // Keep receivable and invoice balances aligned with the net customer payment.
       if (pay.receivableId) {
