@@ -4268,11 +4268,15 @@ export async function POST(request, context) {
       const target = String(body.target || '');
       if (!isValidImportTarget(target)) return err('Unknown import target');
       if (!can(session.role, IMPORT_META[target].perm)) return err('forbidden', 403);
-      const type = body.type === 'xlsx' ? 'xlsx' : 'csv';
+      const supportedTypes = ['csv', 'xlsx', 'docx', 'pdf'];
+      const type = supportedTypes.includes(String(body.type || '').toLowerCase()) ? String(body.type).toLowerCase() : '';
+      if (!type) return err('Unsupported file format. Use CSV, Excel (.xlsx/.xls), Word (.docx), or PDF.');
       if (!body.content) return err('No file content provided');
       let parsed;
-      try { parsed = parseUpload({ type, content: body.content, encoding: body.encoding || 'base64' }); }
-      catch { return err('Could not read the file. Please check it is a valid CSV/XLSX.'); }
+      try { parsed = await parseUpload({ type, content: body.content, encoding: body.encoding || 'base64' }); }
+      catch (parseError) {
+        return err(parseError?.message || 'Could not read the file. Please check that it is a valid supported document with a header row and tabular data.');
+      }
       if (!parsed.columns.length) return err('No columns were detected in the file');
       if (!parsed.rows.length) return err('No data rows were found in the file');
 
