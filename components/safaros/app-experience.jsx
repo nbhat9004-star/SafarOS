@@ -1056,6 +1056,7 @@ function DataImport({ session, onNavigate }) {
             <Label>File (CSV, Excel, Word or PDF)</Label>
             <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.docx,.pdf" onChange={onFile}
               className="block w-full max-w-md text-sm file:mr-3 file:rounded-md file:border-0 file:bg-violet-600 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-violet-700" />
+            <p className="text-xs text-muted-foreground">Word files must contain a table with column headers. PDFs must contain selectable text arranged in columns; scanned/image-only PDFs are not supported yet.</p>
             {file && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><FileSpreadsheet className="h-3.5 w-3.5" />{file.name}</p>}
           </div>
           <Button onClick={analyze} disabled={busy || !target || !content}>{busy ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" />Analyzing…</> : 'Analyze file'}</Button>
