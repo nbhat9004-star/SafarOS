@@ -977,9 +977,15 @@ function DataImport({ session, onNavigate }) {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     const ext = f.name.toLowerCase().split('.').pop();
-    if (!['csv', 'xlsx', 'xls'].includes(ext)) { toast.error('Please choose a CSV or XLSX file'); return; }
-    setFile(f); setFileType(ext === 'csv' ? 'csv' : 'xlsx');
-    try { setContent(await readFileAsBase64(f)); } catch { toast.error('Could not read the file'); }
+    if (!['csv', 'xlsx', 'xls', 'docx', 'pdf'].includes(ext)) {
+      toast.error('Choose CSV, Excel (.xlsx/.xls), Word (.docx), or PDF');
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
+    setFile(f);
+    setFileType(ext === 'xls' ? 'xlsx' : ext);
+    try { setContent(await readFileAsBase64(f)); }
+    catch { toast.error('Could not read the file'); setFile(null); setContent(''); }
   };
 
   const analyze = async () => {
@@ -1021,7 +1027,7 @@ function DataImport({ session, onNavigate }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-bold">Import Data</h2>
-          <p className="text-sm text-muted-foreground">Bring existing records into SafarOS from CSV or Excel. Duplicates are detected and never overwritten.</p>
+          <p className="text-sm text-muted-foreground">Import records from CSV, Excel, Word tables or text-based PDF tables. Duplicates are detected and never overwritten.</p>
         </div>
         {step !== 'upload' && <Button variant="outline" size="sm" onClick={reset}>Start over</Button>}
       </div>
@@ -1047,8 +1053,8 @@ function DataImport({ session, onNavigate }) {
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>File (CSV or XLSX)</Label>
-            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={onFile}
+            <Label>File (CSV, Excel, Word or PDF)</Label>
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.docx,.pdf" onChange={onFile}
               className="block w-full max-w-md text-sm file:mr-3 file:rounded-md file:border-0 file:bg-violet-600 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-violet-700" />
             {file && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><FileSpreadsheet className="h-3.5 w-3.5" />{file.name}</p>}
           </div>
