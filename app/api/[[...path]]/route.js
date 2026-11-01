@@ -3432,7 +3432,7 @@ export async function GET(request, context) {
       if (sp.get('serviceId') && type === 'rate-plans') query.serviceId = sp.get('serviceId');
       if (sp.get('q')) {
         let q = sp.get('q').trim().slice(0, 100);
-        for (const ch of ['\\\\', '.', '*', '+', '?', '^', '$', '{', '}', '(', ')', '|', '[', ']']) q = q.replaceAll(ch, '\\\\' + ch);
+        for (const ch of ['\\', '.', '*', '+', '?', '^', '$', '{', '}', '(', ')', '|', '[', ']']) q = q.replaceAll(ch, '\\' + ch);
         query.$or = [{ name: { $regex: q, $options: 'i' } }, { destination: { $regex: q, $options: 'i' } }];
       }
       const limit = Math.min(200, Math.max(1, Number(sp.get('limit') || 50))), page = Math.max(1, Number(sp.get('page') || 1));
