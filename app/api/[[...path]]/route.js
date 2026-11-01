@@ -33,6 +33,7 @@ import {
 import {
   IMPORT_META, IMPORT_FIELDS, isValidImportTarget, parseUpload, suggestMapping, IMPORT_ROW_CAP,
 } from '@/lib/import-engine';
+import { INVENTORY_TYPES, buildInventoryItem, buildRatePlan } from '@/lib/inventory';
 import {
   RULE_SERVICE_CATEGORIES, RULE_SEASONS, RULE_CONDITIONS, RULE_SURCHARGE_TYPES,
   buildTravelRule, calculateSurcharge,
@@ -77,6 +78,18 @@ function clientIp(request) {
 
 async function readBody(request) {
   try { return await request.json(); } catch { return {}; }
+}
+
+const INVENTORY_PATH_TYPES = Object.freeze({ accommodations: 'accommodation', activities: 'activity', transport: 'transport' });
+function inventoryCollection(type) {
+  return type === 'rate-plans' ? 'inventoryRatePlans' : INVENTORY_TYPES[INVENTORY_PATH_TYPES[type]] || null;
+}
+async function inventorySupplierExists(db, session, supplierId) {
+  return !!(await db.collection('suppliers').findOne(tenantFilter(session, { id: supplierId }), { projection: { _id: 1 } }));
+}
+async function inventoryServiceExists(db, session, serviceType, serviceId) {
+  const collection = INVENTORY_TYPES[serviceType];
+  return !!(collection && await db.collection(collection).findOne(tenantFilter(session, { id: serviceId }), { projection: { _id: 1 } }));
 }
 
 // --- CRM client helpers (minimal, schema-compatible) ---
@@ -3391,6 +3404,44 @@ export async function GET(request, context) {
       return publicGet(db, path);
     }
 
+    // ---- Travel Inventory read API ----
+    if (path === '/inventory/summary' || path === '/inventory' || path.startsWith('/inventory/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'inventory:read')) return err('forbidden', 403);
+      const db = await getDb();
+      if (path === '/inventory/summary') {
+        const counts = {};
+        for (const [key, collection] of Object.entries({ accommodations: 'inventoryAccommodations', activities: 'inventoryActivities', transport: 'inventoryTransport', ratePlans: 'inventoryRatePlans' })) {
+          counts[key] = await db.collection(collection).countDocuments(tenantFilter(session, { status: 'active' }));
+        }
+        return json({ counts });
+      }
+      const parts = path.split('/'), type = parts[2] || '', collection = inventoryCollection(type);
+      if (!collection) return err('Unknown inventory type', 404);
+      if (parts.length === 4) {
+        const record = await db.collection(collection).findOne(tenantFilter(session, { id: parts[3] }), { projection: { _id: 0 } });
+        if (!record) return err('Inventory record not found', 404);
+        return json({ [type === 'rate-plans' ? 'ratePlan' : 'item']: record });
+      }
+      if (parts.length !== 3) return err('Invalid inventory path', 404);
+      const sp = new URL(request.url).searchParams, query = {};
+      for (const key of ['status', 'supplierId']) if (sp.get(key)) query[key] = sp.get(key);
+      if (sp.get('destination') && type !== 'rate-plans') query.destination = sp.get('destination');
+      if (sp.get('serviceType') && type === 'rate-plans') query.serviceType = sp.get('serviceType');
+      if (sp.get('serviceId') && type === 'rate-plans') query.serviceId = sp.get('serviceId');
+      if (sp.get('q')) {
+        const q = sp.get('q').trim().slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, '\\    if (path.startsWith('/website/')) {');
+        query.$or = [{ name: { $regex: q, $options: 'i' } }, { destination: { $regex: q, $options: 'i' } }];
+      }
+      const limit = Math.min(200, Math.max(1, Number(sp.get('limit') || 50))), page = Math.max(1, Number(sp.get('page') || 1));
+      const [items, total] = await Promise.all([
+        db.collection(collection).find(tenantFilter(session, query), { projection: { _id: 0 } }).sort({ updatedAt: -1, createdAt: -1 }).skip((page - 1) * limit).limit(limit).toArray(),
+        db.collection(collection).countDocuments(tenantFilter(session, query)),
+      ]);
+      return json({ [type === 'rate-plans' ? 'ratePlans' : 'items']: items, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+    }
+
     if (path.startsWith('/website/')) {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
@@ -4201,6 +4252,33 @@ export async function POST(request, context) {
 
     // ---- Landing page early-access / contact form (public, no auth) ----
     if (path === '/early-access') return earlyAccessSubmit(db, await readBody(request));
+
+    // ---- Travel Inventory create API ----
+    if (path.startsWith('/inventory/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      if (!can(session.role, 'inventory:create')) return err('forbidden', 403);
+      const parts = path.split('/');
+      if (parts.length !== 3) return err('Invalid inventory path', 404);
+      const type = parts[2], collection = inventoryCollection(type);
+      if (!collection) return err('Unknown inventory type', 404);
+      const body = await readBody(request);
+      const built = type === 'rate-plans' ? buildRatePlan(body) : buildInventoryItem(INVENTORY_PATH_TYPES[type], body);
+      if (built.error) return err(built.error);
+      const value = built.value;
+      if (!await inventorySupplierExists(db, session, value.supplierId)) return err('Supplier not found in this agency', 400);
+      if (type === 'rate-plans') {
+        if (!await inventoryServiceExists(db, session, value.serviceType, value.serviceId)) return err('Inventory service not found in this agency', 400);
+        const service = await db.collection(INVENTORY_TYPES[value.serviceType]).findOne(tenantFilter(session, { id: value.serviceId }), { projection: { supplierId: 1 } });
+        if (!service || service.supplierId !== value.supplierId) return err('Rate supplier must match the inventory supplier', 400);
+      }
+      const now = new Date().toISOString();
+      const doc = withAgency(session, { id: uuidv4(), ...value, createdBy: session.userId, createdAt: now, updatedAt: now });
+      await db.collection(collection).insertOne(doc);
+      const { _id, ...safe } = doc;
+      await logActivity(db, session, { type: 'inventory_created', message: `Created ${type} inventory: ${safe.name || safe.serviceId}`, refType: 'inventory', refId: safe.id });
+      return json({ [type === 'rate-plans' ? 'ratePlan' : 'item']: safe }, 201);
+    }
 
     // ---- Supplier Discovery (K1): save a discovered business into the EXISTING suppliers collection ----
     if (path === '/discovery/save') {
@@ -5034,6 +5112,31 @@ export async function PUT(request, context) {
     if (path.match(/^\/integrations\/[^/]+$/) || path.match(/^\/webhooks\/[^/]+$/) || path.match(/^\/dev\/api-keys\/[^/]+$/)) {
       if (!can(session.role, 'integrations:manage')) return err('forbidden', 403);
       return integrationsPut(db, session, path, await readBody(request));
+    }
+
+    // ---- Travel Inventory update / archive API ----
+    if (path.match(/^\\/inventory\\/(accommodations|activities|transport|rate-plans)\\/[^/]+$/)) {
+      if (!can(session.role, 'inventory:update')) return err('forbidden', 403);
+      const parts = path.split('/'), type = parts[2], id = parts[3], collection = inventoryCollection(type);
+      const existing = await db.collection(collection).findOne(tenantFilter(session, { id }));
+      if (!existing) return err('Inventory record not found', 404);
+      const body = await readBody(request);
+      const built = type === 'rate-plans' ? buildRatePlan(body, { partial: true }) : buildInventoryItem(INVENTORY_PATH_TYPES[type], body, { partial: true });
+      if (built.error) return err(built.error);
+      const value = built.value;
+      if (value.status === 'archived' && !can(session.role, 'inventory:archive')) return err('forbidden', 403);
+      const supplierId = value.supplierId || existing.supplierId;
+      if (!await inventorySupplierExists(db, session, supplierId)) return err('Supplier not found in this agency', 400);
+      if (type === 'rate-plans') {
+        const serviceType = value.serviceType || existing.serviceType, serviceId = value.serviceId || existing.serviceId;
+        if (!await inventoryServiceExists(db, session, serviceType, serviceId)) return err('Inventory service not found in this agency', 400);
+        const service = await db.collection(INVENTORY_TYPES[serviceType]).findOne(tenantFilter(session, { id: serviceId }), { projection: { supplierId: 1 } });
+        if (!service || service.supplierId !== supplierId) return err('Rate supplier must match the inventory supplier', 400);
+      }
+      value.updatedAt = new Date().toISOString();
+      await db.collection(collection).updateOne(tenantFilter(session, { id }), { $set: value });
+      const updated = await db.collection(collection).findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+      return json({ [type === 'rate-plans' ? 'ratePlan' : 'item']: updated });
     }
 
     // ---- Kashmir Travel Intelligence (update) ----
