@@ -62,7 +62,7 @@ export default function InventoryWorkspace() {
         request(`/inventory/${type}?limit=100`),
         request('/inventory/summary'),
       ]);
-      setItems(list.items || list.records || []);
+      setItems(list.items || list.ratePlans || list.records || []);
       setSummary(counts.summary || counts.counts || counts);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
@@ -98,8 +98,8 @@ export default function InventoryWorkspace() {
 
   const countFor = (key) => {
     if (!summary) return '—';
-    const plural = key === 'accommodations' ? 'accommodations' : key;
-    return summary[plural] ?? summary.counts?.[plural] ?? '—';
+    const summaryKey = key === 'rate-plans' ? 'ratePlans' : key;
+    return summary[summaryKey] ?? summary.counts?.[summaryKey] ?? '—';
   };
 
   if (authStatus === 'checking') return <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6"><div className="rounded-2xl border border-slate-200 bg-white px-6 py-8 text-center shadow-sm"><div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-violet-100 border-t-violet-600" /><p className="font-semibold text-slate-800">Checking your SafarOS session…</p><p className="mt-1 text-sm text-slate-500">Securely connecting to your agency workspace.</p></div></main>;
