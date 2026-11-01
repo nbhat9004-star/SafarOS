@@ -3410,7 +3410,7 @@ export async function GET(request, context) {
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'inventory:read')) return err('forbidden', 403);
       const db = await getDb();
-      if (path === '/inventory/summary') {
+      if (path === '/inventory/summary' || path === '/inventory') {
         const counts = {};
         for (const [key, collection] of Object.entries({ accommodations: 'inventoryAccommodations', activities: 'inventoryActivities', transport: 'inventoryTransport', ratePlans: 'inventoryRatePlans' })) {
           counts[key] = await db.collection(collection).countDocuments(tenantFilter(session, { status: 'active' }));
@@ -3431,7 +3431,8 @@ export async function GET(request, context) {
       if (sp.get('serviceType') && type === 'rate-plans') query.serviceType = sp.get('serviceType');
       if (sp.get('serviceId') && type === 'rate-plans') query.serviceId = sp.get('serviceId');
       if (sp.get('q')) {
-        const q = sp.get('q').trim().slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, '\\    if (path.startsWith('/website/')) {');
+        let q = sp.get('q').trim().slice(0, 100);
+        for (const ch of ['\\\\', '.', '*', '+', '?', '^', '$', '{', '}', '(', ')', '|', '[', ']']) q = q.replaceAll(ch, '\\\\' + ch);
         query.$or = [{ name: { $regex: q, $options: 'i' } }, { destination: { $regex: q, $options: 'i' } }];
       }
       const limit = Math.min(200, Math.max(1, Number(sp.get('limit') || 50))), page = Math.max(1, Number(sp.get('page') || 1));
@@ -5115,7 +5116,7 @@ export async function PUT(request, context) {
     }
 
     // ---- Travel Inventory update / archive API ----
-    if (path.match(/^\\/inventory\\/(accommodations|activities|transport|rate-plans)\\/[^/]+$/)) {
+    if (path.startsWith('/inventory/') && path.split('/').length === 4 && ['accommodations', 'activities', 'transport', 'rate-plans'].includes(path.split('/')[2])) {
       if (!can(session.role, 'inventory:update')) return err('forbidden', 403);
       const parts = path.split('/'), type = parts[2], id = parts[3], collection = inventoryCollection(type);
       const existing = await db.collection(collection).findOne(tenantFilter(session, { id }));
