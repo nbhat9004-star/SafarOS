@@ -12,6 +12,7 @@ const TYPES = [
 async function request(path, options = {}) {
   const response = await fetch(`/api${path}`, {
     ...options,
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
   });
   const payload = await response.json().catch(() => ({}));
@@ -24,6 +25,8 @@ function Field({ label, value, onChange, placeholder, type = 'text', required = 
 }
 
 export default function InventoryWorkspace() {
+  const [authStatus, setAuthStatus] = useState('checking');
+  const [authError, setAuthError] = useState('');
   const [type, setType] = useState('accommodations');
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -36,7 +39,23 @@ export default function InventoryWorkspace() {
   const [form, setForm] = useState({ name: '', supplierId: '', destination: '', description: '', currency: 'INR', unit: 'per_night', netCost: '', sellingGuidePrice: '', validFrom: '', validTo: '' });
 
   const selected = TYPES.find(x => x.id === type) || TYPES[0];
+
+  // A Preview deployment has its own host-only session cookie. Verify the agency
+  // session on this exact origin before requesting tenant-scoped inventory.
+  useEffect(() => {
+    let active = true;
+    request('/auth/me')
+      .then(() => { if (active) setAuthStatus('authenticated'); })
+      .catch((e) => {
+        if (!active) return;
+        if (e.message === 'unauthenticated') setAuthStatus('unauthenticated');
+        else { setAuthError(e.message); setAuthStatus('error'); }
+      });
+    return () => { active = false; };
+  }, []);
+
   const load = useCallback(async () => {
+    if (authStatus !== 'authenticated') return;
     setLoading(true); setError('');
     try {
       const [list, counts] = await Promise.all([
@@ -47,9 +66,9 @@ export default function InventoryWorkspace() {
       setSummary(counts.summary || counts.counts || counts);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
-  }, [type]);
+  }, [type, authStatus]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (authStatus === 'authenticated') load(); }, [load, authStatus]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -82,6 +101,12 @@ export default function InventoryWorkspace() {
     const plural = key === 'accommodations' ? 'accommodations' : key;
     return summary[plural] ?? summary.counts?.[plural] ?? '—';
   };
+
+  if (authStatus === 'checking') return <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6"><div className="rounded-2xl border border-slate-200 bg-white px-6 py-8 text-center shadow-sm"><div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-violet-100 border-t-violet-600" /><p className="font-semibold text-slate-800">Checking your SafarOS session…</p><p className="mt-1 text-sm text-slate-500">Securely connecting to your agency workspace.</p></div></main>;
+
+  if (authStatus === 'unauthenticated') return <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5 py-10"><section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 text-center shadow-sm"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-xl text-violet-700">✦</div><h1 className="mt-4 text-2xl font-bold tracking-tight text-slate-900">Sign in to SafarOS</h1><p className="mt-2 text-sm leading-6 text-slate-600">Travel Inventory is private to your agency. Sign in on this Preview address to create a secure session, then reopen this page.</p><a href="/login" className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700">Continue to sign in</a><p className="mt-4 text-xs text-slate-400">Preview and production use separate browser sessions.</p></section></main>;
+
+  if (authStatus === 'error') return <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5"><section className="max-w-md rounded-2xl border border-rose-200 bg-white p-6"><h1 className="font-semibold text-slate-900">Unable to verify your session</h1><p className="mt-2 text-sm text-rose-700">{authError || 'Please refresh and try again.'}</p><button onClick={() => window.location.reload()} className="mt-4 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white">Retry</button></section></main>;
 
   return <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
     <div className="mx-auto max-w-7xl space-y-6">
