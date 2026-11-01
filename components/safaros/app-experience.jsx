@@ -29,6 +29,7 @@ import { can } from '@/lib/rbac';
 import { useLocalization } from '@/components/safaros/localization-provider';
 import { GCC_COUNTRIES, getCountryDefaults } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
+import InventoryWorkspace from '@/components/safaros/inventory-workspace';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
   Trash2, Lock, Globe, Layers, ArrowLeft, Menu, X, Search, Pencil, Eye,
@@ -236,6 +237,7 @@ const NAV = [
       { id: 'suppliers', label: 'Suppliers', icon: Store },
       { id: 'bookings', label: 'Bookings', icon: ClipboardList },
       { id: 'fleet', label: 'Fleet', icon: Truck },
+      { id: 'inventory', label: 'Travel Inventory', icon: BedDouble },
     ],
   },
   {
@@ -321,6 +323,7 @@ const SECTION_TITLES = {
   discover: 'Discover Suppliers',
   bookings: 'Bookings',
   fleet: 'Fleet',
+  inventory: 'Travel Inventory',
   fin_dashboard: 'Finance Dashboard', fin_transactions: 'Transactions',
   fin_receivables: 'Customer Receivables', fin_payables: 'Supplier Payables',
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
@@ -403,7 +406,7 @@ const MOBILE_NAV = [
     { id: 'quotations', label: 'Quotations' }, { id: 'quote-create', label: 'Create Quotation' }, { id: 'packages', label: 'Packages' },
   ] },
   { id: 'operations', label: 'Operations', icon: Truck, items: [
-    { id: 'itineraries', label: 'Itineraries' }, { id: 'bookings', label: 'Bookings' }, { id: 'suppliers', label: 'Suppliers' }, { id: 'fleet', label: 'Fleet' },
+    { id: 'itineraries', label: 'Itineraries' }, { id: 'bookings', label: 'Bookings' }, { id: 'suppliers', label: 'Suppliers' }, { id: 'fleet', label: 'Fleet' }, { id: 'inventory', label: 'Travel Inventory' },
   ] },
   { id: 'finance', label: 'Finance', icon: Wallet, items: [
     { id: 'fin_dashboard', label: 'Finance Dashboard' }, { id: 'fin_transactions', label: 'Transactions' }, { id: 'fin_receivables', label: 'Customer Receivables' },
@@ -445,6 +448,7 @@ const DESKTOP_WORKSPACES = [
     { id: 'bookings', label: 'Bookings', desc: 'Manage bookings', icon: ClipboardList, tone: 'sky' },
     { id: 'suppliers', label: 'Suppliers', desc: 'Supplier management', icon: Store, tone: 'emerald' },
     { id: 'fleet', label: 'Fleet', desc: 'Vehicles and drivers', icon: Truck, tone: 'amber' },
+    { id: 'inventory', label: 'Travel Inventory', desc: 'Stays, activities, transport and seasonal rates', icon: BedDouble, tone: 'violet' },
   ] },
   { id: 'finance', label: 'Finance', icon: Wallet, subtitle: 'Money in, money out', tiles: [
     { id: 'fin_dashboard', label: 'Finance Overview', desc: 'Financial snapshot', icon: Wallet, tone: 'violet' },
@@ -1326,6 +1330,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'discover' && <SupplierDiscovery key="discover" session={session} onGo={setActive} />}
           {active === 'bookings' && <Bookings key="bk" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'fleet' && <Fleet key="fleet" session={session} />}
+          {active === 'inventory' && <InventoryWorkspace key="inventory" />}
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
           {active === 'copilot' && <CopilotWorkspace session={session} />}
