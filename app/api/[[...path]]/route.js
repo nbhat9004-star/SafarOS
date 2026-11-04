@@ -4752,9 +4752,11 @@ export async function POST(request, context) {
       const slug = agencyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40) || 'agency';
       const countryCode = String(body.countryCode || '').slice(0, 2).toUpperCase();
       const currency = String(body.currency || '').slice(0, 5).toUpperCase();
+      const locale = body.locale === 'ar' ? 'ar' : 'en';
+      const timeZone = String(body.timeZone || '').slice(0, 100);
       await db.collection('agencies').insertOne({
         id: agencyId, name: agencyName, slug, plan: 'trial', status: 'pending_verification',
-        countryCode, currency, createdAt: now,
+        countryCode, currency, locale, ...(timeZone ? { timezone: timeZone } : {}), createdAt: now,
       });
       try {
         await db.collection('users').insertOne({
@@ -5485,7 +5487,7 @@ export async function PUT(request, context) {
     // Agency onboarding setup — updates the session's own agency only.
     if (path === '/agency') {      if (!can(session.role, 'agency:manage')) return err('forbidden', 403);
       const b = await readBody(request);
-      const fields = ['name', 'phone', 'website', 'address', 'city', 'country', 'currency', 'timezone'];
+      const fields = ['name', 'phone', 'website', 'address', 'city', 'country', 'countryCode', 'currency', 'timezone', 'locale'];
       const update = {};
       for (const k of fields) { if (b[k] !== undefined) update[k] = String(b[k]); }
       if (b.email !== undefined) update.email = String(b.email).toLowerCase();
