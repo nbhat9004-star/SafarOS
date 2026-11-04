@@ -5,7 +5,6 @@ import styles from './localization.module.css';
 import {
   getCountryDefaults,
   SUPPORTED_CURRENCIES,
-  getCountryDefaults,
   getLocaleDirection,
   normalizeLocale,
 } from '@/lib/localization';
