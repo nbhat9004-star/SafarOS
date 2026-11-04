@@ -105,7 +105,10 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
       setOtpStep(true);
       setOtp('');
       toast.success('Verification code sent to your email');
-    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+    } catch (e) {
+      if (String(e.message || '').toLowerCase().includes('pending signup')) { setPendingEmail(signup.email.trim().toLowerCase()); setOtpStep(true); toast.info('Enter the code already sent, or request a new one.'); }
+      else toast.error(e.message);
+    } finally { setLoading(false); }
   };
   const doVerify = async () => {
     if (!/^\\d{6}$/.test(otp)) { toast.error('Enter the six-digit code'); return; }
