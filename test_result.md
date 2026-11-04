@@ -472,3 +472,9 @@ All endpoints correctly return 401 for unauthenticated requests, confirming prop
 **Next.js Version:** 15.5.26  
 **MongoDB:** Connected and operational  
 **Server Status:** ✅ Running
+
+## SafarOS ↔ SafarCurated Integration — Round 1 (Jul 2025)
+**Status:** Implemented, statically verified only (lint + compile + offline HMAC/mapping test). NOT runtime-tested (preview has no MONGO_URL/JWT_SECRET; user chose "code and checks only"). No testing agents used, no records created, nothing pushed/deployed.
+- SafarOS: `lib/safarcurated.js`, `components/safaros/marketplace-workspace.jsx`, route.js (`/marketplace/*`, `/platform/safarcurated*`, `kind:'marketplace'` packages), `lib/secrets.js` (provider `safarcurated`), `lib/rbac.js` (`marketplace:*`), nav + Super Admin section.
+- SafarCurated changes delivered as patch: `docs/safarcurated-integration/safarcurated.patch` (3 new files, no existing file modified).
+- Full report: `docs/safarcurated-integration/ROUND1_ACCEPTANCE_REPORT.md`; audit: `PHASE0_AUDIT.md`.

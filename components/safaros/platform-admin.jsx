@@ -46,6 +46,7 @@ const NAV = [
   { id: 'themes', label: 'Website Theme Library', icon: Palette },
   { id: 'ai', label: 'AI Platforms', icon: Bot },
   { id: 'api_integrations', label: 'API & Integrations', icon: KeyRound },
+  { id: 'safarcurated', label: 'SafarCurated', icon: Globe },
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'audit', label: 'Audit Logs', icon: ScrollText },
@@ -525,6 +526,57 @@ function IntegrationsView() {
   </div>);
 }
 
+// ---------- SafarCurated Marketplace integration (Super Admin control) ----------
+function SafarCuratedView({ admin }) {
+  const [d, setD] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [confirmOff, setConfirmOff] = useState(false);
+  const isSuper = admin?.role === 'super_admin';
+  const load = useCallback(() => api('/safarcurated').then(setD).catch((e) => toast.error(e.message)), []);
+  useEffect(() => { load(); }, [load]);
+  const act = async (kind) => {
+    setBusy(kind);
+    try {
+      const r = await api(`/safarcurated/${kind}`, { method: 'POST', body: '{}' });
+      setD(r.summary);
+      toast.success(kind === 'connect' ? 'SafarCurated connected — mappings verified.' : (r.remoteNotified ? 'SafarCurated disconnected.' : 'Disconnected locally (SafarCurated could not be notified; it will be told on reconnect).'));
+    } catch (e) { toast.error(e.message); } finally { setBusy(''); setConfirmOff(false); }
+  };
+  if (!d) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
+  const fmt = (t) => (t ? new Date(t).toLocaleString() : '—');
+  const pc = d.packageCounts || {};
+  return (<div className="space-y-4" data-testid="sc-admin">
+    <Card><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
+      <div className="space-y-1">
+        <div className="flex items-center gap-2"><span className="font-semibold">SafarCurated Marketplace</span>
+          <Badge variant={d.connected ? 'default' : 'secondary'} data-testid="sc-admin-status">{d.connected ? 'Connected' : 'Disconnected'}</Badge>
+          {!d.configured && <Badge variant="destructive">Credentials not configured</Badge>}</div>
+        <p className="text-sm text-muted-foreground">Last successful sync: {fmt(d.lastSuccessAt)} · Connected: {fmt(d.connectedAt)} · Disconnected: {fmt(d.disconnectedAt)}</p>
+        {!d.configured && <p className="text-sm text-muted-foreground">Set the Base URL and Shared Signing Secret under API &amp; Integrations → SafarCurated Marketplace first.</p>}
+        {d.lastMappingCheck && <p className="text-xs text-muted-foreground">Mapping check ({fmt(d.lastMappingCheck.at)}): SafarOS {d.lastMappingCheck.local?.linkedAgencies} linked agencies / {d.lastMappingCheck.local?.listings} listings · SafarCurated {d.lastMappingCheck.remote?.linkedAgencies ?? '?'} / {d.lastMappingCheck.remote?.listings ?? '?'}</p>}
+      </div>
+      <div className="flex gap-2">
+        {d.connected
+          ? <Button variant="destructive" disabled={!isSuper || !!busy} onClick={() => setConfirmOff(true)} data-testid="sc-disconnect">Disconnect SafarCurated</Button>
+          : <Button disabled={!isSuper || !d.configured || !!busy} onClick={() => act('connect')} data-testid="sc-connect">{busy === 'connect' ? 'Verifying…' : (d.disconnectedAt ? 'Reconnect SafarCurated' : 'Connect SafarCurated')}</Button>}
+      </div>
+    </CardContent></Card>
+    {!isSuper && <p className="text-xs text-muted-foreground">Only Super Admin can connect or disconnect the integration.</p>}
+    <div className="grid gap-3 sm:grid-cols-4"><Stat label="Linked agencies" value={d.linkedAgencies} /><Stat label="Links awaiting confirmation" value={d.pendingLinks} /><Stat label="Published (approved)" value={pc.approved || 0} /><Stat label="Pending approval" value={pc.pending || 0} /></div>
+    <Card><CardHeader><CardTitle className="text-base">Published packages &amp; sync status</CardTitle></CardHeader><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Package</TableHead><TableHead>Agency</TableHead><TableHead>Status</TableHead><TableHead>Last synced</TableHead><TableHead>Error</TableHead></TableRow></TableHeader><TableBody>
+      {(d.publishedPackages || []).length === 0 ? <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground">No packages submitted yet</TableCell></TableRow>
+        : d.publishedPackages.map((p) => (<TableRow key={p.id}><TableCell className="font-medium">{p.publicUrl ? <a className="underline" href={p.publicUrl} target="_blank" rel="noreferrer">{p.name}</a> : p.name}</TableCell><TableCell>{p.agencyName}</TableCell><TableCell className="capitalize">{p.status}</TableCell><TableCell>{fmt(p.lastSyncedAt)}</TableCell><TableCell className="max-w-xs truncate text-red-600">{p.lastError}</TableCell></TableRow>))}
+    </TableBody></Table></CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Synchronisation errors</CardTitle></CardHeader><CardContent className="space-y-1 text-sm">
+      {(d.errors || []).length === 0 ? <span className="text-muted-foreground">No errors</span> : d.errors.map((e) => (<div key={e.id}><span className="text-muted-foreground">{fmt(e.at)}</span> · {e.agencyName || 'platform'} · {e.action} · <span className="text-red-600">{e.error}</span></div>))}
+    </CardContent></Card>
+    <Dialog open={confirmOff} onOpenChange={setConfirmOff}><DialogContent><DialogHeader><DialogTitle>Disconnect SafarCurated?</DialogTitle></DialogHeader>
+      <div className="space-y-2 text-sm text-muted-foreground"><p>Package publishing, outgoing synchronisation and agency sign-in to SafarCurated will stop for every agency. SafarCurated will stop accepting new integration events.</p><p>Nothing is deleted: agency accounts, packages, bookings, customer records, stored credentials and existing SafarCurated listings are preserved. You can reconnect at any time; mappings are re-verified without creating duplicates.</p></div>
+      <DialogFooter><Button variant="outline" onClick={() => setConfirmOff(false)}>Cancel</Button><Button variant="destructive" disabled={!!busy} onClick={() => act('disconnect')} data-testid="sc-disconnect-confirm">{busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}</Button></DialogFooter>
+    </DialogContent></Dialog>
+  </div>);
+}
+
 // ---------- Analytics ----------
 function AnalyticsView() {
   const [d, setD] = useState(null);
@@ -732,6 +784,7 @@ export default function PlatformAdmin() {
         {section === 'themes' && <WebsiteThemesView />}
         {section === 'ai' && <AiView />}
         {section === 'api_integrations' && <ProviderCredentialsView />}
+        {section === 'safarcurated' && <SafarCuratedView admin={admin} />}
         {section === 'integrations' && <IntegrationsView />}
         {section === 'analytics' && <AnalyticsView />}
         {section === 'audit' && <AuditView />}

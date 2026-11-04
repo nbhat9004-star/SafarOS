@@ -35,6 +35,10 @@ import {
 } from '@/lib/import-engine';
 import { INVENTORY_TYPES, buildInventoryItem, buildRatePlan } from '@/lib/inventory';
 import {
+  signPayload as scSignPayload, getIntegrationState as scGetState, setIntegrationState as scSetState, integrationGate as scGate,
+  scRequest, normalizeMarketplaceFields, validateForMarketplace, mapPackageToListing, normalizePubStatus,
+} from '@/lib/safarcurated';
+import {
   RULE_SERVICE_CATEGORIES, RULE_SEASONS, RULE_CONDITIONS, RULE_SURCHARGE_TYPES,
   buildTravelRule, calculateSurcharge,
   DOCUMENT_ENTITY_TYPES, DOCUMENT_CATEGORIES, DOCUMENT_MAX_BYTES, buildDocumentMeta,
@@ -314,6 +318,22 @@ const PACKAGE_STATUSES = ['draft', 'active', 'completed', 'cancelled'];
 function validatePackageInput(body) {
   const name = String(body.name || '').trim();
   if (!name) return { error: 'Package name is required' };
+  // Marketplace packages are public catalog products: no client/lead/quotation is ever attached.
+  if (body.kind === 'marketplace') {
+    const destination = String(body.destination || '').trim();
+    if (!destination) return { error: 'Destination is required' };
+    const startDate = String(body.startDate || '').trim();
+    const endDate = String(body.endDate || '').trim();
+    if (startDate && endDate && startDate > endDate) return { error: 'End date must be on or after the start date' };
+    return {
+      value: {
+        kind: 'marketplace', name: name.slice(0, 160), destination: destination.slice(0, 160), startDate, endDate,
+        nights: Math.max(0, Math.floor(num(body.nights, 0))),
+        description: String(body.description || '').slice(0, 4000),
+        marketplace: normalizeMarketplaceFields(body.marketplace || {}),
+      },
+    };
+  }
   const customerType = body.customerType === 'lead' ? 'lead' : 'client';
   const customerId = String(body.customerId || '').trim();
   if (!customerId) return { error: 'Please select a client or lead' };
@@ -2742,6 +2762,7 @@ function platformReadPerm(path) {
   if (path.startsWith('/platform/plans')) return 'plans:read';
   if (path.startsWith('/platform/ai-platforms')) return 'ai:read';
   if (path.startsWith('/platform/provider-credentials')) return 'integrations:read';
+  if (path.startsWith('/platform/safarcurated')) return 'integrations:read';
   if (path.startsWith('/platform/integrations')) return 'integrations:read';
   if (path.startsWith('/platform/analytics')) return 'analytics:read';
   if (path.startsWith('/platform/audit')) return 'audit:read';
@@ -2831,14 +2852,201 @@ async function testProviderConnection(provider, values = {}) {
       if (r.status === 401) return { ok: false, message: 'Razorpay rejected the credentials (401).' };
       return { ok: false, message: `Razorpay returned HTTP ${r.status}.` };
     }
+    if (provider === 'safarcurated') {
+      const base = String(values.baseUrl || '').replace(/\/+$/, ''); const secret = values.sharedSecret || '';
+      if (!/^https?:\/\//.test(base) || !secret) return { ok: false, message: 'Base URL and shared secret are required.' };
+      const raw = '{}'; const ts = String(Math.floor(Date.now() / 1000)); const eventId = uuidv4();
+      const r = await fetch(`${base}/api/integrations/safaros/ping`, {
+        method: 'POST', body: raw, cache: 'no-store',
+        headers: { 'Content-Type': 'application/json', 'X-Safar-Source': 'safaros', 'X-Safar-Timestamp': ts, 'X-Safar-Event-Id': eventId, 'X-Safar-Signature': scSignPayload(secret, ts, eventId, raw) },
+      });
+      if (r.ok) return { ok: true, message: 'SafarCurated verified the signed request.' };
+      if (r.status === 401) return { ok: false, message: 'SafarCurated rejected the signature (shared secret mismatch).' };
+      if (r.status === 404) return { ok: false, message: 'SafarCurated integration endpoint not found (SafarCurated update not deployed yet).' };
+      return { ok: false, message: `SafarCurated returned HTTP ${r.status}.` };
+    }
     return { ok: false, message: 'Connection test not supported for this provider.' };
   } catch (e) {
     return { ok: false, message: 'Connection test failed to reach the provider.' };
   }
 }
 
+// ===================== SafarCurated Marketplace (agency side) =====================
+function pubView(p) {
+  return { id: p.id, name: p.name, destination: p.destination, nights: p.nights || 0, startDate: p.startDate || '', endDate: p.endDate || '',
+    description: p.description || '', marketplace: p.marketplace || {}, status: p.status, updatedAt: p.updatedAt,
+    publication: { status: normalizePubStatus(p.marketplacePublication?.status), ...(p.marketplacePublication || {}) } };
+}
+
+async function scItineraryDays(db, session, pkg) {
+  if (!pkg.itineraryId) return null;
+  const it = await db.collection('itineraries').findOne(tenantFilter(session, { id: pkg.itineraryId }), { projection: { days: 1 } });
+  return Array.isArray(it?.days) ? it.days : null;
+}
+
+async function setPublication(db, session, id, patch) {
+  const set = {}; for (const [k, v] of Object.entries(patch)) set[`marketplacePublication.${k}`] = v;
+  await db.collection('packages').updateOne(tenantFilter(session, { id, kind: 'marketplace' }), { $set: set });
+}
+
+// Publish / republish / update. Explicit operator action only (or auto-update of an already-submitted listing).
+async function publishMarketplacePackage(db, session, pkg, action = 'publish') {
+  const now = new Date().toISOString();
+  const issues = validateForMarketplace(pkg);
+  if (issues.length) { await setPublication(db, session, pkg.id, { lastError: issues.join('; '), lastAttemptAt: now }); return { ok: false, error: 'Package is not ready for the marketplace', issues }; }
+  const agency = await db.collection('agencies').findOne({ id: session.agencyId }, { projection: { _id: 0, id: 1, name: 1, slug: 1, safarcurated: 1 } });
+  if (agency?.safarcurated?.status !== 'linked') return { ok: false, error: 'Link your agency to SafarCurated first' };
+  const listing = mapPackageToListing(pkg, agency, await scItineraryDays(db, session, pkg));
+  const r = await scRequest(db, '/listings/upsert', { agencyId: session.agencyId, listing }, { agencyId: session.agencyId, action: `package_${action}`, refId: pkg.id });
+  if (!r.ok) {
+    await setPublication(db, session, pkg.id, { lastError: r.error, lastAttemptAt: now, ...(pkg.marketplacePublication?.listingId ? {} : { status: 'error' }) });
+    return { ok: false, error: r.error };
+  }
+  const l = r.data?.listing || {};
+  await setPublication(db, session, pkg.id, { status: normalizePubStatus(l.status), listingId: String(l.id || ''), publicUrl: String(l.publicUrl || ''), rejectionReason: String(l.rejectionReason || ''), lastSyncedAt: now, lastAttemptAt: now, lastError: '' });
+  await logActivity(db, session, { type: `marketplace_${action}`, message: `Package "${pkg.name}" ${action === 'update' ? 'synced to' : 'submitted to'} SafarCurated`, refType: 'package', refId: pkg.id });
+  return { ok: true };
+}
+
+async function marketplaceHandler(db, session, method, path, request) {
+  if (!can(session.role, 'marketplace:read')) return err('forbidden', 403);
+  const agencyId = session.agencyId;
+  const getPkg = async (id) => db.collection('packages').findOne(tenantFilter(session, { id, kind: 'marketplace' }), { projection: { _id: 0 } });
+
+  if (method === 'GET' && path === '/marketplace/overview') {
+    const gate = await scGate(db);
+    const state = await scGetState(db);
+    const agency = await db.collection('agencies').findOne({ id: agencyId }, { projection: { _id: 0, name: 1, slug: 1, safarcurated: 1 } });
+    const pkgs = (await db.collection('packages').find(tenantFilter(session, { kind: 'marketplace' }), { projection: { _id: 0 } }).sort({ updatedAt: -1 }).toArray()).map(pubView);
+    const counts = { draft: 0, pending: 0, approved: 0, rejected: 0, unpublished: 0, error: 0 };
+    pkgs.forEach((p) => { counts[p.publication.status] = (counts[p.publication.status] || 0) + 1; });
+    const errors = await db.collection('marketplaceSyncLogs').find({ agencyId, ok: false }, { projection: { _id: 0, action: 1, refId: 1, error: 1, at: 1 } }).sort({ at: -1 }).limit(10).toArray();
+    return json({
+      integration: { configured: gate.cfg?.configured || false, connected: Boolean(state.connected), available: gate.ok, reason: gate.ok ? '' : gate.reason },
+      link: agency?.safarcurated || { status: 'not_linked' }, agency: { name: agency?.name || '', slug: agency?.slug || '' },
+      canPublish: can(session.role, 'marketplace:publish'), canLink: can(session.role, 'marketplace:link'),
+      packages: pkgs, counts, errors,
+    });
+  }
+  if (method === 'GET' && /^\/marketplace\/packages\/[^/]+\/preview$/.test(path)) {
+    const pkg = await getPkg(path.split('/')[3]);
+    if (!pkg) return err('Package not found', 404);
+    const agency = await db.collection('agencies').findOne({ id: agencyId }, { projection: { _id: 0, id: 1, name: 1, slug: 1 } });
+    return json({ listing: mapPackageToListing(pkg, agency, await scItineraryDays(db, session, pkg)), issues: validateForMarketplace(pkg) });
+  }
+  if (method !== 'POST') return err('Not found', 404);
+
+  // Link this agency to its SafarCurated operator identity (owner only; permanent mapping keyed by agencyId).
+  if (path === '/marketplace/link') {
+    if (!can(session.role, 'marketplace:link')) return err('Only the agency owner can link SafarCurated', 403);
+    const agency = await db.collection('agencies').findOne({ id: agencyId }, { projection: { _id: 0, id: 1, name: 1, slug: 1 } });
+    const owner = await db.collection('users').findOne({ id: session.userId, agencyId }, { projection: { _id: 0, id: 1, name: 1, email: 1 } });
+    if (!agency || !owner) return err('Agency not found', 404);
+    const r = await scRequest(db, '/agency/link', { agencyId, agencyName: agency.name, agencySlug: agency.slug, owner: { userId: owner.id, name: owner.name, email: owner.email } }, { agencyId, action: 'agency_link', refId: agencyId });
+    if (!r.ok) return err(r.error || 'Linking failed', r.blocked ? 409 : 502);
+    const l = r.data?.link || {};
+    const link = { status: l.status === 'linked' ? 'linked' : 'pending_confirmation', profileUrl: String(l.profileUrl || ''), linkedAt: new Date().toISOString(), linkedBy: session.userId };
+    await db.collection('agencies').updateOne({ id: agencyId }, { $set: { safarcurated: link } });
+    await logActivity(db, session, { type: 'marketplace_link', message: `Agency link to SafarCurated: ${link.status}`, refType: 'agency', refId: agencyId });
+    return json({ link });
+  }
+  // Short-lived signed SSO ticket -> agency-only dashboard on SafarCurated (no passwords shared).
+  if (path === '/marketplace/sso') {
+    const gate = await scGate(db);
+    if (!gate.ok) return err(gate.reason, 409);
+    const agency = await db.collection('agencies').findOne({ id: agencyId }, { projection: { _id: 0, safarcurated: 1 } });
+    if (!['linked', 'pending_confirmation'].includes(agency?.safarcurated?.status)) return err('Link your agency to SafarCurated first', 409);
+    const user = await db.collection('users').findOne({ id: session.userId, agencyId }, { projection: { _id: 0, name: 1, email: 1 } });
+    const returnUrl = (process.env.NEXT_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+    const payload = Buffer.from(JSON.stringify({ v: 1, agencyId, userId: session.userId, email: user?.email || '', name: user?.name || '', role: session.role, returnUrl, exp: Math.floor(Date.now() / 1000) + 120, jti: uuidv4() })).toString('base64url');
+    const sig = crypto.createHmac('sha256', gate.cfg.secret).update(`sso.${payload}`).digest('base64url');
+    return json({ url: `${gate.cfg.baseUrl}/dashboard/safaros?ticket=${payload}.${sig}` });
+  }
+  if (path === '/marketplace/sync') {
+    const r = await scRequest(db, '/listings/status', { agencyId }, { agencyId, action: 'status_sync', refId: agencyId });
+    if (!r.ok) return err(r.error || 'Status sync failed', r.blocked ? 409 : 502);
+    const now = new Date().toISOString(); let updated = 0;
+    for (const l of (Array.isArray(r.data?.listings) ? r.data.listings : [])) {
+      if (!l?.externalId) continue;
+      const res = await db.collection('packages').updateOne(tenantFilter(session, { id: String(l.externalId), kind: 'marketplace' }), { $set: {
+        'marketplacePublication.status': normalizePubStatus(l.status), 'marketplacePublication.listingId': String(l.id || ''),
+        'marketplacePublication.publicUrl': String(l.publicUrl || ''), 'marketplacePublication.rejectionReason': String(l.rejectionReason || ''),
+        'marketplacePublication.lastSyncedAt': now } });
+      updated += res.modifiedCount || 0;
+    }
+    if (r.data?.link?.status) await db.collection('agencies').updateOne({ id: agencyId }, { $set: { 'safarcurated.status': r.data.link.status === 'linked' ? 'linked' : 'pending_confirmation' } });
+    return json({ ok: true, updated });
+  }
+  const m = path.match(/^\/marketplace\/packages\/([^/]+)\/(publish|unpublish)$/);
+  if (m) {
+    if (!can(session.role, 'marketplace:publish')) return err('forbidden', 403);
+    const pkg = await getPkg(m[1]);
+    if (!pkg) return err('Package not found', 404);
+    if (m[2] === 'publish') {
+      const r = await publishMarketplacePackage(db, session, pkg, pkg.marketplacePublication?.listingId ? 'republish' : 'publish');
+      if (!r.ok) return json({ error: r.error, issues: r.issues || [] }, 400);
+    } else {
+      if (!pkg.marketplacePublication?.listingId) return err('This package is not on SafarCurated');
+      const r = await scRequest(db, '/listings/unpublish', { agencyId, externalId: pkg.id }, { agencyId, action: 'package_unpublish', refId: pkg.id });
+      if (!r.ok) { await setPublication(db, session, pkg.id, { lastError: r.error, lastAttemptAt: new Date().toISOString() }); return err(r.error, r.blocked ? 409 : 502); }
+      await setPublication(db, session, pkg.id, { status: 'unpublished', lastSyncedAt: new Date().toISOString(), lastError: '' });
+      await logActivity(db, session, { type: 'marketplace_unpublish', message: `Package "${pkg.name}" unpublished from SafarCurated`, refType: 'package', refId: pkg.id });
+    }
+    return json({ package: pubView(await getPkg(m[1])) });
+  }
+  return err('Not found', 404);
+}
+
+// ===================== SafarCurated (Super Admin side) =====================
+async function scPlatformSummary(db) {
+  const gate = await scGate(db, { ignoreConnected: true });
+  const state = await scGetState(db);
+  const linkedAgencies = await db.collection('agencies').countDocuments({ 'safarcurated.status': 'linked' });
+  const pendingLinks = await db.collection('agencies').countDocuments({ 'safarcurated.status': 'pending_confirmation' });
+  const agg = await db.collection('packages').aggregate([{ $match: { kind: 'marketplace' } }, { $group: { _id: '$marketplacePublication.status', n: { $sum: 1 } } }]).toArray();
+  const counts = {}; agg.forEach((a) => { counts[a._id || 'draft'] = a.n; });
+  const published = await db.collection('packages').find({ kind: 'marketplace', 'marketplacePublication.listingId': { $nin: ['', null] } },
+    { projection: { _id: 0, id: 1, name: 1, agencyId: 1, marketplacePublication: 1 } }).sort({ 'marketplacePublication.lastSyncedAt': -1 }).limit(50).toArray();
+  const names = Object.fromEntries((await db.collection('agencies').find({ id: { $in: [...new Set(published.map((p) => p.agencyId))] } }, { projection: { _id: 0, id: 1, name: 1 } }).toArray()).map((a) => [a.id, a.name]));
+  const errors = await db.collection('marketplaceSyncLogs').find({ ok: false }, { projection: { _id: 0 } }).sort({ at: -1 }).limit(20).toArray();
+  return {
+    configured: gate.cfg?.configured || false, connected: Boolean(state.connected),
+    connectedAt: state.connectedAt || null, disconnectedAt: state.disconnectedAt || null, lastSuccessAt: state.lastSuccessAt || null,
+    lastMappingCheck: state.lastMappingCheck || null, linkedAgencies, pendingLinks, packageCounts: counts,
+    publishedPackages: published.map((p) => ({ id: p.id, name: p.name, agencyName: names[p.agencyId] || '', status: p.marketplacePublication?.status, publicUrl: p.marketplacePublication?.publicUrl || '', lastSyncedAt: p.marketplacePublication?.lastSyncedAt || '', lastError: p.marketplacePublication?.lastError || '' })),
+    errors: errors.map((e) => ({ ...e, agencyName: names[e.agencyId] || '' })),
+  };
+}
+
+async function scPlatformAction(db, session, path, request) {
+  if (!canPlatform(session.role, 'integrations:manage')) return err('Only Super Admin can change the SafarCurated connection', 403);
+  const now = new Date().toISOString();
+  if (path === '/platform/safarcurated/connect') {
+    const gate = await scGate(db, { ignoreConnected: true });
+    if (!gate.ok) return err(gate.reason, 409);
+    // Verify the remote side + existing mappings BEFORE enabling (no records are created by this check).
+    const r = await scRequest(db, '/connection', { state: 'connected' }, { action: 'connect', ignoreConnected: true });
+    if (!r.ok) return err(`SafarCurated verification failed: ${r.error}`, 502);
+    const localLinks = await db.collection('agencies').countDocuments({ 'safarcurated.status': 'linked' });
+    const localListings = await db.collection('packages').countDocuments({ kind: 'marketplace', 'marketplacePublication.listingId': { $nin: ['', null] } });
+    const mappingCheck = { at: now, local: { linkedAgencies: localLinks, listings: localListings }, remote: { linkedAgencies: r.data?.links ?? null, listings: r.data?.listings ?? null } };
+    await scSetState(db, { connected: true, connectedAt: now, connectedBy: session.adminId, lastMappingCheck: mappingCheck });
+    await platformAudit(db, session, request, { action: 'safarcurated.connect', targetType: 'integration', targetId: 'safarcurated', metadata: mappingCheck });
+    return json({ ok: true, summary: await scPlatformSummary(db) });
+  }
+  if (path === '/platform/safarcurated/disconnect') {
+    // Stop locally FIRST (publishing, sync and SSO are gated on this flag), then notify SafarCurated best-effort.
+    await scSetState(db, { connected: false, disconnectedAt: now, disconnectedBy: session.adminId });
+    const r = await scRequest(db, '/connection', { state: 'disconnected' }, { action: 'disconnect', ignoreConnected: true });
+    await platformAudit(db, session, request, { action: 'safarcurated.disconnect', targetType: 'integration', targetId: 'safarcurated', metadata: { remoteNotified: r.ok, remoteError: r.ok ? '' : String(r.error || '') } });
+    return json({ ok: true, remoteNotified: r.ok, summary: await scPlatformSummary(db) });
+  }
+  return err('Not found', 404);
+}
+
 async function platformGet(db, session, path, sp) {
   if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
+  if (path === '/platform/safarcurated') return json(await scPlatformSummary(db));
 
   if (path === '/platform/themes') {
     for (const theme of PLATFORM_WEBSITE_THEME_DEFAULTS) {
@@ -3031,6 +3239,7 @@ async function platformGet(db, session, path, sp) {
 
 async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
+  if (path.startsWith('/platform/safarcurated/')) return scPlatformAction(db, session, path, request);
   if (path === '/platform/themes') {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
     const name = str(body.name, 80);
@@ -3402,6 +3611,13 @@ export async function GET(request, context) {
     if (path.startsWith('/public/')) {
       const db = await getDb();
       return publicGet(db, path);
+    }
+
+    // ---- SafarCurated marketplace (agency-scoped) ----
+    if (path.startsWith('/marketplace/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      return marketplaceHandler(await getDb(), session, 'GET', path, request);
     }
 
     // ---- Travel Inventory read API ----
@@ -3825,8 +4041,10 @@ export async function GET(request, context) {
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'packages:read')) return err('forbidden', 403);
       const db = await getDb();
+      // Client packages and marketplace packages are kept separate; existing callers see client packages only.
+      const kindFilter = new URL(request.url).searchParams.get('kind') === 'marketplace' ? { kind: 'marketplace' } : { kind: { $ne: 'marketplace' } };
       const packages = await db.collection('packages')
-        .find(tenantFilter(session), { projection: { _id: 0 } })
+        .find(tenantFilter(session, kindFilter), { projection: { _id: 0 } })
         .sort({ createdAt: -1 }).toArray();
       return json({ packages });
     }
@@ -4253,6 +4471,13 @@ export async function POST(request, context) {
 
     // ---- Landing page early-access / contact form (public, no auth) ----
     if (path === '/early-access') return earlyAccessSubmit(db, await readBody(request));
+
+    // ---- SafarCurated marketplace (agency-scoped) ----
+    if (path.startsWith('/marketplace/')) {
+      const session = getSession(request);
+      if (!session) return err('unauthenticated', 401);
+      return marketplaceHandler(db, session, 'POST', path, request);
+    }
 
     // ---- Travel Inventory create API ----
     if (path.startsWith('/inventory/')) {
@@ -4765,6 +4990,19 @@ export async function POST(request, context) {
       const body = await readBody(request);
       const { value, error } = validatePackageInput(body);
       if (error) return err(error);
+      if (value.kind === 'marketplace') {
+        if (!can(session2.role, 'marketplace:publish')) return err('forbidden', 403);
+        const nowM = new Date().toISOString();
+        const mdoc = withAgency(session2, {
+          id: uuidv4(), ...value, status: 'draft', itineraryId: '',
+          marketplacePublication: { status: 'draft', listingId: '', publicUrl: '', rejectionReason: '', lastSyncedAt: '', lastError: '' },
+          createdBy: session2.userId, createdAt: nowM, updatedAt: nowM,
+        });
+        await db.collection('packages').insertOne(mdoc);
+        const { _id: _mid, ...msafe } = mdoc;
+        await logActivity(db, session2, { type: 'package_created', message: `Marketplace package "${msafe.name}" created`, refType: 'package', refId: msafe.id });
+        return json({ package: msafe }, 201);
+      }
       const cust = await resolveQuotationCustomer(db, session2, value.customerType, value.customerId);
       if (!cust) return err('The selected client or lead was not found', 404);
       let quotationNumber = '';
@@ -5348,8 +5586,22 @@ export async function PUT(request, context) {
       const existing = await db.collection('packages').findOne(tenantFilter(session, { id }));
       if (!existing) return err('Package not found', 404);
       const body = await readBody(request);
+      // Package kind is immutable: a client package can never become public, and vice versa.
+      if ((existing.kind === 'marketplace') !== (body.kind === 'marketplace')) return err('Package type cannot be changed', 400);
       const { value, error } = validatePackageInput(body);
       if (error) return err(error);
+      if (value.kind === 'marketplace') {
+        if (!can(session.role, 'marketplace:publish')) return err('forbidden', 403);
+        await db.collection('packages').updateOne(tenantFilter(session, { id }), { $set: { ...value, updatedAt: new Date().toISOString() } });
+        let mpkg = await db.collection('packages').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+        // Auto-sync an already-submitted listing (SafarOS is the source of truth). Never auto-publishes a draft.
+        const pubStatus = mpkg.marketplacePublication?.status;
+        if (['pending', 'approved', 'rejected'].includes(pubStatus) && mpkg.marketplacePublication?.listingId) {
+          await publishMarketplacePackage(db, session, mpkg, 'update');
+          mpkg = await db.collection('packages').findOne(tenantFilter(session, { id }), { projection: { _id: 0 } });
+        }
+        return json({ package: mpkg });
+      }
       const cust = await resolveQuotationCustomer(db, session, value.customerType, value.customerId);
       if (!cust) return err('The selected client or lead was not found', 404);
       let quotationNumber = existing.quotationNumber || '';
@@ -5730,6 +5982,9 @@ export async function DELETE(request, context) {
       const existing = await db.collection('packages').findOne(tenantFilter(session, { id }));
       if (!existing) return err('Package not found', 404);
       if (existing.status !== 'draft') return err('Only draft packages can be deleted');
+      if (existing.kind === 'marketplace' && ['pending', 'approved', 'rejected'].includes(existing.marketplacePublication?.status)) {
+        return err('Unpublish this package from SafarCurated before deleting it', 409);
+      }
       await db.collection('packages').deleteOne(tenantFilter(session, { id }));
       await db.collection('itineraries').deleteMany(tenantFilter(session, { packageId: id }));
       return json({ ok: true });

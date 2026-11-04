@@ -1,0 +1,564 @@
+diff --git a/lib/safaros-integration.js b/lib/safaros-integration.js
+new file mode 100644
+index 0000000..ae13cb5
+--- /dev/null
++++ b/lib/safaros-integration.js
+@@ -0,0 +1,163 @@
++// SafarCurated <- SafarOS integration helpers (server-only).
++// Every SafarOS request is HMAC-SHA256 signed over `${timestamp}.${eventId}.${rawBody}` with
++// SAFAROS_INTEGRATION_SECRET (same value the SafarOS Super Admin saves as "Shared Signing Secret").
++import crypto from 'crypto';
++import jwt from 'jsonwebtoken';
++import { getCollection } from '@/lib/db';
++
++const MAX_SKEW_SECONDS = 300;
++export const AGENCY_COOKIE = 'safaros_agency';
++const AGENCY_SESSION_SECONDS = 8 * 60 * 60;
++
++function secret() { return process.env.SAFAROS_INTEGRATION_SECRET || ''; }
++function jwtSecret() { return process.env.JWT_SECRET || ''; }
++
++function safeEqual(a, b) {
++  const x = Buffer.from(String(a)); const y = Buffer.from(String(b));
++  return x.length === y.length && crypto.timingSafeEqual(x, y);
++}
++
++let _indexed = false;
++export async function ensureIntegrationIndexes() {
++  if (_indexed) return;
++  const events = await getCollection('safarosIntegrationEvents');
++  await events.createIndex({ eventId: 1 }, { unique: true });
++  await events.createIndex({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 3600 });
++  const links = await getCollection('safarosAgencyLinks');
++  await links.createIndex({ safarosAgencyId: 1 }, { unique: true });
++  await links.createIndex({ hostUserId: 1 });
++  const listings = await getCollection('listings');
++  await listings.createIndex(
++    { 'source.system': 1, 'source.externalId': 1 },
++    { unique: true, partialFilterExpression: { 'source.system': 'safaros' }, name: 'safaros_source_unique' },
++  );
++  _indexed = true;
++}
++
++// Simple per-instance rate limit for the server-to-server channel.
++const _hits = new Map();
++export function rateLimited(key, max = 120, windowMs = 60000) {
++  const now = Date.now();
++  const h = _hits.get(key) || { n: 0, t: now };
++  if (now - h.t > windowMs) { h.n = 0; h.t = now; }
++  h.n += 1; _hits.set(key, h);
++  return h.n > max;
++}
++
++// Verify a signed SafarOS request. Returns { ok, status, error, body, eventId }.
++export async function verifySignedRequest(request) {
++  const s = secret();
++  if (!s) return { ok: false, status: 503, error: 'Integration not configured' };
++  const raw = await request.text();
++  if (raw.length > 512 * 1024) return { ok: false, status: 413, error: 'Payload too large' };
++  const src = request.headers.get('x-safar-source');
++  const ts = request.headers.get('x-safar-timestamp') || '';
++  const eventId = request.headers.get('x-safar-event-id') || '';
++  const sig = request.headers.get('x-safar-signature') || '';
++  if (src !== 'safaros' || !/^\d{9,12}$/.test(ts) || !/^[A-Za-z0-9:_-]{8,100}$/.test(eventId)) return { ok: false, status: 401, error: 'Invalid signature headers' };
++  if (Math.abs(Math.floor(Date.now() / 1000) - Number(ts)) > MAX_SKEW_SECONDS) return { ok: false, status: 401, error: 'Request expired' };
++  const expected = 'v1=' + crypto.createHmac('sha256', s).update(`${ts}.${eventId}.${raw}`).digest('hex');
++  if (!safeEqual(expected, sig)) return { ok: false, status: 401, error: 'Invalid signature' };
++  let body = {};
++  try { body = raw ? JSON.parse(raw) : {}; } catch { return { ok: false, status: 400, error: 'Invalid JSON' }; }
++  return { ok: true, body, eventId };
++}
++
++// Idempotency: first delivery claims the eventId; duplicates get the stored response.
++export async function claimEvent(eventId, path) {
++  const events = await getCollection('safarosIntegrationEvents');
++  try {
++    await events.insertOne({ eventId, path, state: 'processing', createdAt: new Date() });
++    return { fresh: true };
++  } catch (e) {
++    if (e?.code !== 11000) throw e;
++    const reclaimed = await events.findOneAndUpdate({ eventId, state: 'failed' }, { $set: { state: 'processing', retriedAt: new Date() } });
++    if (reclaimed && (reclaimed.value !== undefined ? reclaimed.value : reclaimed)) return { fresh: true };
++    const prev = await events.findOne({ eventId });
++    if (prev?.state === 'done') return { fresh: false, response: prev.response, status: prev.status };
++    return { fresh: false, inProgress: true };
++  }
++}
++export async function completeEvent(eventId, status, response) {
++  const events = await getCollection('safarosIntegrationEvents');
++  if (status >= 500) { await events.updateOne({ eventId, state: 'processing' }, { $set: { state: 'failed', status } }); return; } // retry may re-claim
++  await events.updateOne({ eventId }, { $set: { state: 'done', status, response } });
++}
++
++export async function getState() {
++  const col = await getCollection('safarosIntegrationState');
++  return (await col.findOne({ key: 'state' })) || { key: 'state', connected: false };
++}
++export async function setState(connected) {
++  const col = await getCollection('safarosIntegrationState');
++  await col.updateOne({ key: 'state' }, { $set: { key: 'state', connected, updatedAt: new Date() } }, { upsert: true });
++}
++
++// ---- SSO ticket (browser hand-off from SafarOS) ----
++export function verifyTicket(ticket) {
++  const s = secret();
++  if (!s || typeof ticket !== 'string' || ticket.length > 4000) return null;
++  const [payload, sig] = ticket.split('.');
++  if (!payload || !sig) return null;
++  const expected = crypto.createHmac('sha256', s).update(`sso.${payload}`).digest('base64url');
++  if (!safeEqual(expected, sig)) return null;
++  let data;
++  try { data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch { return null; }
++  if (data?.v !== 1 || !data.agencyId || !data.jti || !(data.exp > Math.floor(Date.now() / 1000))) return null;
++  return data;
++}
++
++export function signAgencySession(t) {
++  if (!jwtSecret()) throw new Error('JWT_SECRET is not configured');
++  return jwt.sign({ kind: 'safaros_agency', agencyId: t.agencyId, safarosUserId: t.userId, email: t.email, name: t.name, role: t.role,
++    returnUrl: /^https:\/\//.test(t.returnUrl || '') ? t.returnUrl : '' }, jwtSecret(), { expiresIn: AGENCY_SESSION_SECONDS });
++}
++export function getAgencySession(request) {
++  const tok = request.cookies?.get?.(AGENCY_COOKIE)?.value;
++  if (!tok || !jwtSecret()) return null;
++  try {
++    const p = jwt.verify(tok, jwtSecret());
++    return p?.kind === 'safaros_agency' && p.agencyId ? p : null;
++  } catch { return null; }
++}
++export function setAgencyCookie(res, token) {
++  res.cookies.set(AGENCY_COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/', maxAge: AGENCY_SESSION_SECONDS });
++  return res;
++}
++
++export function publicListingUrl(id) {
++  const base = (process.env.NEXT_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
++  return base ? `${base}/property/${id}` : `/property/${id}`;
++}
++
++const list = (v, n = 40, len = 300) => (Array.isArray(v) ? v : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, n).map((x) => x.slice(0, len));
++
++// Validate + normalise a SafarOS listing payload into SafarCurated's existing `listings` fields.
++export function normaliseListing(l = {}) {
++  const title = String(l.title || '').trim();
++  const description = String(l.description || '').trim();
++  const location = String(l.location || '').trim();
++  const price = Number(l.price);
++  const seats = Math.floor(Number(l.seats));
++  const images = list(l.images, 12, 1000).filter((u) => /^https:\/\//i.test(u));
++  if (!l.externalId || !/^[A-Za-z0-9-]{8,80}$/.test(String(l.externalId))) return { error: 'externalId is required' };
++  if (title.length < 3) return { error: 'Title is required (min 3 chars)' };
++  if (description.length < 10) return { error: 'Description is required (min 10 chars)' };
++  if (!location) return { error: 'Location is required' };
++  if (!Number.isFinite(price) || price <= 0) return { error: 'Price must be a positive number' };
++  if (!images.length) return { error: 'At least one https image is required' };
++  if (!Number.isFinite(seats) || seats < 1) return { error: 'Seats must be at least 1' };
++  return {
++    value: {
++      externalId: String(l.externalId), title: title.slice(0, 160), description: description.slice(0, 4000), location: location.slice(0, 160),
++      price: Math.round(price * 100) / 100, images, seats, duration: String(l.duration || '').slice(0, 60) || null,
++      categoryDetails: {
++        packageSource: 'safaros', currency: String(l.currency || 'INR').slice(0, 3),
++        startDate: String(l.startDate || '').slice(0, 10), endDate: String(l.endDate || '').slice(0, 10),
++        inclusions: list(l.inclusions), exclusions: list(l.exclusions),
++        cancellationPolicy: String(l.cancellationPolicy || '').slice(0, 4000),
++        itinerary: (Array.isArray(l.itinerary) ? l.itinerary : []).slice(0, 60).map((d, i) => ({ day: i + 1, title: String(d?.title || '').slice(0, 200), description: String(d?.description || '').slice(0, 2000) })),
++      },
++    },
++  };
++}
+diff --git a/app/api/integrations/safaros/[...path]/route.js b/app/api/integrations/safaros/[...path]/route.js
+new file mode 100644
+index 0000000..d7beddc
+--- /dev/null
++++ b/app/api/integrations/safaros/[...path]/route.js
+@@ -0,0 +1,231 @@
++// SafarOS integration endpoints for SafarCurated.
++// Server-to-server (HMAC-signed by SafarOS): ping, connection, agency/link, listings/upsert, listings/unpublish, listings/status
++// Browser (agency-scoped cookie, issued from a signed SafarOS SSO ticket): sso, me, me/listings/:id/unpublish, me/confirm-link, me/logout
++// Uses the existing `users` and `listings` collections; new listings always enter the existing moderation queue as 'pending'.
++import { NextResponse } from 'next/server';
++import { v4 as uuid } from 'uuid';
++import { getCollection } from '@/lib/db';
++import { getCurrentUser } from '@/lib/auth';
++import {
++  verifySignedRequest, claimEvent, completeEvent, getState, setState, ensureIntegrationIndexes, rateLimited,
++  verifyTicket, signAgencySession, getAgencySession, setAgencyCookie, publicListingUrl, normaliseListing, AGENCY_COOKIE,
++} from '@/lib/safaros-integration';
++
++export const dynamic = 'force-dynamic';
++
++const json = (data, status = 200) => NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
++const fail = (error, status = 400) => json({ error }, status);
++const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
++// Content changes that must go back through SafarCurated moderation when a listing is already approved.
++const MODERATED_FIELDS = ['title', 'description', 'location', 'images'];
++
++function listingStatusView(l) {
++  return { id: l.id, externalId: l.source?.externalId || '', status: l.status, rejectionReason: l.rejectionReason || '', publicUrl: l.status === 'approved' ? publicListingUrl(l.id) : '' };
++}
++
++async function linkFor(agencyId) {
++  return (await getCollection('safarosAgencyLinks')).findOne({ safarosAgencyId: String(agencyId || '') }, { projection: { _id: 0 } });
++}
++
++// ------------------------- signed server-to-server -------------------------
++async function handleSigned(path, body) {
++  const listings = await getCollection('listings');
++  const links = await getCollection('safarosAgencyLinks');
++
++  if (path === 'ping') return [200, { ok: true, service: 'safarcurated' }];
++  if (path === 'connection') {
++    const connected = body.state === 'connected';
++    await setState(connected);
++    const [linkCount, listingCount] = await Promise.all([
++      links.countDocuments({ status: 'linked' }),
++      listings.countDocuments({ 'source.system': 'safaros' }),
++    ]);
++    return [200, { ok: true, connected, links: linkCount, listings: listingCount }];
++  }
++
++  const state = await getState();
++  if (!state.connected) return [409, { error: 'SafarOS integration is disconnected' }];
++  const agencyId = String(body.agencyId || '');
++  if (!/^[A-Za-z0-9-]{8,80}$/.test(agencyId)) return [400, { error: 'agencyId is required' }];
++
++  if (path === 'agency/link') {
++    const existing = await linkFor(agencyId);
++    const agencyName = String(body.agencyName || '').trim().slice(0, 160);
++    if (existing) {
++      if (agencyName) await links.updateOne({ safarosAgencyId: agencyId }, { $set: { agencyName, updatedAt: new Date() } });
++      return [200, { link: { status: existing.status, profileUrl: '' } }];
++    }
++    const email = String(body.owner?.email || '').toLowerCase().trim();
++    if (!EMAIL_RE.test(email)) return [400, { error: 'A valid owner email is required' }];
++    const users = await getCollection('users');
++    const user = await users.findOne({ email }, { projection: { passwordHash: 0 } });
++    const now = new Date();
++    if (user) {
++      if (['admin', 'super_admin', 'co_curator'].includes(user.role)) return [409, { error: 'This email belongs to a SafarCurated staff account and cannot be linked to an agency' }];
++      if (await links.findOne({ hostUserId: user.id })) return [409, { error: 'This SafarCurated account is already linked to another agency' }];
++      // Existing account: ownership must be proven by signing in on SafarCurated (see me/confirm-link). No access until then.
++      await links.insertOne({ id: uuid(), safarosAgencyId: agencyId, agencyName, hostUserId: user.id, email, status: 'pending_confirmation', createdAt: now, updatedAt: now });
++      return [200, { link: { status: 'pending_confirmation', profileUrl: '' } }];
++    }
++    // New operator identity: password-less host account, accessed only via SafarOS SSO (no password hashes shared).
++    const hostUser = {
++      id: uuid(), name: String(body.owner?.name || agencyName || 'Agency').trim().slice(0, 120), email, role: 'host',
++      passwordHash: null, authProvider: 'safaros', safarosAgencyId: agencyId, businessName: agencyName,
++      avatar: `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(agencyName || email)}&backgroundColor=0F3D2E`,
++      emailVerified: false, createdAt: now, updatedAt: now,
++    };
++    try { await users.insertOne(hostUser); } catch (e) { if (e?.code === 11000) return [409, { error: 'Account creation conflict, please retry' }]; throw e; }
++    await links.insertOne({ id: uuid(), safarosAgencyId: agencyId, agencyName, hostUserId: hostUser.id, email, status: 'linked', createdAt: now, updatedAt: now, linkedAt: now });
++    return [200, { link: { status: 'linked', profileUrl: '' } }];
++  }
++
++  const link = await linkFor(agencyId);
++  if (path === 'listings/status') {
++    const rows = await listings.find({ 'source.system': 'safaros', 'source.agencyId': agencyId }, { projection: { _id: 0, id: 1, status: 1, rejectionReason: 1, source: 1 } }).toArray();
++    return [200, { link: link ? { status: link.status } : null, listings: rows.map(listingStatusView) }];
++  }
++  if (!link || link.status !== 'linked') return [403, { error: 'Agency is not linked to SafarCurated' }];
++
++  if (path === 'listings/upsert') {
++    const { value, error } = normaliseListing(body.listing || {});
++    if (error) return [400, { error }];
++    const host = await (await getCollection('users')).findOne({ id: link.hostUserId }, { projection: { _id: 0, id: 1, name: 1, avatar: 1, businessName: 1 } });
++    if (!host) return [409, { error: 'Linked SafarCurated operator account not found' }];
++    const now = new Date();
++    const existing = await listings.findOne({ 'source.system': 'safaros', 'source.externalId': value.externalId });
++    if (existing && existing.source?.agencyId !== agencyId) return [403, { error: 'Listing belongs to another agency' }];
++    const content = { title: value.title, description: value.description, location: value.location, price: value.price, images: value.images, duration: value.duration, categoryDetails: value.categoryDetails };
++    if (!existing) {
++      const doc = {
++        id: uuid(), ...content, category: 'tour', subcategory: 'package',
++        hostId: host.id, hostName: link.agencyName || host.businessName || host.name, hostAvatar: host.avatar || null,
++        superhost: false, amenities: [], services: [], badge: null, rating: 0, reviews: 0,
++        status: 'pending', featured: false, isDemo: false,
++        inventoryTypes: [{ id: uuid(), name: 'Seat', description: 'Per traveller', price: value.price, quantity: value.seats, available: value.seats, images: [], status: 'active', displayOrder: 0, beds: null, guests: 1, amenities: [] }],
++        source: { system: 'safaros', agencyId, externalId: value.externalId, syncedAt: now },
++        createdAt: now, updatedAt: now,
++      };
++      try { await listings.insertOne(doc); } catch (e) {
++        if (e?.code === 11000) return [409, { error: 'Listing already exists for this package, retry to update' }];
++        throw e;
++      }
++      return [201, { listing: listingStatusView(doc) }];
++    }
++    const set = { ...content, updatedAt: now, 'source.syncedAt': now };
++    const contentChanged = MODERATED_FIELDS.some((f) => JSON.stringify(existing[f]) !== JSON.stringify(content[f]));
++    // Never bypass moderation: resubmissions and moderated-content edits go back to 'pending'.
++    if (['unpublished', 'rejected'].includes(existing.status) || (existing.status === 'approved' && contentChanged)) set.status = 'pending';
++    const seatType = (existing.inventoryTypes || []).find((t) => t.name === 'Seat') || (existing.inventoryTypes || [])[0];
++    if (seatType) {
++      const delta = value.seats - (Number(seatType.quantity) || 0);
++      set.inventoryTypes = existing.inventoryTypes.map((t) => (t.id === seatType.id
++        ? { ...t, price: value.price, quantity: value.seats, available: Math.max(0, (Number(t.available) || 0) + delta) } : t));
++    }
++    const update = { $set: set };
++    if (set.status === 'pending' && existing.status === 'rejected') update.$unset = { rejectionReason: '' };
++    await listings.updateOne({ id: existing.id, 'source.agencyId': agencyId }, update);
++    return [200, { listing: listingStatusView({ ...existing, ...set, rejectionReason: update.$unset ? '' : existing.rejectionReason }) }];
++  }
++  if (path === 'listings/unpublish') {
++    const externalId = String(body.externalId || '');
++    const l = await listings.findOne({ 'source.system': 'safaros', 'source.externalId': externalId, 'source.agencyId': agencyId });
++    if (!l) return [404, { error: 'Listing not found' }];
++    await listings.updateOne({ id: l.id, 'source.agencyId': agencyId }, { $set: { status: 'unpublished', unpublishedAt: new Date(), updatedAt: new Date() } });
++    return [200, { listing: listingStatusView({ ...l, status: 'unpublished' }) }];
++  }
++  return [404, { error: 'Not found' }];
++}
++
++// ------------------------- agency-scoped browser session -------------------------
++async function handleAgency(request, path, method) {
++  if (path === 'sso' && method === 'POST') {
++    let body = {};
++    try { body = await request.json(); } catch { /* empty */ }
++    const t = verifyTicket(body.ticket);
++    if (!t) return fail('This sign-in link is invalid or has expired. Open it again from SafarOS.', 401);
++    if (!(await getState()).connected) return fail('The SafarOS connection is currently disabled.', 409);
++    const claim = await claimEvent(`sso:${t.jti}`, 'sso');
++    if (!claim.fresh) return fail('This sign-in link has already been used. Open it again from SafarOS.', 401);
++    const link = await linkFor(t.agencyId);
++    if (!link) { await completeEvent(`sso:${t.jti}`, 403, {}); return fail('Agency is not linked to SafarCurated', 403); }
++    await completeEvent(`sso:${t.jti}`, 200, { ok: true });
++    return setAgencyCookie(json({ ok: true }), signAgencySession(t));
++  }
++
++  const s = getAgencySession(request);
++  if (!s) return fail('Session expired. Open the SafarCurated dashboard from SafarOS again.', 401);
++  if (path === 'me/logout' && method === 'POST') {
++    const res = json({ ok: true }); res.cookies.set(AGENCY_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 }); return res;
++  }
++  const link = await linkFor(s.agencyId);
++  if (!link) return fail('Agency is not linked to SafarCurated', 403);
++  const state = await getState();
++  const listings = await getCollection('listings');
++  // Tenant scope for everything below: this agency's own SafarOS listings on its linked host account only.
++  const scope = { 'source.system': 'safaros', 'source.agencyId': s.agencyId, hostId: link.hostUserId };
++
++  if (path === 'me' && method === 'GET') {
++    const rows = link.status === 'linked'
++      ? await listings.find(scope, { projection: { _id: 0, id: 1, title: 1, status: 1, rejectionReason: 1, price: 1, location: 1, images: { $slice: 1 }, duration: 1, updatedAt: 1, source: 1 } }).sort({ updatedAt: -1 }).limit(200).toArray()
++      : [];
++    const counts = { pending: 0, approved: 0, rejected: 0, unpublished: 0 };
++    rows.forEach((r) => { counts[r.status] = (counts[r.status] || 0) + 1; });
++    const maskedEmail = link.email ? link.email.replace(/^(.).*(@.*)$/, '$1***$2') : '';
++    return json({
++      connected: Boolean(state.connected), agency: { name: link.agencyName || '', linkStatus: link.status, email: maskedEmail },
++      operator: { name: s.name, role: s.role }, returnUrl: s.returnUrl || '', counts,
++      listings: rows.map((r) => ({ id: r.id, externalId: r.source?.externalId, title: r.title, status: r.status, rejectionReason: r.rejectionReason || '', price: r.price, location: r.location, image: r.images?.[0] || '', duration: r.duration, updatedAt: r.updatedAt, publicUrl: r.status === 'approved' ? publicListingUrl(r.id) : '' })),
++    });
++  }
++  if (!state.connected) return fail('The SafarOS connection is currently disabled by the platform administrator.', 409);
++  if (!['owner', 'manager'].includes(s.role)) return fail('Your SafarOS role cannot change marketplace listings', 403);
++
++  if (path === 'me/confirm-link' && method === 'POST') {
++    if (link.status !== 'pending_confirmation') return fail('Nothing to confirm');
++    if (s.role !== 'owner') return fail('Only the agency owner can confirm the link', 403);
++    const me = await getCurrentUser(request); // the user's own SafarCurated login proves ownership
++    if (!me || me.id !== link.hostUserId) return fail('Sign in to SafarCurated with the account that uses this email, then confirm.', 403);
++    const users = await getCollection('users');
++    const set = { safarosAgencyId: s.agencyId, updatedAt: new Date() };
++    if (me.role === 'traveler') set.role = 'host'; // explicit, confirmed upgrade to operator
++    await users.updateOne({ id: me.id }, { $set: set });
++    await (await getCollection('safarosAgencyLinks')).updateOne({ safarosAgencyId: s.agencyId, status: 'pending_confirmation' }, { $set: { status: 'linked', linkedAt: new Date(), updatedAt: new Date() } });
++    return json({ ok: true });
++  }
++  const m = path.match(/^me\/listings\/([A-Za-z0-9-]{8,80})\/unpublish$/);
++  if (m && method === 'POST') {
++    const r = await listings.updateOne({ ...scope, id: m[1], status: { $in: ['pending', 'approved'] } }, { $set: { status: 'unpublished', unpublishedAt: new Date(), updatedAt: new Date() } });
++    if (!r.matchedCount) return fail('Listing not found', 404);
++    return json({ ok: true });
++  }
++  return fail('Not found', 404);
++}
++
++async function handler(request, { params }) {
++  const segs = Array.isArray(params?.path) ? params.path : [];
++  const path = segs.join('/');
++  const method = request.method;
++  try {
++    await ensureIntegrationIndexes();
++    if (path === 'sso' || path.startsWith('me')) return await handleAgency(request, path, method);
++    if (method !== 'POST') return fail('Method not allowed', 405);
++    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
++    if (rateLimited(`s2s:${ip}`)) return fail('Too many requests', 429);
++    const v = await verifySignedRequest(request);
++    if (!v.ok) return fail(v.error, v.status);
++    const claim = await claimEvent(v.eventId, path);
++    if (!claim.fresh) {
++      if (claim.inProgress) return fail('Event is already being processed', 409);
++      return json(claim.response || {}, claim.status || 200); // duplicate delivery: replay stored result
++    }
++    let status = 500; let resBody = { error: 'Internal error' };
++    try { [status, resBody] = await handleSigned(path, v.body || {}); } finally { await completeEvent(v.eventId, status, resBody); }
++    return json(resBody, status);
++  } catch (e) {
++    console.error('[safaros-integration]', path, e?.message);
++    return fail('Internal error', 500);
++  }
++}
++
++export const GET = handler;
++export const POST = handler;
+diff --git a/app/dashboard/safaros/page.js b/app/dashboard/safaros/page.js
+new file mode 100644
+index 0000000..96c0099
+--- /dev/null
++++ b/app/dashboard/safaros/page.js
+@@ -0,0 +1,152 @@
++'use client';
++// Agency-scoped SafarCurated dashboard, opened from SafarOS via a signed one-time ticket.
++// All data is filtered server-side (/api/integrations/safaros/me) to the signed-in agency only.
++import { useCallback, useEffect, useState } from 'react';
++import { Loader2, ExternalLink, AlertTriangle, CheckCircle2, Clock, XCircle, EyeOff, ArrowLeft, Link2, LogOut } from 'lucide-react';
++import { Button } from '@/components/ui/button';
++
++const STATUS = {
++  pending: { label: 'Pending approval', cls: 'bg-amber-50 text-amber-800 border-amber-200', Icon: Clock },
++  approved: { label: 'Published', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200', Icon: CheckCircle2 },
++  rejected: { label: 'Rejected', cls: 'bg-red-50 text-red-800 border-red-200', Icon: XCircle },
++  unpublished: { label: 'Unpublished', cls: 'bg-slate-50 text-slate-700 border-slate-200', Icon: EyeOff },
++};
++
++const api = async (path, opts = {}) => {
++  const r = await fetch(`/api/integrations/safaros/${path}`, { credentials: 'same-origin', cache: 'no-store', ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) } });
++  const d = await r.json().catch(() => ({}));
++  if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
++  return d;
++};
++
++const SafarOSAgencyDashboard = () => {
++  const [data, setData] = useState(null);
++  const [error, setError] = useState('');
++  const [busy, setBusy] = useState('');
++  const [filter, setFilter] = useState('all');
++
++  const load = useCallback(async () => {
++    try { setData(await api('me')); setError(''); } catch (e) { setError(e.message); }
++  }, []);
++
++  useEffect(() => {
++    (async () => {
++      const ticket = new URLSearchParams(window.location.search).get('ticket');
++      if (ticket) {
++        window.history.replaceState({}, '', '/dashboard/safaros'); // never leave the ticket in the address bar
++        try { await api('sso', { method: 'POST', body: JSON.stringify({ ticket }) }); } catch (e) { setError(e.message); return; }
++      }
++      load();
++    })();
++  }, [load]);
++
++  const act = async (key, path) => {
++    setBusy(key);
++    try { await api(path, { method: 'POST', body: '{}' }); await load(); } catch (e) { setError(e.message); } finally { setBusy(''); }
++  };
++
++  if (error && !data) {
++    return (
++      <div className="min-h-screen flex items-center justify-center bg-[#FAF7F2] p-6">
++        <div className="max-w-md w-full rounded-2xl border bg-white p-8 text-center shadow-sm" data-testid="safaros-dashboard-error">
++          <AlertTriangle className="mx-auto h-10 w-10 text-amber-600" />
++          <h1 className="mt-4 text-xl font-semibold text-slate-900">Cannot open agency dashboard</h1>
++          <p className="mt-2 text-sm text-slate-600">{error}</p>
++        </div>
++      </div>
++    );
++  }
++  if (!data) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-[#0F3D2E]" /></div>;
++
++  const listings = (data.listings || []).filter((l) => filter === 'all' || l.status === filter);
++  const pendingLink = data.agency?.linkStatus === 'pending_confirmation';
++
++  return (
++    <div className="min-h-screen bg-[#FAF7F2]">
++      <header className="border-b bg-white">
++        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4">
++          <div>
++            <p className="text-xs uppercase tracking-[0.2em] text-[#0F3D2E]/70">SafarCurated · Agency dashboard</p>
++            <h1 className="text-2xl font-semibold text-slate-900" data-testid="safaros-agency-name">{data.agency?.name || 'Your agency'}</h1>
++          </div>
++          <div className="flex items-center gap-2">
++            {data.returnUrl && <Button variant="outline" asChild data-testid="back-to-safaros"><a href={data.returnUrl}><ArrowLeft className="mr-2 h-4 w-4" />Manage packages in SafarOS</a></Button>}
++            <Button variant="ghost" onClick={() => act('logout', 'me/logout').then(() => window.location.assign('/'))} data-testid="safaros-logout"><LogOut className="h-4 w-4" /></Button>
++          </div>
++        </div>
++      </header>
++
++      <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
++        {!data.connected && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">The SafarOS connection is paused by the platform administrator. Your listings are preserved; changes are temporarily disabled.</div>}
++        {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</div>}
++
++        {pendingLink ? (
++          <div className="rounded-2xl border bg-white p-6 shadow-sm" data-testid="confirm-link-card">
++            <div className="flex items-start gap-3">
++              <Link2 className="mt-1 h-5 w-5 text-[#0F3D2E]" />
++              <div className="space-y-3">
++                <h2 className="text-lg font-semibold">Confirm your existing SafarCurated account</h2>
++                <p className="text-sm text-slate-600">An account already exists for <b>{data.agency?.email}</b>. To protect it, sign in to SafarCurated with that account in this browser, then confirm the link. If it is a traveller account it will become an operator account; existing bookings and data are kept.</p>
++                <div className="flex flex-wrap gap-2">
++                  <Button variant="outline" asChild><a href="/auth?redirect=/dashboard/safaros" target="_blank" rel="noreferrer">Sign in to SafarCurated</a></Button>
++                  <Button onClick={() => act('confirm', 'me/confirm-link')} disabled={busy === 'confirm' || !data.connected} className="bg-[#0F3D2E] hover:bg-[#0F3D2E]/90" data-testid="confirm-link-btn">
++                    {busy === 'confirm' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Confirm link
++                  </Button>
++                </div>
++              </div>
++            </div>
++          </div>
++        ) : (
++          <>
++            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
++              {Object.entries(STATUS).map(([k, s]) => (
++                <button key={k} type="button" onClick={() => setFilter(filter === k ? 'all' : k)} className={`rounded-xl border bg-white p-4 text-left transition hover:shadow-sm ${filter === k ? 'ring-2 ring-[#0F3D2E]' : ''}`} data-testid={`count-${k}`}>
++                  <s.Icon className="h-4 w-4 text-slate-500" />
++                  <p className="mt-2 text-2xl font-semibold">{data.counts?.[k] || 0}</p>
++                  <p className="text-xs text-slate-500">{s.label}</p>
++                </button>
++              ))}
++            </div>
++
++            <section className="rounded-2xl border bg-white shadow-sm">
++              <div className="flex items-center justify-between border-b px-5 py-4">
++                <h2 className="font-semibold">My listings {filter !== 'all' && <span className="text-sm font-normal text-slate-500">· {STATUS[filter]?.label}</span>}</h2>
++                <p className="text-xs text-slate-500">Drafts and edits are managed in SafarOS (source of truth).</p>
++              </div>
++              {listings.length === 0 ? (
++                <p className="px-5 py-12 text-center text-sm text-slate-500" data-testid="no-listings">No listings yet. Publish a marketplace package from SafarOS to see it here.</p>
++              ) : (
++                <ul className="divide-y">
++                  {listings.map((l) => {
++                    const s = STATUS[l.status] || STATUS.pending;
++                    return (
++                      <li key={l.id} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center" data-testid={`listing-${l.id}`}>
++                        {l.image ? <img src={l.image} alt="" className="h-16 w-24 rounded-lg object-cover" /> : <div className="h-16 w-24 rounded-lg bg-slate-100" />}
++                        <div className="min-w-0 flex-1">
++                          <p className="truncate font-medium text-slate-900">{l.title}</p>
++                          <p className="text-xs text-slate-500">{l.location}{l.duration ? ` · ${l.duration}` : ''} · ₹{Number(l.price || 0).toLocaleString('en-IN')}</p>
++                          {l.status === 'rejected' && l.rejectionReason && <p className="mt-1 text-xs text-red-700">Feedback: {l.rejectionReason}</p>}
++                        </div>
++                        <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${s.cls}`}><s.Icon className="h-3 w-3" />{s.label}</span>
++                        <div className="flex gap-2">
++                          {l.publicUrl && <Button size="sm" variant="outline" asChild><a href={l.publicUrl} target="_blank" rel="noreferrer"><ExternalLink className="mr-1 h-3.5 w-3.5" />View</a></Button>}
++                          {['pending', 'approved'].includes(l.status) && ['owner', 'manager'].includes(data.operator?.role) && (
++                            <Button size="sm" variant="ghost" disabled={busy === l.id || !data.connected} onClick={() => { if (window.confirm('Unpublish this listing from SafarCurated?')) act(l.id, `me/listings/${l.id}/unpublish`); }} data-testid={`unpublish-${l.id}`}>
++                              {busy === l.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Unpublish'}
++                            </Button>
++                          )}
++                        </div>
++                      </li>
++                    );
++                  })}
++                </ul>
++              )}
++            </section>
++          </>
++        )}
++      </main>
++    </div>
++  );
++};
++
++export default SafarOSAgencyDashboard;

@@ -30,6 +30,7 @@ import { useLocalization } from '@/components/safaros/localization-provider';
 import { GCC_COUNTRIES, getCountryDefaults } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
+import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
   Trash2, Lock, Globe, Layers, ArrowLeft, Menu, X, Search, Pencil, Eye,
@@ -263,14 +264,10 @@ const NAV = [
     ],
   },
   {
-    group: 'Website',
+    group: 'Marketplace',
     items: [
-      { id: 'web_dashboard', label: 'Website', icon: Globe },
-      { id: 'web_settings', label: 'Settings', icon: Building2 },
-      { id: 'web_appearance', label: 'Appearance', icon: Palette },
-      { id: 'web_pages', label: 'Pages', icon: FileText },
-      { id: 'web_seo', label: 'SEO', icon: Search },
-      { id: 'web_preview', label: 'Preview', icon: Eye },
+      // Replaces the operator-facing Website Builder entry. Builder code (web_*) is retained, not deleted, pending migration approval.
+      { id: 'marketplace', label: 'SafarCurated Marketplace', icon: Store },
     ],
   },
   {
@@ -330,7 +327,7 @@ const SECTION_TITLES = {
   fin_payments: 'Payments',
   comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
   copilot: 'AI Copilot', portal_admin: 'Customer Portal Access',
-  web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
+  marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
   int_overview: 'Integrations', int_webhooks: 'Webhooks', int_api: 'Developer API',
@@ -422,7 +419,7 @@ const MOBILE_NAV = [
     { id: 'copilot', label: 'AI Copilot' }, { id: 'an_overview', label: 'Analytics' },
   ] },
   { id: 'more', label: 'More', icon: LayoutGrid, items: [
-    { id: 'web_dashboard', label: 'Website' }, { id: 'int_overview', label: 'Integrations' }, { id: 'data_import', label: 'Import Data' }, { id: 'data_export', label: 'Export Data' }, { id: 'sub_overview', label: 'Subscription' }, { id: 'team', label: 'Team' }, { id: 'settings', label: 'Settings' },
+    { id: 'marketplace', label: 'SafarCurated Marketplace' }, { id: 'int_overview', label: 'Integrations' }, { id: 'data_import', label: 'Import Data' }, { id: 'data_export', label: 'Export Data' }, { id: 'sub_overview', label: 'Subscription' }, { id: 'team', label: 'Team' }, { id: 'settings', label: 'Settings' },
   ] },
 ];
 
@@ -469,7 +466,7 @@ const DESKTOP_WORKSPACES = [
     { id: 'documents', label: 'Document Vault', desc: 'Secure document storage', icon: FileText, tone: 'sky' },
     { id: 'customfields', label: 'Custom Fields', desc: 'Extend modules with fields', icon: Database, tone: 'emerald' },
     { id: 'suppliers_network', label: 'Supplier Network', desc: 'B2B network visibility', icon: Store, tone: 'amber' },
-    { id: 'web_dashboard', label: 'Website', desc: 'Your agency website', icon: Globe, tone: 'amber' },
+    { id: 'marketplace', label: 'SafarCurated Marketplace', desc: 'Publish packages to SafarCurated', icon: Store, tone: 'amber' },
     { id: 'portal_admin', label: 'Customer Portal', desc: 'Client portal access', icon: ShieldCheck, tone: 'violet' },
     { id: 'int_overview', label: 'Integrations', desc: 'Connect external tools', icon: ExternalLink, tone: 'sky' },
     { id: 'data_import', label: 'Import Data', desc: 'Import CSV / XLSX records', icon: Upload, tone: 'emerald' },
@@ -1331,6 +1328,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'bookings' && <Bookings key="bk" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'fleet' && <Fleet key="fleet" session={session} />}
           {active === 'inventory' && <InventoryWorkspace key="inventory" />}
+          {active === 'marketplace' && <MarketplaceWorkspace key="marketplace" />}
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
           {active === 'copilot' && <CopilotWorkspace session={session} />}
