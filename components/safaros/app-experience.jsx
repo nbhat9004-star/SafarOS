@@ -111,7 +111,7 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
     } finally { setLoading(false); }
   };
   const doVerify = async () => {
-    if (!/^\\d{6}$/.test(otp)) { toast.error('Enter the six-digit code'); return; }
+    if (!/^\d{6}$/.test(otp)) { toast.error('Enter the six-digit code'); return; }
     setLoading(true);
     try {
       await api('/auth/verify-email', { method: 'POST', body: JSON.stringify({ email: pendingEmail, otp }) });
@@ -1292,6 +1292,9 @@ function Dashboard({ session, onLogout }) {
           <div className="flex items-center gap-2 sm:gap-3">
             <GlobalSearch onNavigate={go} />
             <SyncStatusIndicator />
+            <Button variant="ghost" size="icon" className="md:hidden" onClick={onLogout} aria-label="Sign out" title="Sign out">
+              <LogOut className="h-4 w-4" />
+            </Button>
             <div className="hidden items-center gap-2.5 rounded-full border border-border bg-background px-2 py-1 pr-3 sm:flex">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-[11px] font-bold text-white">{userInitial}</div>
               <div className="text-right leading-tight">
