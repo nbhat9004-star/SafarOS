@@ -91,15 +91,36 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
   const t = (en, ar) => isArabic ? ar : en;
   const [tab, setTab] = useState(initialTab === 'signup' ? 'signup' : 'login');
   const [loading, setLoading] = useState(false);
+  const [otpStep, setOtpStep] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [otp, setOtp] = useState('');
   const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '', countryCode });
   const [login, setLogin] = useState({ email: '', password: '' });
 
   const doSignup = async () => {
     setLoading(true);
     try {
-      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: signup.countryCode || countryCode, currency }) });
-      toast.success('Agency workspace created');
+      const result = await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: signup.countryCode || countryCode, currency }) });
+      setPendingEmail(result.email || signup.email.trim().toLowerCase());
+      setOtpStep(true);
+      setOtp('');
+      toast.success('Verification code sent to your email');
+    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+  };
+  const doVerify = async () => {
+    if (!/^\\d{6}$/.test(otp)) { toast.error('Enter the six-digit code'); return; }
+    setLoading(true);
+    try {
+      await api('/auth/verify-email', { method: 'POST', body: JSON.stringify({ email: pendingEmail, otp }) });
+      toast.success('Email verified. Welcome to SafarOS!');
       onAuthed();
+    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+  };
+  const resendOtp = async () => {
+    setLoading(true);
+    try {
+      const result = await api('/auth/resend-verification', { method: 'POST', body: JSON.stringify({ email: pendingEmail }) });
+      toast.success(result.message || 'If your signup is pending, a new code will be sent.');
     } catch (e) { toast.error(e.message); } finally { setLoading(false); }
   };
   const doLogin = async () => {
@@ -137,70 +158,52 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
         <Card className="w-full max-w-md border-border/60 shadow-lg">
           <CardHeader>
             <a href="/" className="text-sm text-muted-foreground inline-flex items-center gap-1 mb-2 hover:text-foreground">
-              <ArrowLeft className="h-4 w-4" /> Back to safaros.com
+              <ArrowLeft className="h-4 w-4" /> Back to SafarOS
             </a>
-            <CardTitle>{tab === 'signup' ? t('Create your SafarOS workspace', 'أنشئ مساحة عمل SafarOS') : t('Welcome back', 'مرحباً بعودتك')}</CardTitle>
-            <CardDescription>{tab === 'signup' ? t('Bring your travel business into one intelligent operating system.', 'اجمع أعمال السفر في نظام تشغيل ذكي واحد.') : t('Sign in to continue to your workspace.', 'سجّل الدخول للمتابعة إلى مساحة عملك.')}</CardDescription>
+            <CardTitle>{otpStep ? 'Verify your email' : tab === 'signup' ? t('Create your SafarOS workspace', 'أنشئ مساحة عمل SafarOS') : t('Welcome back', 'مرحباً بعودتك')}</CardTitle>
+            <CardDescription>{otpStep ? `Enter the six-digit code sent to ${pendingEmail}. It expires in 10 minutes.` : tab === 'signup' ? t('Bring your travel business into one intelligent operating system.', 'اجمع أعمال السفر في نظام تشغيل ذكي واحد.') : t('Sign in to continue to your workspace.', 'سجّل الدخول للمتابعة إلى مساحة عملك.')}</CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList className="grid grid-cols-2 w-full">
-                <TabsTrigger value="signup">{t('Create workspace', 'إنشاء مساحة عمل')}</TabsTrigger>
-                <TabsTrigger value="login">{t('Sign in', 'تسجيل الدخول')}</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="signup" className="space-y-3 mt-4">
+            {otpStep ? (
+              <div className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label>{t('Your name', 'اسمك')}</Label>
-                  <Input placeholder="Jane Doe" value={signup.name}
-                    onChange={(e) => setSignup({ ...signup, name: e.target.value })} />
+                  <Label>Email verification code</Label>
+                  <Input inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\\D/g, '').slice(0, 6))} onKeyDown={(e) => e.key === 'Enter' && doVerify()} className="text-center text-2xl tracking-[0.5em]" />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>{t('Business email', 'البريد الإلكتروني للعمل')}</Label>
-                  <Input type="email" placeholder="jane@agency.com" value={signup.email}
-                    onChange={(e) => setSignup({ ...signup, email: e.target.value })} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>{t('Password', 'كلمة المرور')}</Label>
-                  <Input type="password" placeholder="........" value={signup.password}
-                    onChange={(e) => setSignup({ ...signup, password: e.target.value })} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>{t('Agency name', 'اسم الوكالة')}</Label>
-                  <Input placeholder="Wanderlust Travels" value={signup.agencyName}
-                    onChange={(e) => setSignup({ ...signup, agencyName: e.target.value })} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>{t('Country', 'الدولة')}</Label>
-                  <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup({ ...signup, countryCode: code }); if (defaults) updatePreferences({ countryCode: code }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                    {Object.values(GCC_COUNTRIES).map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
-                  </select>
-                </div>
-                <Button className="w-full" onClick={doSignup} disabled={loading}>
-                  {loading ? t('Creating...', 'جارٍ الإنشاء...') : t('Create Workspace', 'إنشاء مساحة العمل')}
-                </Button>
-                <button type="button" onClick={() => setTab('login')} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">
-                  {t('Already have an account?', 'لديك حساب بالفعل؟')} <span className="font-medium text-foreground">{t('Sign in', 'تسجيل الدخول')}</span>
-                </button>
-              </TabsContent>
-
-              <TabsContent value="login" className="space-y-3 mt-4">
-                <div className="space-y-1.5">
-                  <Label>Email</Label>
-                  <Input type="email" placeholder="you@agency.com" value={login.email}
-                    onChange={(e) => setLogin({ ...login, email: e.target.value })} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Password</Label>
-                  <Input type="password" placeholder="........" value={login.password}
-                    onChange={(e) => setLogin({ ...login, password: e.target.value })} />
-                  <div className="text-right"><a href="/reset-password?type=agency" className="text-xs text-violet-700 hover:underline">Forgot password?</a></div>
-                </div>
-                <Button className="w-full" onClick={doLogin} disabled={loading}>
-                  {loading ? 'Signing in...' : 'Sign in'}
-                </Button>
-              </TabsContent>
-            </Tabs>
+                <Button className="w-full" onClick={doVerify} disabled={loading || otp.length !== 6}>{loading ? 'Verifying…' : 'Verify email & create workspace'}</Button>
+                <Button variant="outline" className="w-full" onClick={resendOtp} disabled={loading}>Resend code</Button>
+                <button type="button" onClick={() => { setOtpStep(false); setOtp(''); }} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">Back to signup</button>
+              </div>
+            ) : (
+              <Tabs value={tab} onValueChange={setTab}>
+                <TabsList className="grid grid-cols-2 w-full">
+                  <TabsTrigger value="signup">Create workspace</TabsTrigger>
+                  <TabsTrigger value="login">Sign in</TabsTrigger>
+                </TabsList>
+                <TabsContent value="signup" className="space-y-3 mt-4">
+                  <div className="space-y-1.5"><Label>Your name</Label><Input placeholder="Jane Doe" value={signup.name} onChange={(e) => setSignup({ ...signup, name: e.target.value })} /></div>
+                  <div className="space-y-1.5"><Label>Business email</Label><Input type="email" placeholder="jane@agency.com" value={signup.email} onChange={(e) => setSignup({ ...signup, email: e.target.value })} /></div>
+                  <div className="space-y-1.5"><Label>Password (minimum 8 characters)</Label><Input type="password" autoComplete="new-password" placeholder="........" value={signup.password} onChange={(e) => setSignup({ ...signup, password: e.target.value })} /></div>
+                  <div className="space-y-1.5"><Label>Agency name</Label><Input placeholder="Wanderlust Travels" value={signup.agencyName} onChange={(e) => setSignup({ ...signup, agencyName: e.target.value })} /></div>
+                  <div className="space-y-1.5">
+                    <Label>Country</Label>
+                    <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup({ ...signup, countryCode: code }); if (defaults) updatePreferences({ countryCode: code }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      {Object.values(GCC_COUNTRIES).map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+                    </select>
+                  </div>
+                  <Button className="w-full" onClick={doSignup} disabled={loading}>{loading ? 'Sending verification code…' : 'Continue with email'}</Button>
+                  <button type="button" onClick={() => setTab('login')} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">Already have an account? <span className="font-medium text-foreground">Sign in</span></button>
+                </TabsContent>
+                <TabsContent value="login" className="space-y-3 mt-4">
+                  <div className="space-y-1.5"><Label>Email</Label><Input type="email" autoComplete="email" placeholder="you@agency.com" value={login.email} onChange={(e) => setLogin({ ...login, email: e.target.value })} /></div>
+                  <div className="space-y-1.5">
+                    <Label>Password</Label><Input type="password" autoComplete="current-password" placeholder="........" value={login.password} onChange={(e) => setLogin({ ...login, password: e.target.value })} />
+                    <div className="text-right"><a href="/reset-password?type=agency" className="text-xs text-violet-700 hover:underline">Forgot password?</a></div>
+                  </div>
+                  <Button className="w-full" onClick={doLogin} disabled={loading}>{loading ? 'Signing in…' : 'Sign in'}</Button>
+                </TabsContent>
+              </Tabs>
+            )}
           </CardContent>
         </Card>
       </div>
