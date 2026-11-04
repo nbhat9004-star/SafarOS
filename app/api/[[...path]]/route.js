@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
 import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured, isAgencyEmailConfigured } from '@/lib/email';
 import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
+import { issueSignupOtp, verifySignupOtp } from '@/lib/email-verification';
 import {
   COOKIE_NAME, PORTAL_COOKIE, PLATFORM_COOKIE, hashPassword, verifyPassword, signSession, getSession,
   signPortalSession, getPortalSession, signPlatformSession, getPlatformSession,
@@ -4730,30 +4731,67 @@ export async function POST(request, context) {
       return json({ module: safe }, 201);
     }
 
-    // Agency onboarding: creates an agency + its owner user (REBUILD).
+    // Agency signup: create a pending workspace, then require email OTP before activation.
     if (path === '/auth/register-agency') {
-      const { agencyName, name, email, password } = await readBody(request);
-      if (!agencyName || !name || !email || !password) return err('agencyName, name, email, password required');
-      const existing = await db.collection('users').findOne({ email: String(email).toLowerCase() });
-      if (existing) return err('email already registered', 409);
-
+      const body = await readBody(request);
+      const agencyName = String(body.agencyName || '').trim().slice(0, 120);
+      const name = String(body.name || '').trim().slice(0, 120);
+      const email = String(body.email || '').trim().toLowerCase();
+      const password = String(body.password || '');
+      if (!agencyName || !name || !email || !password) return err('Agency name, name, email and password are required');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) return err('Please enter a valid email address');
+      if (password.length < 8 || password.length > 200) return err('Password must be at least 8 characters');
+      const existing = await db.collection('users').findOne({ email });
+      if (existing) {
+        if (existing.status === 'pending_verification') return err('This email already has a pending signup. Use resend verification code.', 409);
+        return err('Email is already registered. Please sign in.', 409);
+      }
       const agencyId = uuidv4();
-      const now = new Date().toISOString();
-      const slug = String(agencyName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40) || 'agency';
-      await db.collection('agencies').insertOne({
-        id: agencyId, name: agencyName, slug, plan: 'trial', createdAt: now,
-      });
       const userId = uuidv4();
-      await db.collection('users').insertOne({
-        id: userId, agencyId, name, email: String(email).toLowerCase(),
-        passwordHash: await hashPassword(password), role: 'owner', status: 'active', createdAt: now,
+      const now = new Date().toISOString();
+      const slug = agencyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40) || 'agency';
+      const countryCode = String(body.countryCode || '').slice(0, 2).toUpperCase();
+      const currency = String(body.currency || '').slice(0, 5).toUpperCase();
+      const locale = body.locale === 'ar' ? 'ar' : 'en';
+      const timeZone = String(body.timeZone || '').slice(0, 100);
+      await db.collection('agencies').insertOne({
+        id: agencyId, name: agencyName, slug, plan: 'trial', status: 'pending_verification',
+        countryCode, currency, locale, ...(timeZone ? { timezone: timeZone } : {}), createdAt: now,
       });
-      const token = signSession({ userId, agencyId, role: 'owner' });
-      const res = json({
-        user: { id: userId, name, email: String(email).toLowerCase(), role: 'owner' },
-        agency: { id: agencyId, name: agencyName, slug, plan: 'trial' },
-      }, 201);
-      return setSessionCookie(res, token);
+      try {
+        await db.collection('users').insertOne({
+          id: userId, agencyId, name, email, passwordHash: await hashPassword(password),
+          role: 'owner', status: 'pending_verification', emailVerified: false, createdAt: now,
+        });
+      } catch (e) {
+        await db.collection('agencies').deleteOne({ id: agencyId });
+        if (e?.code === 11000) return err('Email is already registered. Please sign in.', 409);
+        throw e;
+      }
+      const issued = await issueSignupOtp(db, { email, name, agencyId, ip: clientIp(request) });
+      if (!issued.ok) {
+        await db.collection('users').deleteOne({ id: userId, status: 'pending_verification' });
+        await db.collection('agencies').deleteOne({ id: agencyId, status: 'pending_verification' });
+        return err(issued.error, 503);
+      }
+      return json({ ok: true, verificationRequired: true, email, message: issued.message }, 201);
+    }
+
+    if (path === '/auth/verify-email') {
+      const b = await readBody(request);
+      const result = await verifySignupOtp(db, { email: b.email, otp: b.otp });
+      if (!result.ok) return err(result.error, 400);
+      const token = signSession({ userId: result.user.id, agencyId: result.user.agencyId, role: result.user.role });
+      return setSessionCookie(json({ ok: true, verified: true }), token);
+    }
+
+    if (path === '/auth/resend-verification') {
+      const email = String((await readBody(request)).email || '').trim().toLowerCase();
+      if (!email || email.length > 200) return err('Please enter a valid email address');
+      const user = await db.collection('users').findOne({ email, status: 'pending_verification' }, { projection: { _id: 0, id: 1, name: 1, email: 1, agencyId: 1 } });
+      if (!user) return json({ ok: true, message: 'If a pending signup exists, a verification code has been sent.' });
+      const issued = await issueSignupOtp(db, { email, name: user.name, agencyId: user.agencyId, ip: clientIp(request) });
+      return issued.ok ? json({ ok: true, message: issued.message }) : err(issued.error, 429);
     }
 
     if (path === '/auth/forgot-password') {
@@ -4771,6 +4809,7 @@ export async function POST(request, context) {
       if (String(email).toLowerCase() === DEMO_USER_EMAIL) await ensureDemoAgency(db); // env-gated demo seed
       const user = await db.collection('users').findOne({ email: String(email).toLowerCase() });
       if (!user || !(await verifyPassword(password, user.passwordHash))) return err('invalid credentials', 401);
+      if (user.status === 'pending_verification' || user.emailVerified === false) return err('Please verify your email using the OTP we sent before signing in.', 403);
       // Platform-level suspension (set by Super Admin) locks a user/agency out. Absent/active status passes.
       if (user.status === 'suspended') return err('Your account has been suspended. Please contact support.', 403);
       const agencyDoc = await db.collection('agencies').findOne({ id: user.agencyId }, { projection: { _id: 0, status: 1 } });
@@ -5448,7 +5487,7 @@ export async function PUT(request, context) {
     // Agency onboarding setup — updates the session's own agency only.
     if (path === '/agency') {      if (!can(session.role, 'agency:manage')) return err('forbidden', 403);
       const b = await readBody(request);
-      const fields = ['name', 'phone', 'website', 'address', 'city', 'country', 'currency', 'timezone'];
+      const fields = ['name', 'phone', 'website', 'address', 'city', 'country', 'countryCode', 'currency', 'timezone', 'locale'];
       const update = {};
       for (const k of fields) { if (b[k] !== undefined) update[k] = String(b[k]); }
       if (b.email !== undefined) update.email = String(b.email).toLowerCase();
