@@ -6536,12 +6536,21 @@ function AgencySetup({ session, onDone, onLogout }) {
 }
 export function AppExperience({ initialTab = 'login' }) {
   const router = useRouter();
+  const { updatePreferences } = useLocalization();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const loadMe = async () => {
-    try { const d = await api('/auth/me'); setSession(d); }
-    catch { setSession(null); } finally { setLoading(false); }
+    try {
+      const d = await api('/auth/me');
+      setSession(d);
+      if (d.agency?.countryCode) updatePreferences({
+        countryCode: d.agency.countryCode,
+        currency: d.agency.currency,
+        locale: d.agency.locale,
+        timeZone: d.agency.timezone,
+      });
+    } catch { setSession(null); } finally { setLoading(false); }
   };
   useEffect(() => { loadMe(); }, []);
 
