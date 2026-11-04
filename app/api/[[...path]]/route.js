@@ -4739,7 +4739,7 @@ export async function POST(request, context) {
       const email = String(body.email || '').trim().toLowerCase();
       const password = String(body.password || '');
       if (!agencyName || !name || !email || !password) return err('Agency name, name, email and password are required');
-      if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 200) return err('Please enter a valid email address');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) return err('Please enter a valid email address');
       if (password.length < 8 || password.length > 200) return err('Password must be at least 8 characters');
       const existing = await db.collection('users').findOne({ email });
       if (existing) {
