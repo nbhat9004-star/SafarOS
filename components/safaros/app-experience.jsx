@@ -27,7 +27,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { can } from '@/lib/rbac';
 import { useLocalization } from '@/components/safaros/localization-provider';
-import { GCC_COUNTRIES, getCountryDefaults } from '@/lib/localization';
+import { getAllCountries, getCitiesForCountry, getCountryDefaults, getCityTimezone } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
@@ -94,13 +94,13 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
   const [otpStep, setOtpStep] = useState(false);
   const [pendingEmail, setPendingEmail] = useState('');
   const [otp, setOtp] = useState('');
-  const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '', countryCode });
+  const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '', countryCode, locale, currency });
   const [login, setLogin] = useState({ email: '', password: '' });
 
   const doSignup = async () => {
     setLoading(true);
     try {
-      const result = await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: signup.countryCode || countryCode, currency }) });
+      const result = await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: signup.countryCode || countryCode, locale: signup.locale || locale, currency: signup.currency || currency }) });
       setPendingEmail(result.email || signup.email.trim().toLowerCase());
       setOtpStep(true);
       setOtp('');
@@ -189,11 +189,18 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                   <div className="space-y-1.5"><Label>Password (minimum 8 characters)</Label><Input type="password" autoComplete="new-password" placeholder="........" value={signup.password} onChange={(e) => setSignup({ ...signup, password: e.target.value })} /></div>
                   <div className="space-y-1.5"><Label>Agency name</Label><Input placeholder="Wanderlust Travels" value={signup.agencyName} onChange={(e) => setSignup({ ...signup, agencyName: e.target.value })} /></div>
                   <div className="space-y-1.5">
-                    <Label>Country</Label>
-                    <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup({ ...signup, countryCode: code }); if (defaults) updatePreferences({ countryCode: code }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                      {Object.values(GCC_COUNTRIES).map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+                    <Label>Country / Region</Label>
+                    <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); const nextLocale = defaults?.locale || 'en'; const nextCurrency = defaults?.currency || 'USD'; setSignup({ ...signup, countryCode: code, locale: nextLocale, currency: nextCurrency }); updatePreferences({ countryCode: code, locale: nextLocale, currency: nextCurrency }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      {getAllCountries().map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
                     </select>
                   </div>
+                  <div className="space-y-1.5">
+                    <Label>Platform language</Label>
+                    <select value={signup.locale || locale} onChange={(e) => { setSignup({ ...signup, locale: e.target.value }); updatePreferences({ locale: e.target.value }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      <option value="en">English</option><option value="ar">العربية — Arabic</option>
+                    </select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Currency: {signup.currency || currency}. You can change regional preferences later in workspace settings.</p>
                   <Button className="w-full" onClick={doSignup} disabled={loading}>{loading ? 'Sending verification code…' : 'Continue with email'}</Button>
                   <button type="button" onClick={() => setTab('login')} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">Already have an account? <span className="font-medium text-foreground">Sign in</span></button>
                 </TabsContent>
@@ -6445,6 +6452,8 @@ function Row({ label, value, icon: Icon }) {
 
 function AgencySetup({ session, onDone, onLogout }) {
   const { agency, user } = session;
+  const { updatePreferences } = useLocalization();
+  const initialCountryCode = agency?.countryCode || 'IN';
   const [form, setForm] = useState({
     name: agency?.name || '',
     email: agency?.email || user?.email || '',
@@ -6452,21 +6461,36 @@ function AgencySetup({ session, onDone, onLogout }) {
     website: agency?.website || '',
     address: agency?.address || '',
     city: agency?.city || '',
-    country: agency?.country || 'India',
-    currency: agency?.currency || 'INR',
-    timezone: agency?.timezone || 'Asia/Kolkata',
+    country: agency?.country || getCountryDefaults(initialCountryCode)?.country || 'India',
+    countryCode: initialCountryCode,
+    currency: agency?.currency || getCountryDefaults(initialCountryCode)?.currency || 'INR',
+    locale: agency?.locale || getCountryDefaults(initialCountryCode)?.locale || 'en',
+    timezone: agency?.timezone || getCountryDefaults(initialCountryCode)?.timeZone || 'Asia/Kolkata',
   });
+  const [cities, setCities] = useState([]);
   const [loading, setLoading] = useState(false);
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  useEffect(() => { setCities(getCitiesForCountry(form.countryCode)); }, [form.countryCode]);
   const save = async () => {
     setLoading(true);
     try {
       await api('/agency', { method: 'PUT', body: JSON.stringify(form) });
+      updatePreferences({ countryCode: form.countryCode, currency: form.currency, locale: form.locale, timeZone: form.timezone });
       toast.success('Workspace ready');
       await onDone();
     } catch (e) { toast.error(e.message); } finally { setLoading(false); }
   };
-
+  const changeCountry = (code) => {
+    const defaults = getCountryDefaults(code);
+    setForm((current) => ({ ...current, countryCode: code, country: defaults?.country || '', city: '', currency: defaults?.currency || 'USD', locale: defaults?.locale || 'en', timezone: defaults?.timeZone || 'UTC' }));
+  };
+  const changeCity = (cityKey) => {
+    const city = cities.find((item) => `${item.name}|${item.stateCode || ''}|${item.latitude}|${item.longitude}` === cityKey);
+    if (!city) return;
+    const timezone = getCityTimezone(city) || form.timezone;
+    setForm((current) => ({ ...current, city: city.name, timezone }));
+  };
+  const selectedCity = cities.find((city) => city.name === form.city);
+  const selectedCityKey = selectedCity ? `${selectedCity.name}|${selectedCity.stateCode || ''}|${selectedCity.latitude}|${selectedCity.longitude}` : '';
   return (
     <div className="min-h-screen bg-muted/30 so-font">
       <header className="flex h-14 items-center justify-between border-b border-border bg-background px-5">
@@ -6476,29 +6500,40 @@ function AgencySetup({ session, onDone, onLogout }) {
       <div className="mx-auto max-w-2xl px-4 py-8 sm:py-12">
         <div className="mb-6">
           <h1 className="text-2xl font-bold sm:text-3xl">Set up your travel business</h1>
-          <p className="mt-1 text-muted-foreground">A few details to tailor your SafarOS workspace.</p>
+          <p className="mt-1 text-muted-foreground">Choose your country first. SafarOS will set the regional defaults for your workspace.</p>
         </div>
         <Card>
           <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2"><Label>Agency name</Label><Input value={form.name} onChange={set('name')} /></div>
-            <div className="space-y-1.5"><Label>Phone</Label><Input value={form.phone} onChange={set('phone')} placeholder="+91 98765 43210" /></div>
-            <div className="space-y-1.5"><Label>Business email</Label><Input type="email" value={form.email} onChange={set('email')} /></div>
-            <div className="space-y-1.5 sm:col-span-2"><Label>Website</Label><Input value={form.website} onChange={set('website')} placeholder="https://youragency.com" /></div>
-            <div className="space-y-1.5 sm:col-span-2"><Label>Address</Label><Input value={form.address} onChange={set('address')} /></div>
-            <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={set('city')} /></div>
-            <div className="space-y-1.5"><Label>Country</Label><Input value={form.country} onChange={set('country')} /></div>
-            <div className="space-y-1.5"><Label>Currency</Label><Input value={form.currency} onChange={set('currency')} /></div>
-            <div className="space-y-1.5"><Label>Timezone</Label><Input value={form.timezone} onChange={set('timezone')} /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Agency name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+91 98765 43210" /></div>
+            <div className="space-y-1.5"><Label>Business email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Website</Label><Input value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="https://youragency.com" /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Country</Label>
+              <select value={form.countryCode} onChange={(e) => changeCountry(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                {getAllCountries().map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>City</Label>
+              <select value={selectedCityKey} onChange={(e) => changeCity(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                <option value="">Select a city</option>
+                {cities.map((city, index) => <option key={`${city.name}-${city.stateCode}-${index}`} value={`${city.name}|${city.stateCode || ''}|${city.latitude}|${city.longitude}`}>{city.name}{city.stateCode ? `, ${city.stateCode}` : ''}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5"><Label>Time zone (auto-detected from city)</Label><Input value={form.timezone} readOnly /></div>
+            <div className="space-y-1.5"><Label>Language</Label><select value={form.locale} onChange={(e) => setForm({ ...form, locale: e.target.value })} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="en">English</option><option value="ar">العربية — Arabic</option></select></div>
+            <div className="space-y-1.5"><Label>Currency (country default)</Label><Input value={form.currency} readOnly /></div>
           </CardContent>
         </Card>
-        <Button className="mt-5 w-full sm:w-auto" onClick={save} disabled={loading || !form.name}>
+        <Button className="mt-5 w-full sm:w-auto" onClick={save} disabled={loading || !form.name || !form.countryCode || !form.city}>
           {loading ? 'Saving...' : 'Enter SafarOS'}
         </Button>
       </div>
     </div>
   );
 }
-
 export function AppExperience({ initialTab = 'login' }) {
   const router = useRouter();
   const [session, setSession] = useState(null);
