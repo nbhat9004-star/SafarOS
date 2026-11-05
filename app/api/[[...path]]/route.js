@@ -45,6 +45,19 @@ import {
   CUSTOM_FIELD_ENTITIES, CUSTOM_FIELD_TYPES, slugify as slugifyKey, buildFieldDefinition, coerceFieldValue, buildCustomModule,
 } from '@/lib/intelligence';
 
+async function getActiveSession(request) {
+  const session = getSession(request);
+  if (!session) return null;
+  const db = await getDb();
+  const user = await db.collection('users').findOne(
+    { id: session.userId, agencyId: session.agencyId },
+    { projection: { _id: 0, role: 1, status: 1 } },
+  );
+  if (!user || user.status === 'suspended' || user.status === 'removed') return null;
+  // Read the current role from the database so role changes take effect immediately.
+  return { ...session, role: user.role || session.role };
+}
+
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
 }
@@ -3615,14 +3628,14 @@ export async function GET(request, context) {
 
     // ---- SafarCurated marketplace (agency-scoped) ----
     if (path.startsWith('/marketplace/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       return marketplaceHandler(await getDb(), session, 'GET', path, request);
     }
 
     // ---- Travel Inventory read API ----
     if (path === '/inventory/summary' || path === '/inventory' || path.startsWith('/inventory/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'inventory:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3660,7 +3673,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/website/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'website:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3668,7 +3681,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/analytics/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'analytics:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3677,7 +3690,7 @@ export async function GET(request, context) {
 
     // ---- Supplier Discovery (K1): search real businesses, read-only provider calls ----
     if (path === '/discovery/status') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3686,7 +3699,7 @@ export async function GET(request, context) {
       return json({ configured: cfg.configured, provider: cfg.provider });
     }
     if (path === '/discovery/search') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
       const sp = new URL(request.url).searchParams;
@@ -3707,7 +3720,7 @@ export async function GET(request, context) {
       }
     }
     if (path === '/discovery/photo') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
       const name = new URL(request.url).searchParams.get('name') || '';
@@ -3722,7 +3735,7 @@ export async function GET(request, context) {
 
     // ---- Universal Global Search (tenant-scoped, RBAC-aware) ----
     if (path === '/search') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       const q = String(new URL(request.url).searchParams.get('q') || '').trim();
       if (q.length < 2) return json({ query: q, total: 0, groups: [] });
@@ -3733,7 +3746,7 @@ export async function GET(request, context) {
 
     // ---- Data Import: supported targets + history ----
     if (path === '/import/targets') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       const targets = Object.entries(IMPORT_META)
         .filter(([, m]) => can(session.role, m.perm))
@@ -3741,7 +3754,7 @@ export async function GET(request, context) {
       return json({ targets });
     }
     if (path === '/import/history') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       const db = await getDb();
       const jobs = await db.collection('importJobs').find(tenantFilter(session), { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(50).toArray();
@@ -3750,7 +3763,7 @@ export async function GET(request, context) {
 
     // ---- Data Export (CSV, tenant-scoped, RBAC per entity) ----
     if (path.startsWith('/export/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       const entity = path.split('/')[2];
       const spec = EXPORT_SPECS[entity];
@@ -3772,7 +3785,7 @@ export async function GET(request, context) {
 
     // ---- Kashmir Travel Intelligence (read) ----
     if (path === '/travel-rules' || path.startsWith('/travel-rules/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'travelrules:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3793,7 +3806,7 @@ export async function GET(request, context) {
 
     // ---- Universal Document Vault (read) ----
     if (path === '/documents' || path === '/documents/expiring' || path === '/documents/meta' || path.startsWith('/documents/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'documents:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3827,7 +3840,7 @@ export async function GET(request, context) {
 
     // ---- Custom Fields & Modules (read) ----
     if (path === '/custom-fields' || path === '/custom-fields/values') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'customization:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3843,7 +3856,7 @@ export async function GET(request, context) {
       return json({ fields: defs, meta: { entities: CUSTOM_FIELD_ENTITIES, fieldTypes: CUSTOM_FIELD_TYPES } });
     }
     if (path === '/custom-modules' || path.startsWith('/custom-modules/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'customization:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3857,7 +3870,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/billing/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       const perm = path === '/billing/invoices' ? 'billing:read' : 'subscription:read';
       if (!can(session.role, perm)) return err('forbidden', 403);
@@ -3866,7 +3879,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/integrations' || path.startsWith('/integrations/') || path === '/webhooks' || path === '/dev/api-keys') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'integrations:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3874,7 +3887,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/auth/me') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       const db = await getDb();
       const user = await db.collection('users').findOne(
@@ -3886,7 +3899,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/agency') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       const db = await getDb();
       const agency = await db.collection('agencies').findOne(
@@ -3895,7 +3908,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/members') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'members:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3906,7 +3919,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/clients') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'clients:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3918,7 +3931,7 @@ export async function GET(request, context) {
 
     // ---- CRM reads (all agency-scoped via tenantFilter) ----
     if (path === '/crm/stats') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'crm:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3934,7 +3947,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/leads') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'leads:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3945,7 +3958,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/followups') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'followups:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3956,7 +3969,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/tasks') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'tasks:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3967,7 +3980,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/activities') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'activities:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -3978,7 +3991,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/quotations') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'quotations:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4014,7 +4027,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/quotations/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'quotations:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4037,7 +4050,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/packages') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'packages:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4050,7 +4063,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/packages/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'packages:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4061,7 +4074,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/itineraries') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'itineraries:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4072,7 +4085,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/itineraries/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'itineraries:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4083,7 +4096,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/suppliers') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4094,7 +4107,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/suppliers/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'suppliers:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4105,7 +4118,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/bookings') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'bookings:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4116,7 +4129,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/bookings/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'bookings:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4127,7 +4140,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/sync/status') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       // Authenticated reachability + server clock reference for the offline sync engine.
       // agencyId is derived server-side only; never trusted from the client.
@@ -4135,7 +4148,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/finance')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'finance:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4143,7 +4156,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/payments')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'payments:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4151,7 +4164,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/communications')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'communications:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4159,7 +4172,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/ai/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'ai:use')) return err('forbidden', 403);
       const db = await getDb();
@@ -4167,7 +4180,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/portal-access') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'portal:manage')) return err('forbidden', 403);
       const db = await getDb();
@@ -4182,7 +4195,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/fleet/stats') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4201,7 +4214,7 @@ export async function GET(request, context) {
 
     // ---- Fleet: document & license expiry alerts (expired + upcoming within 30 days) ----
     if (path === '/fleet/alerts') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4231,7 +4244,7 @@ export async function GET(request, context) {
 
     // ---- Fleet: vehicle maintenance records (must precede generic /vehicles/:id) ----
     if (path.startsWith('/vehicles/') && path.endsWith('/maintenance')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4242,7 +4255,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/vehicles') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4255,7 +4268,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/vehicles/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4266,7 +4279,7 @@ export async function GET(request, context) {
     }
 
     if (path === '/drivers') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4279,7 +4292,7 @@ export async function GET(request, context) {
     }
 
     if (path.startsWith('/drivers/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'fleet:read')) return err('forbidden', 403);
       const db = await getDb();
@@ -4474,14 +4487,14 @@ export async function POST(request, context) {
 
     // ---- SafarCurated marketplace (agency-scoped) ----
     if (path.startsWith('/marketplace/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       return marketplaceHandler(db, session, 'POST', path, request);
     }
 
     // ---- Travel Inventory create API ----
     if (path.startsWith('/inventory/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'inventory:create')) return err('forbidden', 403);
       const parts = path.split('/');
@@ -4566,7 +4579,7 @@ export async function POST(request, context) {
 
     // ---- Data Import & Migration Engine ----
     if (path === '/import/analyze' || path === '/import/preview' || path === '/import/commit') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       const body = await readBody(request);
       const target = String(body.target || '');
@@ -4615,7 +4628,7 @@ export async function POST(request, context) {
 
     // ---- Kashmir Travel Intelligence ----
     if (path === '/travel-rules') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'travelrules:manage')) return err('forbidden', 403);
       const { value, error } = buildTravelRule(await readBody(request), {});
@@ -4627,7 +4640,7 @@ export async function POST(request, context) {
       return json({ rule: safe }, 201);
     }
     if (path === '/travel-rules/calculate') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'travelrules:read')) return err('forbidden', 403);
       const body = await readBody(request);
@@ -4645,7 +4658,7 @@ export async function POST(request, context) {
 
     // ---- Universal Document Vault (upload) ----
     if (path === '/documents') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'documents:create')) return err('forbidden', 403);
       const body = await readBody(request);
@@ -4672,7 +4685,7 @@ export async function POST(request, context) {
 
     // ---- Custom Fields & Modules ----
     if (path === '/custom-fields') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'customization:manage')) return err('forbidden', 403);
       const body = await readBody(request);
@@ -4691,7 +4704,7 @@ export async function POST(request, context) {
       return json({ field: safe }, 201);
     }
     if (path === '/custom-fields/values') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'customization:read')) return err('forbidden', 403);
       const body = await readBody(request);
@@ -4713,7 +4726,7 @@ export async function POST(request, context) {
       return json({ values: clean });
     }
     if (path === '/custom-modules') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'customization:manage')) return err('forbidden', 403);
       const body = await readBody(request);
@@ -4796,21 +4809,21 @@ export async function POST(request, context) {
     // Website builder actions (including template application) must reach the shared
     // websitePost handler. Restrict access to an authenticated agency manager.
     if (path.startsWith('/website/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'website:manage')) return err('forbidden', 403);
       return websitePost(db, session, path, await readBody(request));
     }
 
     if (path.startsWith('/billing/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'subscription:manage')) return err('forbidden', 403);
       return billingPost(db, session, path, await readBody(request));
     }
 
     if (path.startsWith('/integrations/') || path === '/webhooks' || path === '/dev/api-keys') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'integrations:manage')) return err('forbidden', 403);
       return integrationsPost(db, session, path, await readBody(request));
@@ -4818,7 +4831,7 @@ export async function POST(request, context) {
 
     // Invite/add a team member — agency-scoped, RBAC-gated.
     if (path === '/members') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'members:invite')) return err('forbidden', 403);
       const { name, email, role } = await readBody(request);
@@ -4849,7 +4862,7 @@ export async function POST(request, context) {
 
     // Demo tenant-scoped resource proving isolation.
     if (path === '/clients') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'clients:create')) return err('forbidden', 403);
       const body = await readBody(request);
@@ -4867,7 +4880,7 @@ export async function POST(request, context) {
 
     // ---- CRM creates ----
     if (path === '/leads') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'leads:create')) return err('forbidden', 403);
       const { value, error } = buildLeadFields(await readBody(request), { partial: false });
@@ -4883,7 +4896,7 @@ export async function POST(request, context) {
     }
 
     if (path.startsWith('/leads/') && path.endsWith('/convert')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'clients:create')) return err('forbidden', 403);
       const id = path.split('/')[2];
@@ -4905,7 +4918,7 @@ export async function POST(request, context) {
     }
 
     if (path === '/followups') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'followups:create')) return err('forbidden', 403);
       const { value, error } = buildFollowUpFields(await readBody(request), { partial: false });
@@ -4921,7 +4934,7 @@ export async function POST(request, context) {
     }
 
     if (path === '/tasks') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'tasks:create')) return err('forbidden', 403);
       const { value, error } = buildTaskFields(await readBody(request), { partial: false });
@@ -5126,21 +5139,21 @@ export async function POST(request, context) {
     }
 
     if (path.startsWith('/communications')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'communications:create')) return err('forbidden', 403);
       return commPost(db, session, path, await readBody(request));
     }
 
     if (path === '/ai/chat') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'ai:use')) return err('forbidden', 403);
       return aiPost(db, session, path, await readBody(request));
     }
 
     if (path === '/portal-access') {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'portal:manage')) return err('forbidden', 403);
       return portalAccessCreate(db, session, await readBody(request));
@@ -5338,15 +5351,57 @@ export async function PUT(request, context) {
       return platformPut(pdb, ps, path, await readBody(request), request);
     }
     if (path.startsWith('/website/')) {
-      const session = getSession(request);
+      const session = await getActiveSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'website:manage')) return err('forbidden', 403);
       const db = await getDb();
       return websitePut(db, session, path, await readBody(request));
     }
-    const session = getSession(request);
+    const session = await getActiveSession(request);
     if (!session) return err('unauthenticated', 401);
     const db = await getDb();
+
+    // Team member updates — tenant-scoped and permission-checked.
+    if (path.match(/^\/members\/[^/]+$/)) {
+      if (!can(session.role, 'members:update')) return err('forbidden', 403);
+      const id = path.split('/')[2];
+      if (!id) return err('member id required');
+      const target = await db.collection('users').findOne(tenantFilter(session, { id }));
+      if (!target) return err('Team member not found', 404);
+      if (target.role === 'owner') return err('The agency owner cannot be edited or suspended here', 403);
+      if (session.role === 'manager' && !['agent', 'finance'].includes(target.role)) return err('Managers can only manage Agents and Finance members', 403);
+      const body = await readBody(request);
+      if (body.email !== undefined && String(body.email).trim().toLowerCase() !== String(target.email || '').toLowerCase()) {
+        return err('Email changes require a separate verified email-change process', 409);
+      }
+      const set = { updatedAt: new Date().toISOString(), updatedBy: session.userId };
+      if (body.name !== undefined) {
+        const name = String(body.name || '').trim();
+        if (!name || name.length > 120) return err('Enter a valid name (1–120 characters)');
+        set.name = name;
+      }
+      if (body.phone !== undefined) set.phone = String(body.phone || '').trim().slice(0, 40);
+      if (body.role !== undefined) {
+        const role = String(body.role || '');
+        if (!isValidRole(role) || role === 'owner' || (session.role === 'manager' && !['agent', 'finance'].includes(role))) return err('Invalid role for your account');
+        set.role = role;
+      }
+      if (body.status !== undefined) {
+        const status = String(body.status || '');
+        if (!['active', 'suspended'].includes(status)) return err('Invalid member status');
+        if (id === session.userId && status === 'suspended') return err('You cannot suspend your own account');
+        set.status = status;
+      }
+      if (Object.keys(set).length <= 2) return err('No member fields to update');
+      await db.collection('users').updateOne(tenantFilter(session, { id }), { $set: set });
+      const updated = await db.collection('users').findOne(tenantFilter(session, { id }), { projection: { _id: 0, passwordHash: 0 } });
+      await logActivity(db, session, {
+        type: 'team_member_updated',
+        message: `Team member "${target.name || target.email}" updated`,
+        refType: 'team_member', refId: id,
+      });
+      return json({ member: updated });
+    }
 
     if (path.match(/^\/integrations\/[^/]+$/) || path.match(/^\/webhooks\/[^/]+$/) || path.match(/^\/dev\/api-keys\/[^/]+$/)) {
       if (!can(session.role, 'integrations:manage')) return err('forbidden', 403);
@@ -5883,7 +5938,7 @@ export async function DELETE(request, context) {
       const pdb = await getDb();
       return platformDelete(pdb, ps, path, request);
     }
-    const session = getSession(request);
+    const session = await getActiveSession(request);
     if (!session) return err('unauthenticated', 401);
     const db = await getDb();
 
