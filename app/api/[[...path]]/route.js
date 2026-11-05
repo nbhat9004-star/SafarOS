@@ -4840,7 +4840,8 @@ export async function POST(request, context) {
       if (!cleanName || !EMAIL_ADDR_RE.test(cleanEmail) || cleanEmail.length > 200 || !role) return err('valid name, email and role required');
       // Owners and Managers may invite a member with any agency role.
       if (!isValidRole(role)) return err('invalid role');
-      if (!(await isAgencyEmailConfigured(db, session.agencyId))) return err('Agency email is not configured. Connect Resend with a verified sender email before inviting staff.', 503);
+      // Use the agency's optional Resend connection when present; otherwise use SafarOS's central Resend account.
+      if (!(await isEmailConfigured(db, session.agencyId))) return err('SafarOS email delivery is not configured. Please contact SafarOS support.', 503);
       const existing = await db.collection('users').findOne({ email: cleanEmail });
       if (existing) return err('email already registered', 409);
       const now = new Date().toISOString();
