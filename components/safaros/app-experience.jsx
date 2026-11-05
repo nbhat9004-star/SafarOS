@@ -2230,7 +2230,7 @@ function Team({ session }) {
 
   // Owners and Managers can manage every non-owner team account and assign any role.
   // Existing Owner accounts remain protected from accidental demotion or suspension.
-  const manageable = (m) => canManage && m.role !== 'owner';
+  const manageable = (m) => canManage && m.role !== 'owner' && m.id !== session.user.id;
   const filtered = members.filter((m) =>
     [m.name, m.email, m.role, m.status].some((v) => String(v || '').toLowerCase().includes(query.trim().toLowerCase()))
   );
