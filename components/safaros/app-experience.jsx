@@ -1214,10 +1214,72 @@ function DataExport({ session }) {
   );
 }
 
-function Dashboard({ session, onLogout }) {
+
+function MyProfileDialog({ open, setOpen, user, onSaved }) {
+  const [form, setForm] = useState({ name: '', phone: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (user) setForm({ name: user.name || '', phone: user.phone || '' });
+  }, [user, open]);
+
+  const save = async () => {
+    if (!form.name.trim()) return toast.error('Full name is required');
+    setSaving(true);
+    try {
+      await api('/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ name: form.name.trim(), phone: form.phone.trim() }),
+      });
+      toast.success('Your profile has been updated');
+      setOpen(false);
+      await onSaved?.();
+    } catch (e) {
+      toast.error(e.message || 'Could not update your profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-violet-600" /> My profile</DialogTitle>
+          <p className="text-sm text-muted-foreground">Keep your personal contact details up to date.</p>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Full name</Label>
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={120} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Business email</Label>
+            <Input value={user?.email || ''} readOnly disabled />
+            <p className="text-xs text-muted-foreground">Email changes will be available through a separate verification process.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Phone number</Label>
+            <Input value={form.phone} placeholder="Add phone number" onChange={(e) => setForm({ ...form, phone: e.target.value })} maxLength={40} />
+          </div>
+          <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+            Your role and workspace permissions are managed separately by your agency.
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : 'Save profile'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Dashboard({ session, onLogout, onSessionRefresh }) {
   const [active, setActive] = useState('overview');
   const [menuOpen, setMenuOpen] = useState(false);
   const [navPayload, setNavPayload] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const { user, agency } = session;
   const go = (id) => { setActive(id); setMenuOpen(false); };
   const navigateTo = (id, payload = null) => { setNavPayload(payload); setActive(id); setMenuOpen(false); };
@@ -1286,13 +1348,16 @@ function Dashboard({ session, onLogout }) {
           <div className="flex items-center gap-2 sm:gap-3">
             <GlobalSearch onNavigate={go} />
             <SyncStatusIndicator />
-            <div className="hidden items-center gap-2.5 rounded-full border border-border bg-background px-2 py-1 pr-3 sm:flex">
+            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setProfileOpen(true)} title="My profile" aria-label="My profile">
+              <UserCog className="h-4 w-4" />
+            </Button>
+            <button type="button" onClick={() => setProfileOpen(true)} className="hidden items-center gap-2.5 rounded-full border border-border bg-background px-2 py-1 pr-3 text-left hover:bg-accent sm:flex" title="Edit my profile">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-[11px] font-bold text-white">{userInitial}</div>
               <div className="text-right leading-tight">
                 <div className="text-[12px] font-semibold">{user?.name}</div>
                 <div className="text-[10px] text-muted-foreground capitalize">{user?.role}</div>
               </div>
-            </div>
+            </button>
             <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={onLogout}>
               <LogOut className="h-4 w-4 mr-1" /> Sign out
             </Button>
@@ -1351,6 +1416,7 @@ function Dashboard({ session, onLogout }) {
         </div>
       </main>
 
+      <MyProfileDialog open={profileOpen} setOpen={setProfileOpen} user={user} onSaved={onSessionRefresh} />
       <CopilotFab session={session} />
 
       {/* Mobile navigation drawer */}
@@ -1951,6 +2017,7 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
     setError('');
     if (!form.name.trim()) return setError('Full name is required.');
     if (!emailValid) return setError('Enter a valid business email address.');
+    if (form.role === 'owner' && !window.confirm('Invite this person as an agency Owner? Owners have full control of the workspace.')) return;
     setSubmitting(true);
     try {
       await api('/members', {
@@ -2017,7 +2084,8 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
             <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {actorRole === 'owner' && <SelectItem value="manager">Manager</SelectItem>}
+                <SelectItem value="owner">Owner</SelectItem>
+                <SelectItem value="manager">Manager</SelectItem>
                 <SelectItem value="agent">Agent</SelectItem>
                 <SelectItem value="finance">Finance</SelectItem>
               </SelectContent>
@@ -2050,6 +2118,7 @@ function TeamMemberEditDialog({ open, setOpen, member, actorRole, onSaved }) {
   const save = async () => {
     if (!member) return;
     if (!form.name.trim()) return toast.error('Full name is required');
+    if (form.role === 'owner' && member.role !== 'owner' && !window.confirm('Promote this member to agency Owner? They will receive full control of the workspace.')) return;
     setSaving(true);
     try {
       await api(`/members/${encodeURIComponent(member.id)}`, {
@@ -2096,7 +2165,8 @@ function TeamMemberEditDialog({ open, setOpen, member, actorRole, onSaved }) {
                 <Select value={form.role} onValueChange={(role) => setForm({ ...form, role })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {actorRole === 'owner' && <SelectItem value="manager">Manager</SelectItem>}
+                    <SelectItem value="owner">Owner</SelectItem>
+                    <SelectItem value="manager">Manager</SelectItem>
                     <SelectItem value="agent">Agent</SelectItem>
                     <SelectItem value="finance">Finance</SelectItem>
                   </SelectContent>
@@ -2158,8 +2228,9 @@ function Team({ session }) {
     } catch (e) { toast.error(e.message || 'Could not update member status'); }
   };
 
-  const manageable = (m) => canManage && m.role !== 'owner' &&
-    (session.user.role === 'owner' || ['agent', 'finance'].includes(m.role));
+  // Owners and Managers can manage every non-owner team account and assign any role.
+  // Existing Owner accounts remain protected from accidental demotion or suspension.
+  const manageable = (m) => canManage && m.role !== 'owner';
   const filtered = members.filter((m) =>
     [m.name, m.email, m.role, m.status].some((v) => String(v || '').toLowerCase().includes(query.trim().toLowerCase()))
   );
@@ -6670,7 +6741,7 @@ export function AppExperience({ initialTab = 'login' }) {
     <>
       {session
         ? (session.agency?.setupCompleted || session.user?.role !== 'owner' // only owners can submit agency setup (agency:manage)
-            ? <Dashboard session={session} onLogout={logout} />
+            ? <Dashboard session={session} onLogout={logout} onSessionRefresh={loadMe} />
             : <AgencySetup session={session} onDone={loadMe} onLogout={logout} />)
         : <AuthView onAuthed={onAuthed} initialTab={initialTab} />}
       <Toaster richColors position="top-right" />
