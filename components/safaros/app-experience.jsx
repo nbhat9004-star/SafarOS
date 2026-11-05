@@ -2177,7 +2177,7 @@ function Team({ session }) {
           <h2 className="text-2xl font-bold tracking-tight">Team management</h2>
           <p className="text-sm text-muted-foreground">Manage people, roles and access across your agency.</p>
         </div>
-        {canInvite && <Button onClick={() => setInviteOpen(true)} className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Invite team member</Button>}
+        {canInvite && <AddMemberForm open={inviteOpen} setOpen={setInviteOpen} onAdded={load} actorRole={session.user.role} />}
       </div>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -2284,7 +2284,6 @@ function Team({ session }) {
         )}
       </Card>
 
-      {canInvite && <AddMemberForm open={inviteOpen} setOpen={setInviteOpen} onAdded={load} actorRole={session.user.role} />}
       {canManage && target && manageable(target) && <TeamMemberEditDialog open={open} setOpen={setOpen} member={target} actorRole={session.user.role} onSaved={load} />}
     </div>
   );
