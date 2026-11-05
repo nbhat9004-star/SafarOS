@@ -2814,7 +2814,7 @@ async function earlyAccessSubmit(db, body) {
 // Returns { ok, message }. Secrets are NEVER included in the message.
 async function testProviderConnection(provider, values = {}) {
   try {
-    if (provider === 'google_places' || provider === 'google_maps') {
+    if (provider === 'google_places') {
       const key = values.apiKey || '';
       if (!key) return { ok: false, message: 'No API key configured.' };
       const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
@@ -2822,8 +2822,43 @@ async function testProviderConnection(provider, values = {}) {
         headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': 'places.id' },
         body: JSON.stringify({ textQuery: 'hotel', pageSize: 1 }),
       });
-      if (r.ok) return { ok: true, message: 'Google Places responded successfully.' };
-      let m = `Provider returned HTTP ${r.status}.`;
+      if (r.ok) return { ok: true, message: 'Google Places API authenticated successfully.' };
+      let m = `Google Places returned HTTP ${r.status}.`;
+      try { const e = await r.json(); if (e?.error?.message) m = e.error.message; } catch { /* ignore */ }
+      return { ok: false, message: m };
+    }
+    if (provider === 'google_maps') {
+      const key = values.apiKey || '';
+      if (!key) return { ok: false, message: 'No API key configured.' };
+      // This is a real Routes API request, separate from the Places connectivity test.
+      const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': key,
+          'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
+        },
+        body: JSON.stringify({
+          origin: { address: 'Srinagar International Airport, Srinagar, Jammu and Kashmir, India' },
+          destination: { address: 'Dal Lake, Srinagar, Jammu and Kashmir, India' },
+          travelMode: 'DRIVE',
+          routingPreference: 'TRAFFIC_UNAWARE',
+          computeAlternativeRoutes: false,
+          languageCode: 'en-IN',
+          units: 'METRIC',
+        }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        const route = data?.routes?.[0];
+        if (!route || !Number.isFinite(route.distanceMeters)) {
+          return { ok: false, message: 'Routes API responded, but did not return a usable route. Check that Routes API is enabled and billing is active.' };
+        }
+        const km = (route.distanceMeters / 1000).toFixed(1);
+        const minutes = Math.max(1, Math.round(parseInt(route.duration || '0s', 10) / 60));
+        return { ok: true, message: `Google Routes API responded successfully. Test route: Srinagar Airport to Dal Lake — ${km} km, approximately ${minutes} minutes.` };
+      }
+      let m = `Google Routes API returned HTTP ${r.status}.`;
       try { const e = await r.json(); if (e?.error?.message) m = e.error.message; } catch { /* ignore */ }
       return { ok: false, message: m };
     }
