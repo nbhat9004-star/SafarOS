@@ -2034,11 +2034,108 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
   );
 }
 
+function TeamMemberEditDialog({ open, setOpen, member, actorRole, onSaved }) {
+  const [form, setForm] = useState({ name: '', phone: '', role: 'agent', status: 'active' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (member) setForm({
+      name: member.name || '',
+      phone: member.phone || '',
+      role: member.role || 'agent',
+      status: member.status || 'active',
+    });
+  }, [member, open]);
+
+  const save = async () => {
+    if (!member) return;
+    if (!form.name.trim()) return toast.error('Full name is required');
+    setSaving(true);
+    try {
+      await api(`/members/${encodeURIComponent(member.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: form.name.trim(),
+          phone: form.phone.trim(),
+          role: form.role,
+          status: form.status,
+        }),
+      });
+      toast.success('Team member updated');
+      setOpen(false);
+      onSaved();
+    } catch (e) { toast.error(e.message || 'Could not update team member'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-violet-600" /> Edit team member</DialogTitle>
+          <p className="text-sm text-muted-foreground">Update this employee’s profile, role and workspace access.</p>
+        </DialogHeader>
+        {member && (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Full name</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={120} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Business email</Label>
+              <Input value={member.email || ''} readOnly disabled />
+              <p className="text-xs text-muted-foreground">Email changes require a separate verification step to protect account ownership.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Phone number</Label>
+              <Input value={form.phone} placeholder="Add phone number" onChange={(e) => setForm({ ...form, phone: e.target.value })} maxLength={40} />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Role</Label>
+                <Select value={form.role} onValueChange={(role) => setForm({ ...form, role })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {actorRole === 'owner' && <SelectItem value="manager">Manager</SelectItem>}
+                    <SelectItem value="agent">Agent</SelectItem>
+                    <SelectItem value="finance">Finance</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Account status</Label>
+                <Select value={form.status} onValueChange={(status) => setForm({ ...form, status })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="suspended">Suspended</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+              Suspended members are signed out and cannot use SafarOS. Their records, assignments and activity history are retained.
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : 'Save changes'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Team({ session }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [target, setTarget] = useState(null);
+  const [query, setQuery] = useState('');
   const canInvite = can(session.user.role, 'members:invite');
+  const canManage = can(session.user.role, 'members:update');
 
   const load = async () => {
     setLoading(true);
@@ -2048,97 +2145,147 @@ function Team({ session }) {
   };
   useEffect(() => { load(); }, []);
 
-  const isEmpty = !loading && members.length === 0;
+  const openEdit = (member) => { setTarget(member); setOpen(true); };
+  const toggleStatus = async (member) => {
+    const next = member.status === 'suspended' ? 'active' : 'suspended';
+    if (next === 'suspended' && !window.confirm(`Suspend ${member.name || member.email}? They will be signed out and lose workspace access.`)) return;
+    try {
+      await api(`/members/${encodeURIComponent(member.id)}`, {
+        method: 'PUT', body: JSON.stringify({ status: next }),
+      });
+      toast.success(next === 'suspended' ? 'Team member suspended' : 'Team member reactivated');
+      load();
+    } catch (e) { toast.error(e.message || 'Could not update member status'); }
+  };
+
+  const manageable = (m) => canManage && m.role !== 'owner' &&
+    (session.user.role === 'owner' || ['agent', 'finance'].includes(m.role));
+  const filtered = members.filter((m) =>
+    [m.name, m.email, m.role, m.status].some((v) => String(v || '').toLowerCase().includes(query.trim().toLowerCase()))
+  );
+  const activeCount = members.filter((m) => (m.status || 'active') === 'active').length;
+  const suspendedCount = members.filter((m) => m.status === 'suspended').length;
+  const pendingCount = members.filter((m) => m.status === 'pending').length;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-bold">Team</h2>
-          <p className="text-sm text-muted-foreground">
-            Manage the employees in your SafarOS workspace.
-          </p>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-violet-600">
+            <Users className="h-4 w-4" /> Workspace administration
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight">Team management</h2>
+          <p className="text-sm text-muted-foreground">Manage people, roles and access across your agency.</p>
         </div>
-        {canInvite && !isEmpty && (
-          <AddMemberForm open={open} setOpen={setOpen} onAdded={load} actorRole={session.user.role} />
-        )}
+        {canInvite && <Button onClick={() => setInviteOpen(true)} className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Invite team member</Button>}
       </div>
 
-      {loading && (
-        <div className="space-y-2">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />
-          ))}
-        </div>
-      )}
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {[
+          { label: 'Total members', value: members.length, icon: Users, tone: 'text-violet-600 bg-violet-500/10' },
+          { label: 'Active', value: activeCount, icon: CheckCircle2, tone: 'text-emerald-600 bg-emerald-500/10' },
+          { label: 'Invitations pending', value: pendingCount, icon: Mail, tone: 'text-amber-600 bg-amber-500/10' },
+          { label: 'Suspended', value: suspendedCount, icon: Lock, tone: 'text-rose-600 bg-rose-500/10' },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <Card key={item.label} className="border-border/70 shadow-sm">
+              <CardContent className="flex items-center gap-3 p-4">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${item.tone}`}><Icon className="h-5 w-5" /></div>
+                <div className="min-w-0">
+                  <div className="text-2xl font-bold tabular-nums">{loading ? '—' : item.value}</div>
+                  <div className="text-xs text-muted-foreground">{item.label}</div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
-      {isEmpty && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-              <Users className="h-6 w-6 text-muted-foreground" />
+      <Card className="overflow-hidden border-border/70 shadow-sm">
+        <CardHeader className="space-y-3 border-b bg-muted/20 pb-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">People & access</CardTitle>
+              <CardDescription>{members.length} {members.length === 1 ? 'person' : 'people'} in this workspace</CardDescription>
             </div>
-            <div className="space-y-1">
-              <h3 className="font-semibold">No team members yet</h3>
-              <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-                Add employees to your SafarOS workspace so your team can work together.
-              </p>
-            </div>
-            {canInvite && <AddMemberForm open={open} setOpen={setOpen} onAdded={load} actorRole={session.user.role} />}
-          </CardContent>
-        </Card>
-      )}
-
-      {!loading && members.length > 0 && (
-        <>
-          {/* Desktop: professional table */}
-          <Card className="hidden md:block overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Joined</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {members.map((m) => (
-                  <TableRow key={m.id}>
-                    <TableCell className="font-medium">{m.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{m.email}</TableCell>
-                    <TableCell><RoleBadge role={m.role} /></TableCell>
-                    <TableCell><StatusBadge status={m.status} /></TableCell>
-                    <TableCell className="text-muted-foreground">{formatJoined(m.createdAt)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
-
-          {/* Mobile: stacked member cards */}
-          <div className="space-y-3 md:hidden">
-            {members.map((m) => (
-              <Card key={m.id}>
-                <CardContent className="space-y-3 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-semibold">{m.name}</div>
-                      <div className="truncate text-sm text-muted-foreground">{m.email}</div>
-                    </div>
-                    <RoleBadge role={m.role} />
-                  </div>
-                  <div className="flex items-center justify-between border-t pt-3 text-sm">
-                    <StatusBadge status={m.status} />
-                    <span className="text-muted-foreground">Joined {formatJoined(m.createdAt)}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+            <Badge variant="outline" className="w-fit"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> Role-based access</Badge>
           </div>
-        </>
-      )}
+          <div className="relative max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name, email, role or status" className="pl-9 bg-background" />
+          </div>
+        </CardHeader>
+
+        {loading ? (
+          <CardContent className="space-y-3 p-5">
+            {[0, 1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-lg bg-muted/60" />)}
+          </CardContent>
+        ) : members.length === 0 ? (
+          <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-600"><Users className="h-7 w-7" /></div>
+            <div><h3 className="font-semibold">Build your agency team</h3><p className="mt-1 max-w-sm text-sm text-muted-foreground">Invite colleagues and give each person access to the tools they need.</p></div>
+            {canInvite && <Button onClick={() => setInviteOpen(true)}><Plus className="mr-2 h-4 w-4" /> Invite your first member</Button>}
+          </CardContent>
+        ) : filtered.length === 0 ? (
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">No team members match “{query}”.</CardContent>
+        ) : (
+          <>
+            <div className="hidden overflow-x-auto md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/20">
+                    <TableHead className="pl-5">Team member</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Joined</TableHead>
+                    <TableHead className="pr-5 text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((m) => (
+                    <TableRow key={m.id} className="hover:bg-muted/20">
+                      <TableCell className="pl-5">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/15 to-indigo-500/15 text-sm font-semibold text-violet-700">{String(m.name || m.email || '?').trim().charAt(0).toUpperCase()}</div>
+                          <div className="min-w-0"><div className="truncate font-medium">{m.name || 'Unnamed member'}</div><div className="truncate text-xs text-muted-foreground">{m.email}</div></div>
+                        </div>
+                      </TableCell>
+                      <TableCell><RoleBadge role={m.role} /></TableCell>
+                      <TableCell><StatusBadge status={m.status} /></TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatJoined(m.createdAt)}</TableCell>
+                      <TableCell className="pr-5">
+                        <div className="flex justify-end gap-2">
+                          {manageable(m) && <Button variant="outline" size="sm" onClick={() => openEdit(m)}><Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit</Button>}
+                          {manageable(m) && <Button variant="ghost" size="sm" className={m.status === 'suspended' ? 'text-emerald-700 hover:text-emerald-800' : 'text-rose-600 hover:text-rose-700'} onClick={() => toggleStatus(m)}>{m.status === 'suspended' ? <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> : <Lock className="mr-1.5 h-3.5 w-3.5" />}{m.status === 'suspended' ? 'Reactivate' : 'Suspend'}</Button>}
+                          {!manageable(m) && <span className="text-xs text-muted-foreground">Protected account</span>}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="space-y-3 p-3 md:hidden">
+              {filtered.map((m) => (
+                <div key={m.id} className="rounded-xl border bg-card p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/15 to-indigo-500/15 font-semibold text-violet-700">{String(m.name || m.email || '?').trim().charAt(0).toUpperCase()}</div>
+                    <div className="min-w-0 flex-1"><div className="truncate font-semibold">{m.name || 'Unnamed member'}</div><div className="truncate text-xs text-muted-foreground">{m.email}</div><div className="mt-2 flex flex-wrap gap-2"><RoleBadge role={m.role} /><StatusBadge status={m.status} /></div></div>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between border-t pt-3">
+                    <span className="text-xs text-muted-foreground">Joined {formatJoined(m.createdAt)}</span>
+                    {manageable(m) && <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => openEdit(m)}><Pencil className="mr-1 h-3.5 w-3.5" /> Edit</Button><Button variant="ghost" size="sm" onClick={() => toggleStatus(m)}>{m.status === 'suspended' ? 'Reactivate' : 'Suspend'}</Button></div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Card>
+
+      {canInvite && <AddMemberForm open={inviteOpen} setOpen={setInviteOpen} onAdded={load} actorRole={session.user.role} />}
+      {canManage && target && manageable(target) && <TeamMemberEditDialog open={open} setOpen={setOpen} member={target} actorRole={session.user.role} onSaved={load} />}
     </div>
   );
 }
