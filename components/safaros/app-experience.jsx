@@ -1214,10 +1214,72 @@ function DataExport({ session }) {
   );
 }
 
-function Dashboard({ session, onLogout }) {
+
+function MyProfileDialog({ open, setOpen, user, onSaved }) {
+  const [form, setForm] = useState({ name: '', phone: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (user) setForm({ name: user.name || '', phone: user.phone || '' });
+  }, [user, open]);
+
+  const save = async () => {
+    if (!form.name.trim()) return toast.error('Full name is required');
+    setSaving(true);
+    try {
+      await api('/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ name: form.name.trim(), phone: form.phone.trim() }),
+      });
+      toast.success('Your profile has been updated');
+      setOpen(false);
+      await onSaved?.();
+    } catch (e) {
+      toast.error(e.message || 'Could not update your profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-violet-600" /> My profile</DialogTitle>
+          <p className="text-sm text-muted-foreground">Keep your personal contact details up to date.</p>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Full name</Label>
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={120} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Business email</Label>
+            <Input value={user?.email || ''} readOnly disabled />
+            <p className="text-xs text-muted-foreground">Email changes will be available through a separate verification process.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Phone number</Label>
+            <Input value={form.phone} placeholder="Add phone number" onChange={(e) => setForm({ ...form, phone: e.target.value })} maxLength={40} />
+          </div>
+          <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+            Your role and workspace permissions are managed separately by your agency.
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : 'Save profile'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Dashboard({ session, onLogout, onSessionRefresh }) {
   const [active, setActive] = useState('overview');
   const [menuOpen, setMenuOpen] = useState(false);
   const [navPayload, setNavPayload] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const { user, agency } = session;
   const go = (id) => { setActive(id); setMenuOpen(false); };
   const navigateTo = (id, payload = null) => { setNavPayload(payload); setActive(id); setMenuOpen(false); };
@@ -1286,13 +1348,16 @@ function Dashboard({ session, onLogout }) {
           <div className="flex items-center gap-2 sm:gap-3">
             <GlobalSearch onNavigate={go} />
             <SyncStatusIndicator />
-            <div className="hidden items-center gap-2.5 rounded-full border border-border bg-background px-2 py-1 pr-3 sm:flex">
+            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setProfileOpen(true)} title="My profile" aria-label="My profile">
+              <UserCog className="h-4 w-4" />
+            </Button>
+            <button type="button" onClick={() => setProfileOpen(true)} className="hidden items-center gap-2.5 rounded-full border border-border bg-background px-2 py-1 pr-3 text-left hover:bg-accent sm:flex" title="Edit my profile">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-[11px] font-bold text-white">{userInitial}</div>
               <div className="text-right leading-tight">
                 <div className="text-[12px] font-semibold">{user?.name}</div>
                 <div className="text-[10px] text-muted-foreground capitalize">{user?.role}</div>
               </div>
-            </div>
+            </button>
             <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={onLogout}>
               <LogOut className="h-4 w-4 mr-1" /> Sign out
             </Button>
@@ -1351,6 +1416,7 @@ function Dashboard({ session, onLogout }) {
         </div>
       </main>
 
+      <MyProfileDialog open={profileOpen} setOpen={setProfileOpen} user={user} onSaved={onSessionRefresh} />
       <CopilotFab session={session} />
 
       {/* Mobile navigation drawer */}
@@ -1951,6 +2017,7 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
     setError('');
     if (!form.name.trim()) return setError('Full name is required.');
     if (!emailValid) return setError('Enter a valid business email address.');
+    if (form.role === 'owner' && !window.confirm('Invite this person as an agency Owner? Owners have full control of the workspace.')) return;
     setSubmitting(true);
     try {
       await api('/members', {
@@ -1970,10 +2037,11 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
       if (/already registered|duplicate|E11000/i.test(msg)) setError('A member with this email already exists.');
       else if (/forbidden/i.test(msg)) setError('You do not have permission to add team members.');
       else if (/invalid role/i.test(msg)) setError('Please select a valid role.');
-      else if (/email delivery is not configured/i.test(msg)) setError('Connect the agency email provider in Integrations before inviting staff.');
+      else if (/agency email is not configured|email is not configured/i.test(msg)) setError('Invitations are not ready yet. Connect Resend with a verified sender email in this agency’s Integrations, then try again.');
+      else if (/invitation email could not be sent|resend|email provider|timed out/i.test(msg)) setError(msg || 'The invitation email could not be sent. Check the Resend connection and verified sender email.');
       else if (/required|valid name, email and role/i.test(msg)) setError('Please enter a name, valid email and role.');
       else if (/unauthenticated/i.test(msg)) setError('Your session has expired. Please sign in again.');
-      else setError('Something went wrong while adding the member. Please try again.');
+      else setError(msg || 'Something went wrong while adding the member. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -2017,7 +2085,8 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
             <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {actorRole === 'owner' && <SelectItem value="manager">Manager</SelectItem>}
+                <SelectItem value="owner">Owner</SelectItem>
+                <SelectItem value="manager">Manager</SelectItem>
                 <SelectItem value="agent">Agent</SelectItem>
                 <SelectItem value="finance">Finance</SelectItem>
               </SelectContent>
@@ -2034,11 +2103,110 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
   );
 }
 
+function TeamMemberEditDialog({ open, setOpen, member, actorRole, onSaved }) {
+  const [form, setForm] = useState({ name: '', phone: '', role: 'agent', status: 'active' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (member) setForm({
+      name: member.name || '',
+      phone: member.phone || '',
+      role: member.role || 'agent',
+      status: member.status || 'active',
+    });
+  }, [member, open]);
+
+  const save = async () => {
+    if (!member) return;
+    if (!form.name.trim()) return toast.error('Full name is required');
+    if (form.role === 'owner' && member.role !== 'owner' && !window.confirm('Promote this member to agency Owner? They will receive full control of the workspace.')) return;
+    setSaving(true);
+    try {
+      await api(`/members/${encodeURIComponent(member.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: form.name.trim(),
+          phone: form.phone.trim(),
+          role: form.role,
+          status: form.status,
+        }),
+      });
+      toast.success('Team member updated');
+      setOpen(false);
+      onSaved();
+    } catch (e) { toast.error(e.message || 'Could not update team member'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-violet-600" /> Edit team member</DialogTitle>
+          <p className="text-sm text-muted-foreground">Update this employee’s profile, role and workspace access.</p>
+        </DialogHeader>
+        {member && (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Full name</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={120} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Business email</Label>
+              <Input value={member.email || ''} readOnly disabled />
+              <p className="text-xs text-muted-foreground">Email changes require a separate verification step to protect account ownership.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Phone number</Label>
+              <Input value={form.phone} placeholder="Add phone number" onChange={(e) => setForm({ ...form, phone: e.target.value })} maxLength={40} />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Role</Label>
+                <Select value={form.role} onValueChange={(role) => setForm({ ...form, role })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="owner">Owner</SelectItem>
+                    <SelectItem value="manager">Manager</SelectItem>
+                    <SelectItem value="agent">Agent</SelectItem>
+                    <SelectItem value="finance">Finance</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Account status</Label>
+                <Select value={form.status} onValueChange={(status) => setForm({ ...form, status })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="suspended">Suspended</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+              Suspended members are signed out and cannot use SafarOS. Their records, assignments and activity history are retained.
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : 'Save changes'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Team({ session }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [target, setTarget] = useState(null);
+  const [query, setQuery] = useState('');
   const canInvite = can(session.user.role, 'members:invite');
+  const canManage = can(session.user.role, 'members:update');
 
   const load = async () => {
     setLoading(true);
@@ -2048,97 +2216,147 @@ function Team({ session }) {
   };
   useEffect(() => { load(); }, []);
 
-  const isEmpty = !loading && members.length === 0;
+  const openEdit = (member) => { setTarget(member); setOpen(true); };
+  const toggleStatus = async (member) => {
+    const next = member.status === 'suspended' ? 'active' : 'suspended';
+    if (next === 'suspended' && !window.confirm(`Suspend ${member.name || member.email}? They will be signed out and lose workspace access.`)) return;
+    try {
+      await api(`/members/${encodeURIComponent(member.id)}`, {
+        method: 'PUT', body: JSON.stringify({ status: next }),
+      });
+      toast.success(next === 'suspended' ? 'Team member suspended' : 'Team member reactivated');
+      load();
+    } catch (e) { toast.error(e.message || 'Could not update member status'); }
+  };
+
+  // Owners and Managers can manage every non-owner team account and assign any role.
+  // Existing Owner accounts remain protected from accidental demotion or suspension.
+  const manageable = (m) => canManage && m.role !== 'owner' && m.id !== session.user.id;
+  const filtered = members.filter((m) =>
+    [m.name, m.email, m.role, m.status].some((v) => String(v || '').toLowerCase().includes(query.trim().toLowerCase()))
+  );
+  const activeCount = members.filter((m) => (m.status || 'active') === 'active').length;
+  const suspendedCount = members.filter((m) => m.status === 'suspended').length;
+  const pendingCount = members.filter((m) => m.status === 'pending').length;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-bold">Team</h2>
-          <p className="text-sm text-muted-foreground">
-            Manage the employees in your SafarOS workspace.
-          </p>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-violet-600">
+            <Users className="h-4 w-4" /> Workspace administration
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight">Team management</h2>
+          <p className="text-sm text-muted-foreground">Manage people, roles and access across your agency.</p>
         </div>
-        {canInvite && !isEmpty && (
-          <AddMemberForm open={open} setOpen={setOpen} onAdded={load} actorRole={session.user.role} />
-        )}
+        {canInvite && <AddMemberForm open={inviteOpen} setOpen={setInviteOpen} onAdded={load} actorRole={session.user.role} />}
       </div>
 
-      {loading && (
-        <div className="space-y-2">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-14 rounded-lg border bg-muted/30 animate-pulse" />
-          ))}
-        </div>
-      )}
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {[
+          { label: 'Total members', value: members.length, icon: Users, tone: 'text-violet-600 bg-violet-500/10' },
+          { label: 'Active', value: activeCount, icon: CheckCircle2, tone: 'text-emerald-600 bg-emerald-500/10' },
+          { label: 'Invitations pending', value: pendingCount, icon: Mail, tone: 'text-amber-600 bg-amber-500/10' },
+          { label: 'Suspended', value: suspendedCount, icon: Lock, tone: 'text-rose-600 bg-rose-500/10' },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <Card key={item.label} className="border-border/70 shadow-sm">
+              <CardContent className="flex items-center gap-3 p-4">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${item.tone}`}><Icon className="h-5 w-5" /></div>
+                <div className="min-w-0">
+                  <div className="text-2xl font-bold tabular-nums">{loading ? '—' : item.value}</div>
+                  <div className="text-xs text-muted-foreground">{item.label}</div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
-      {isEmpty && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-              <Users className="h-6 w-6 text-muted-foreground" />
+      <Card className="overflow-hidden border-border/70 shadow-sm">
+        <CardHeader className="space-y-3 border-b bg-muted/20 pb-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">People & access</CardTitle>
+              <CardDescription>{members.length} {members.length === 1 ? 'person' : 'people'} in this workspace</CardDescription>
             </div>
-            <div className="space-y-1">
-              <h3 className="font-semibold">No team members yet</h3>
-              <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-                Add employees to your SafarOS workspace so your team can work together.
-              </p>
-            </div>
-            {canInvite && <AddMemberForm open={open} setOpen={setOpen} onAdded={load} actorRole={session.user.role} />}
-          </CardContent>
-        </Card>
-      )}
-
-      {!loading && members.length > 0 && (
-        <>
-          {/* Desktop: professional table */}
-          <Card className="hidden md:block overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Joined</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {members.map((m) => (
-                  <TableRow key={m.id}>
-                    <TableCell className="font-medium">{m.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{m.email}</TableCell>
-                    <TableCell><RoleBadge role={m.role} /></TableCell>
-                    <TableCell><StatusBadge status={m.status} /></TableCell>
-                    <TableCell className="text-muted-foreground">{formatJoined(m.createdAt)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
-
-          {/* Mobile: stacked member cards */}
-          <div className="space-y-3 md:hidden">
-            {members.map((m) => (
-              <Card key={m.id}>
-                <CardContent className="space-y-3 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-semibold">{m.name}</div>
-                      <div className="truncate text-sm text-muted-foreground">{m.email}</div>
-                    </div>
-                    <RoleBadge role={m.role} />
-                  </div>
-                  <div className="flex items-center justify-between border-t pt-3 text-sm">
-                    <StatusBadge status={m.status} />
-                    <span className="text-muted-foreground">Joined {formatJoined(m.createdAt)}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+            <Badge variant="outline" className="w-fit"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> Role-based access</Badge>
           </div>
-        </>
-      )}
+          <div className="relative max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name, email, role or status" className="pl-9 bg-background" />
+          </div>
+        </CardHeader>
+
+        {loading ? (
+          <CardContent className="space-y-3 p-5">
+            {[0, 1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-lg bg-muted/60" />)}
+          </CardContent>
+        ) : members.length === 0 ? (
+          <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-600"><Users className="h-7 w-7" /></div>
+            <div><h3 className="font-semibold">Build your agency team</h3><p className="mt-1 max-w-sm text-sm text-muted-foreground">Invite colleagues and give each person access to the tools they need.</p></div>
+            {canInvite && <Button onClick={() => setInviteOpen(true)}><Plus className="mr-2 h-4 w-4" /> Invite your first member</Button>}
+          </CardContent>
+        ) : filtered.length === 0 ? (
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">No team members match “{query}”.</CardContent>
+        ) : (
+          <>
+            <div className="hidden overflow-x-auto md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/20">
+                    <TableHead className="pl-5">Team member</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Joined</TableHead>
+                    <TableHead className="pr-5 text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((m) => (
+                    <TableRow key={m.id} className="hover:bg-muted/20">
+                      <TableCell className="pl-5">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/15 to-indigo-500/15 text-sm font-semibold text-violet-700">{String(m.name || m.email || '?').trim().charAt(0).toUpperCase()}</div>
+                          <div className="min-w-0"><div className="truncate font-medium">{m.name || 'Unnamed member'}</div><div className="truncate text-xs text-muted-foreground">{m.email}</div></div>
+                        </div>
+                      </TableCell>
+                      <TableCell><RoleBadge role={m.role} /></TableCell>
+                      <TableCell><StatusBadge status={m.status} /></TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatJoined(m.createdAt)}</TableCell>
+                      <TableCell className="pr-5">
+                        <div className="flex justify-end gap-2">
+                          {manageable(m) && <Button variant="outline" size="sm" onClick={() => openEdit(m)}><Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit</Button>}
+                          {manageable(m) && <Button variant="ghost" size="sm" className={m.status === 'suspended' ? 'text-emerald-700 hover:text-emerald-800' : 'text-rose-600 hover:text-rose-700'} onClick={() => toggleStatus(m)}>{m.status === 'suspended' ? <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> : <Lock className="mr-1.5 h-3.5 w-3.5" />}{m.status === 'suspended' ? 'Reactivate' : 'Suspend'}</Button>}
+                          {!manageable(m) && <span className="text-xs text-muted-foreground">Protected account</span>}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="space-y-3 p-3 md:hidden">
+              {filtered.map((m) => (
+                <div key={m.id} className="rounded-xl border bg-card p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/15 to-indigo-500/15 font-semibold text-violet-700">{String(m.name || m.email || '?').trim().charAt(0).toUpperCase()}</div>
+                    <div className="min-w-0 flex-1"><div className="truncate font-semibold">{m.name || 'Unnamed member'}</div><div className="truncate text-xs text-muted-foreground">{m.email}</div><div className="mt-2 flex flex-wrap gap-2"><RoleBadge role={m.role} /><StatusBadge status={m.status} /></div></div>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between border-t pt-3">
+                    <span className="text-xs text-muted-foreground">Joined {formatJoined(m.createdAt)}</span>
+                    {manageable(m) && <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => openEdit(m)}><Pencil className="mr-1 h-3.5 w-3.5" /> Edit</Button><Button variant="ghost" size="sm" onClick={() => toggleStatus(m)}>{m.status === 'suspended' ? 'Reactivate' : 'Suspend'}</Button></div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Card>
+
+      {canManage && target && manageable(target) && <TeamMemberEditDialog open={open} setOpen={setOpen} member={target} actorRole={session.user.role} onSaved={load} />}
     </div>
   );
 }
@@ -6524,7 +6742,7 @@ export function AppExperience({ initialTab = 'login' }) {
     <>
       {session
         ? (session.agency?.setupCompleted || session.user?.role !== 'owner' // only owners can submit agency setup (agency:manage)
-            ? <Dashboard session={session} onLogout={logout} />
+            ? <Dashboard session={session} onLogout={logout} onSessionRefresh={loadMe} />
             : <AgencySetup session={session} onDone={loadMe} onLogout={logout} />)
         : <AuthView onAuthed={onAuthed} initialTab={initialTab} />}
       <Toaster richColors position="top-right" />
