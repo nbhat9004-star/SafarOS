@@ -4838,8 +4838,8 @@ export async function POST(request, context) {
       const cleanName = String(name || '').trim().slice(0, 120);
       const cleanEmail = String(email || '').trim().toLowerCase();
       if (!cleanName || !EMAIL_ADDR_RE.test(cleanEmail) || cleanEmail.length > 200 || !role) return err('valid name, email and role required');
-      // Managers may add operational staff only; only the agency owner can grant manager access.
-      if (!isValidRole(role) || role === 'owner' || (session.role === 'manager' && !['agent', 'finance'].includes(role))) return err('invalid role');
+      // Owners and Managers may invite a member with any agency role.
+      if (!isValidRole(role)) return err('invalid role');
       if (!(await isAgencyEmailConfigured(db, session.agencyId))) return err('Agency email is not configured. Connect Resend with a verified sender email before inviting staff.', 503);
       const existing = await db.collection('users').findOne({ email: cleanEmail });
       if (existing) return err('email already registered', 409);
@@ -4857,6 +4857,11 @@ export async function POST(request, context) {
         return err('The invitation email could not be sent. Check the agency Resend key, verified sender address, and application base URL, then try again.', 502);
       }
       const { passwordHash, _id, ...safe } = doc;
+      await logActivity(db, session, {
+        type: 'team_member_invited',
+        message: `Invited "${cleanName}" as ${role}`,
+        refType: 'team_member', refId: doc.id,
+      });
       return json({ member: safe, invitationSent: true }, 201);
     }
 
@@ -5361,6 +5366,29 @@ export async function PUT(request, context) {
     if (!session) return err('unauthenticated', 401);
     const db = await getDb();
 
+    // Self-service profile update for every authenticated agency member.
+    if (path === '/profile') {
+      const body = await readBody(request);
+      const name = String(body.name || '').trim();
+      if (!name || name.length > 120) return err('Enter a valid name (1–120 characters)');
+      const phone = String(body.phone || '').trim().slice(0, 40);
+      const result = await db.collection('users').updateOne(
+        { id: session.userId, agencyId: session.agencyId },
+        { $set: { name, phone, updatedAt: new Date().toISOString() } },
+      );
+      if (!result.matchedCount) return err('Profile not found', 404);
+      await logActivity(db, session, {
+        type: 'profile_updated',
+        message: 'Updated their personal profile',
+        refType: 'team_member', refId: session.userId,
+      });
+      const user = await db.collection('users').findOne(
+        { id: session.userId, agencyId: session.agencyId },
+        { projection: { _id: 0, passwordHash: 0 } },
+      );
+      return json({ user });
+    }
+
     // Team member updates — tenant-scoped and permission-checked.
     if (path.match(/^\/members\/[^/]+$/)) {
       if (!can(session.role, 'members:update')) return err('forbidden', 403);
@@ -5368,8 +5396,7 @@ export async function PUT(request, context) {
       if (!id) return err('member id required');
       const target = await db.collection('users').findOne(tenantFilter(session, { id }));
       if (!target) return err('Team member not found', 404);
-      if (target.role === 'owner') return err('The agency owner cannot be edited or suspended here', 403);
-      if (session.role === 'manager' && !['agent', 'finance'].includes(target.role)) return err('Managers can only manage Agents and Finance members', 403);
+      if (target.role === 'owner') return err('Existing Owner accounts are protected from role changes and suspension', 403);
       const body = await readBody(request);
       if (body.email !== undefined && String(body.email).trim().toLowerCase() !== String(target.email || '').toLowerCase()) {
         return err('Email changes require a separate verified email-change process', 409);
@@ -5383,7 +5410,8 @@ export async function PUT(request, context) {
       if (body.phone !== undefined) set.phone = String(body.phone || '').trim().slice(0, 40);
       if (body.role !== undefined) {
         const role = String(body.role || '');
-        if (!isValidRole(role) || role === 'owner' || (session.role === 'manager' && !['agent', 'finance'].includes(role))) return err('Invalid role for your account');
+        if (!isValidRole(role)) return err('Invalid role for your account');
+        if (id === session.userId && role !== target.role) return err('You cannot change your own role');
         set.role = role;
       }
       if (body.status !== undefined) {
@@ -5395,9 +5423,12 @@ export async function PUT(request, context) {
       if (Object.keys(set).length <= 2) return err('No member fields to update');
       await db.collection('users').updateOne(tenantFilter(session, { id }), { $set: set });
       const updated = await db.collection('users').findOne(tenantFilter(session, { id }), { projection: { _id: 0, passwordHash: 0 } });
+      const roleChanged = body.role !== undefined && body.role !== target.role;
       await logActivity(db, session, {
-        type: 'team_member_updated',
-        message: `Team member "${target.name || target.email}" updated`,
+        type: roleChanged ? 'team_member_role_changed' : 'team_member_updated',
+        message: roleChanged
+          ? `Changed "${target.name || target.email}" role from ${target.role} to ${set.role}`
+          : `Team member "${target.name || target.email}" updated`,
         refType: 'team_member', refId: id,
       });
       return json({ member: updated });
