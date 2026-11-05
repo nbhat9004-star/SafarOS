@@ -2037,10 +2037,11 @@ function AddMemberForm({ open, setOpen, onAdded, actorRole }) {
       if (/already registered|duplicate|E11000/i.test(msg)) setError('A member with this email already exists.');
       else if (/forbidden/i.test(msg)) setError('You do not have permission to add team members.');
       else if (/invalid role/i.test(msg)) setError('Please select a valid role.');
-      else if (/email delivery is not configured/i.test(msg)) setError('Connect the agency email provider in Integrations before inviting staff.');
+      else if (/agency email is not configured|email is not configured/i.test(msg)) setError('Invitations are not ready yet. Connect Resend with a verified sender email in this agency’s Integrations, then try again.');
+      else if (/invitation email could not be sent|resend|email provider|timed out/i.test(msg)) setError(msg || 'The invitation email could not be sent. Check the Resend connection and verified sender email.');
       else if (/required|valid name, email and role/i.test(msg)) setError('Please enter a name, valid email and role.');
       else if (/unauthenticated/i.test(msg)) setError('Your session has expired. Please sign in again.');
-      else setError('Something went wrong while adding the member. Please try again.');
+      else setError(msg || 'Something went wrong while adding the member. Please try again.');
     } finally {
       setSubmitting(false);
     }
