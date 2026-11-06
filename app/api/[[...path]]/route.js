@@ -3113,7 +3113,7 @@ async function platformGet(db, session, path, sp) {
       subscriptions: { total: subs.length, active: subs.filter((s) => s.status === 'active').length, trial: subs.filter((s) => s.status === 'trial').length },
       revenue: { paidTotal: revenue, currency: 'INR' },
       integrations: { connected: connectedIntegrations },
-      ai: { activeProvider: aiConfig().provider, activeModel: aiConfig().model, providers: ['anthropic', 'openai', 'gemini'].map((p) => ({ provider: p, configured: aiProviderConfigured(p) })) },
+      ai: { activeProvider: (await aiRuntimeConfig(db)).provider, activeModel: (await aiRuntimeConfig(db)).model, providers: ['anthropic', 'openai', 'gemini'].map((p) => ({ provider: p, configured: aiProviderConfigured(p) })) },
     });
   }
 
