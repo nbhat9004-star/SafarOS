@@ -7055,7 +7055,7 @@ function Website({ session, tab, onNav }) {
       {current === 'settings' && <WebsiteSettings data={data} canManage={canManage} onSaved={load} />}
       {current === 'appearance' && <WebsiteAppearance data={data} canManage={canManage} onSaved={load} />}
       {current === 'pages' && <WebsitePages canManage={canManage} />}
-      {current === 'seo' && <WebsiteSeo data={data} canManage={canManage} onSaved={load} />}
+      {current === 'seo' && <WebsiteSeo data={data} canManage={canManage} canConnect={can(role, 'integrations:manage')} onSaved={load} />}
       {current === 'preview' && <WebsitePreview siteUrl={siteUrl} published={data.settings.status === 'published'} />}
     </>)}
   </div>);
