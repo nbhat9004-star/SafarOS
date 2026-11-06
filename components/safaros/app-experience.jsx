@@ -6953,12 +6953,47 @@ function WebsitePages({ canManage }) {
   </div>);
 }
 
-function WebsiteSeo({ data, canManage, onSaved }) {
+function WebsiteSeo({ data, canManage, canConnect, onSaved }) {
   const s = data.settings.seo || {};
   const [f, setF] = useState({ metaTitle: s.metaTitle || '', metaDescription: s.metaDescription || '', keywords: s.keywords || '', canonicalUrl: s.canonicalUrl || '', robots: s.robots || 'index', ogTitle: s.ogTitle || '', ogDescription: s.ogDescription || '', ogImage: s.ogImage || '' });
-  const [saving, setSaving] = useState(false); const [overview, setOverview] = useState(null);
-  useEffect(() => { (async () => { try { const d = await api('/website/seo/overview'); setOverview(d); } catch { /* */ } })(); }, []);
+  const [saving, setSaving] = useState(false);
+  const [overview, setOverview] = useState(null);
+  const [connection, setConnection] = useState(null);
+  const [propertyUrl, setPropertyUrl] = useState('');
+  const [connecting, setConnecting] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try { const d = await api('/website/seo/overview'); setOverview(d); } catch { /* SEO overview is optional */ }
+      try {
+        const g = await api('/seo/google-search-console/status');
+        setConnection(g);
+        if (g.propertyUrl) setPropertyUrl(g.propertyUrl);
+      } catch { setConnection({ connected: false, unavailable: true }); }
+    })();
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const result = params.get('googleSearchConsole');
+      if (result) {
+        if (result === 'connected') toast.success('Google Search Console connected and property verified.');
+        else if (result === 'connected_property_check') toast.warning('Google authorization succeeded, but the selected property could not be verified. Check the property URL and Google account permissions.');
+        else toast.error(`Google Search Console connection: ${result.replaceAll('_', ' ')}.`);
+        params.delete('googleSearchConsole');
+        params.delete('detail');
+        const query = params.toString();
+        window.history.replaceState({}, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
+      }
+    }
+  }, []);
   const save = async () => { setSaving(true); try { await api('/website/settings', { method: 'PUT', body: JSON.stringify({ seo: f }) }); toast.success('SEO saved'); onSaved(); } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); } };
+  const connectSearchConsole = () => {
+    const value = propertyUrl.trim();
+    if (!(value.startsWith('sc-domain:') || /^https:\/\/[a-z0-9.-]+(?::\d+)?(?:\/.*)?$/i.test(value))) {
+      toast.error('Enter a valid HTTPS Search Console property URL or sc-domain:example.com.');
+      return;
+    }
+    setConnecting(true);
+    window.location.assign(`/api/seo/google-search-console/connect?propertyUrl=${encodeURIComponent(value)}`);
+  };
   const Check = ({ ok, label }) => (<span className={`inline-flex items-center gap-1 text-xs ${ok ? 'text-emerald-600' : 'text-muted-foreground'}`}>{ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}{label}</span>);
   return (<div className="space-y-4">
     <Card><CardContent className="grid gap-3 p-5 sm:grid-cols-2">
@@ -6972,8 +7007,26 @@ function WebsiteSeo({ data, canManage, onSaved }) {
       {canManage && <div className="sm:col-span-2"><Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save SEO defaults'}</Button></div>}
     </CardContent></Card>
     <Card><CardContent className="space-y-3 p-5">
-      <div className="flex items-center justify-between"><span className="font-medium">Page SEO checklist</span><span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Search Console not connected</span></div>
-      {!overview ? <div className="h-16 animate-pulse rounded bg-muted/30" /> : (overview.pages.length === 0 ? <div className="text-sm text-muted-foreground">No pages to analyze yet.</div> : <div className="space-y-2">{overview.pages.map((p) => (<div key={p.id} className="rounded-lg border p-3"><div className="flex items-center justify-between"><span className="font-medium">{p.title}</span><span className="text-xs text-muted-foreground">/{p.slug}</span></div><div className="mt-2 flex flex-wrap gap-3"><Check ok={p.checks.seoTitle} label="SEO title" /><Check ok={p.checks.metaDescription} label="Meta description" /><Check ok={p.checks.slugValid} label="Valid slug" /><Check ok={p.checks.canonical} label="Canonical" /><span className="text-xs text-muted-foreground">{p.checks.indexing}</span></div></div>))}</div>)}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div><div className="font-medium">Google Search Console</div><p className="text-xs text-muted-foreground">Connect this agency's own Google Search Console property to view search performance securely.</p></div>
+        <Badge variant={connection?.connected ? 'default' : 'secondary'}>{connection?.connected ? 'Connected' : connection?.unavailable ? 'Status unavailable' : 'Not connected'}</Badge>
+      </div>
+      <div className="space-y-1">
+        <Label>Website property URL</Label>
+        <Input value={propertyUrl} onChange={(e) => setPropertyUrl(e.target.value)} placeholder="https://your-agency-website.com/ or sc-domain:example.com" disabled={!canConnect || connecting} />
+        <p className="text-xs text-muted-foreground">Use the exact property shown in Google Search Console. Your Google account must have access to it.</p>
+      </div>
+      {connection?.connected && <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+        <div className="font-medium text-emerald-700">Google account authorization saved</div>
+        <div className="break-all text-muted-foreground">Property: {connection.propertyUrl}</div>
+        <div className="text-xs text-muted-foreground">{connection.propertyVerified ? 'Property access verified.' : 'Property access has not yet been verified. Check the URL and account permissions.'}</div>
+      </div>}
+      {canConnect ? <Button size="sm" onClick={connectSearchConsole} disabled={connecting || !propertyUrl.trim()}>{connecting ? 'Redirecting to Google…' : connection?.connected ? 'Reconnect Google Search Console' : 'Connect Google Search Console'}</Button> : <p className="text-xs text-muted-foreground">Only the agency owner can connect or reconnect Google Search Console.</p>}
+      <p className="text-xs text-muted-foreground">SafarOS stores agency authorization separately. OAuth tokens are encrypted and are never shown in this workspace.</p>
+    </CardContent></Card>
+    <Card><CardContent className="space-y-3 p-5">
+      <div className="flex items-center justify-between"><span className="font-medium">Page SEO checklist</span><span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{connection?.connected ? 'Search Console connected' : 'Search Console not connected'}</span></div>
+      {!overview ? <div className="h-16 animate-pulse rounded bg-muted/30" /> : (overview.pages.length === 0 ? <div className="text-sm text-muted-foreground">No pages to analyze yet.</div> : <div className="space-y-2">{overview.pages.map((p) => (<div key={p.id} className="rounded-lg border p-3"><div className="flex items-center justify-between"><span className="font-medium">{p.title}</span><span className="text-xs text-muted-foreground">/{p.slug}</span></div><div className="mt-2 flex flex-wrap gap-3"><Check ok={p.checks.seoTitle} label="SEO title" /><Check ok={p.checks.metaDescription} label="Meta description" /><Check ok={p.checks.slugValid} label="Valid slug" /><Check ok={p.checks.canonical} label="Canonical" /><span className="text-xs text-muted-foreground">{p.checks.indexing}</span></div></div>))}</div>}
     </CardContent></Card>
   </div>);
 }
