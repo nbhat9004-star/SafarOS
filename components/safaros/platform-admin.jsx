@@ -270,11 +270,11 @@ function AiView() {
   const [form, setForm] = useState({ model: '', enabled: true, apiKey: '' });
   const load = useCallback(async () => { try { const d = await api('/ai-platforms'); setData(d); } catch (e) { toast.error(e.message); } }, []);
   useEffect(() => { load(); }, [load]);
-  const openCfg = (p) => { setForm({ model: p.model || '', enabled: p.enabled !== false, apiKey: '' }); setSel(p); };
-  const save = async () => { try { const body = { model: form.model, enabled: form.enabled }; if (form.apiKey) body.apiKey = form.apiKey; await api(`/ai-platforms/${sel.provider}/configure`, { method: 'POST', body: JSON.stringify(body) }); toast.success('AI provider saved'); setSel(null); load(); } catch (e) { toast.error(e.message); } };
+  const openCfg = (p) => { setForm({ model: p.model || (p.provider === 'gemini' ? 'gemini-2.5-flash' : ''), enabled: true, apiKey: '' }); setSel(p); };
+  const save = async () => { try { const body = { model: form.model, enabled: true, makeActive: sel.provider === 'gemini' }; if (form.apiKey) body.apiKey = form.apiKey; await api(`/ai-platforms/${sel.provider}/configure`, { method: 'POST', body: JSON.stringify(body) }); toast.success('AI provider saved'); setSel(null); load(); } catch (e) { toast.error(e.message); } };
   if (!data) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
   return (<div className="space-y-4">
-    <p className="text-sm text-muted-foreground">Production AI provider configuration. API keys are never exposed to the browser — only masked status is shown. Keys are stored masked + hashed; live keys are supplied via secure server environment.</p>
+    <p className="text-sm text-muted-foreground">Configure the platform AI engine. Choose Google Gemini to make it the single active provider for SafarOS. Its API key is encrypted at rest and never shown again.</p>
     <div className="grid gap-3 md:grid-cols-3">{data.providers.map((p) => (<Card key={p.provider} className={p.active ? 'border-violet-400 ring-1 ring-violet-200' : ''}><CardContent className="p-4">
       <div className="flex items-center justify-between"><div className="font-semibold text-slate-900">{p.name}</div><StatusBadge status={p.status} /></div>
       <div className="mt-2 space-y-1 text-sm"><div className="flex justify-between"><span className="text-muted-foreground">Model</span><span className="font-medium">{p.model || '—'}</span></div><div className="flex justify-between"><span className="text-muted-foreground">Key</span><code className="text-xs">{p.keyMask || '—'}</code></div><div className="flex justify-between"><span className="text-muted-foreground">Source</span><span className="text-xs capitalize">{p.source}</span></div></div>
@@ -282,9 +282,9 @@ function AiView() {
       <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => openCfg(p)}>Configure</Button>
     </CardContent></Card>))}</div>
     <Dialog open={!!sel} onOpenChange={(o) => !o && setSel(null)}><DialogContent><DialogHeader><DialogTitle>Configure {sel ? sel.name : ''}</DialogTitle></DialogHeader><div className="space-y-3">
-      <div className="space-y-1.5"><Label>Model</Label><Input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="e.g. claude-3-5-sonnet-latest" /></div>
-      <div className="space-y-1.5"><Label>API Key</Label><Input type="password" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={sel && sel.keyMask ? `${sel.keyMask} (leave blank to keep)` : 'Stored masked — never shown again'} /><p className="text-xs text-muted-foreground">Stored masked + hashed only. Never returned to the browser.</p></div>
-      <div className="flex items-center gap-2"><Button size="sm" variant={form.enabled ? 'default' : 'outline'} onClick={() => setForm({ ...form, enabled: true })}>Enabled</Button><Button size="sm" variant={!form.enabled ? 'default' : 'outline'} onClick={() => setForm({ ...form, enabled: false })}>Disabled</Button></div>
+      <div className="space-y-1.5"><Label>Model</Label><Input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={sel?.provider === 'gemini' ? 'gemini-2.5-flash' : 'Enter model name'} /></div>
+      <div className="space-y-1.5"><Label>API Key</Label><Input type="password" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={sel && sel.keyMask ? `${sel.keyMask} (leave blank to keep)` : 'Stored masked — never shown again'} /><p className="text-xs text-muted-foreground">Encrypted at rest. Never returned to the browser.</p></div>
+      {sel?.provider === 'gemini' && <p className="text-xs text-muted-foreground">Saving Gemini will make it the only active AI provider across SafarOS. Other providers will no longer be selected.</p>}
     </div><DialogFooter><Button variant="outline" onClick={() => setSel(null)}>Cancel</Button><Button onClick={save}>Save</Button></DialogFooter></DialogContent></Dialog>
   </div>);
 }
