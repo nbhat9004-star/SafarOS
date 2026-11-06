@@ -14,7 +14,7 @@ import {
 import { can, isValidRole } from '@/lib/rbac';
 import { canPlatform, isValidPlatformRole, PLATFORM_ROLES } from '@/lib/platform-rbac';
 import { tenantFilter, withAgency } from '@/lib/tenancy';
-import { aiConfig, aiComplete } from '@/lib/ai';
+import { aiConfig, aiRuntimeConfig, aiComplete } from '@/lib/ai';
 import {
   listPlans, getPlan, isValidPlan, priceFor, checkLimit,
   BILLING_INTERVALS, SUBSCRIPTION_STATUSES,
@@ -1358,7 +1358,7 @@ function aiSystemPrompt(ctx) {
 }
 
 async function aiGet(db, session, path) {
-  if (path === '/ai/status') { const c = aiConfig(); return json({ configured: c.configured, provider: c.provider, model: c.model }); }
+  if (path === '/ai/status') { const c = await aiRuntimeConfig(db); return json({ configured: c.configured, provider: c.provider, model: c.model }); }
   if (path === '/ai/conversations') {
     const rows = await db.collection('aiConversations').find(tenantFilter(session, { userId: session.userId }), { projection: { _id: 0, messages: 0 } }).sort({ updatedAt: -1 }).limit(50).toArray();
     return json({ conversations: rows });
@@ -1376,7 +1376,7 @@ async function aiPost(db, session, path, body) {
   if (path !== '/ai/chat') return err('not found', 404);
   const message = str(body.message, 4000);
   if (!message) return err('Message is required');
-  if (!aiConfig().configured) return err('The Copilot is not configured yet. Set ANTHROPIC_API_KEY on the server to enable it.', 503);
+  if (!(await aiRuntimeConfig(db)).configured) return err('The Copilot is not configured yet. Configure an active AI provider in Super Admin → AI Platforms.', 503);
   const now = new Date().toISOString();
   let conv = null;
   if (body.conversationId) conv = await db.collection('aiConversations').findOne(tenantFilter(session, { id: String(body.conversationId), userId: session.userId }));
@@ -1388,7 +1388,7 @@ async function aiPost(db, session, path, body) {
   let reply;
   try {
     const ctx = await aiBuildContext(db, session);
-    reply = await aiComplete({ system: aiSystemPrompt(ctx), messages: [...history, { role: 'user', text: message }] });
+    reply = await aiComplete({ db, system: aiSystemPrompt(ctx), messages: [...history, { role: 'user', text: message }] });
   } catch (e) {
     if (e.code === 'AI_UNCONFIGURED') return err('The Copilot is not configured.', 503);
     console.warn('[safaros] ai error:', e.code || '', e.detail || e.message);
@@ -3195,14 +3195,14 @@ async function platformGet(db, session, path, sp) {
   }
 
   if (path === '/platform/ai-platforms') {
-    const docs = await db.collection('platformAiProviders').find({}, { projection: { _id: 0, keyHash: 0 } }).toArray();
+    const docs = await db.collection('platformAiProviders').find({}, { projection: { _id: 0, keyHash: 0, apiKeyEnc: 0 } }).toArray();
     const byP = Object.fromEntries(docs.map((d) => [d.provider, d]));
     const names = { anthropic: 'Anthropic Claude', openai: 'OpenAI', gemini: 'Google Gemini' };
     const providers = ['anthropic', 'openai', 'gemini'].map((p) => {
       const d = byP[p] || {};
       const envConfigured = aiProviderConfigured(p);
       const configured = envConfigured || !!d.keyLast4;
-      const active = aiConfig().provider === p;
+      const active = d.isActive === true || (!docs.some((x) => x.isActive === true) && aiConfig().provider === p);
       return {
         provider: p, name: names[p], model: d.model || (active ? aiConfig().model : ''),
         enabled: d.enabled !== undefined ? d.enabled : active,
@@ -3335,9 +3335,23 @@ async function platformPost(db, session, path, body, request) {
     const set = { provider, updatedAt: now };
     if (body.model !== undefined) set.model = str(body.model, 100);
     if (body.enabled !== undefined) set.enabled = !!body.enabled;
-    // NEVER store plaintext keys — keep only a masked hint + hash for change detection.
-    if (body.apiKey) { set.keyLast4 = last4(body.apiKey); set.keyHash = sha256(body.apiKey); }
-    await db.collection('platformAiProviders').updateOne({ provider }, { $set: set, $setOnInsert: { id: uuidv4(), createdAt: now } }, { upsert: true });
+    // Keep the usable provider key encrypted at rest; never return it to the browser.
+    if (body.apiKey) {
+      const apiKey = str(body.apiKey, 500).trim();
+      if (!apiKey) return err('Enter a valid API key');
+      set.apiKeyEnc = encryptSecret(apiKey);
+      set.keyLast4 = last4(apiKey);
+      set.keyHash = sha256(apiKey);
+    }
+    if (body.makeActive === true) {
+      if (body.enabled === false) return err('Enable the provider before making it active.');
+      await db.collection('platformAiProviders').updateMany({}, { $set: { isActive: false } });
+      set.isActive = true;
+      set.enabled = true;
+    } else if (body.enabled === false) {
+      set.isActive = false;
+    }
+    await db.collection('platformAiProviders').updateOne({ provider }, { $set: set }, { upsert: true });
     await platformAudit(db, session, request, { action: 'ai.configured', targetType: 'ai_provider', targetId: provider, metadata: { model: set.model, enabled: set.enabled, keyUpdated: !!body.apiKey } });
     const d = await db.collection('platformAiProviders').findOne({ provider }, { projection: { _id: 0, keyHash: 0 } });
     return json({ provider: { ...d, keyMask: d.keyLast4 ? `••••••••••••${d.keyLast4}` : '' } });
