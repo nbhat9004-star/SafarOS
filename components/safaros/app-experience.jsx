@@ -7026,7 +7026,29 @@ function WebsiteSeo({ data, canManage, canConnect, onSaved }) {
     </CardContent></Card>
     <Card><CardContent className="space-y-3 p-5">
       <div className="flex items-center justify-between"><span className="font-medium">Page SEO checklist</span><span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{connection?.connected ? 'Search Console connected' : 'Search Console not connected'}</span></div>
-      {!overview ? <div className="h-16 animate-pulse rounded bg-muted/30" /> : (overview.pages.length === 0 ? <div className="text-sm text-muted-foreground">No pages to analyze yet.</div> : <div className="space-y-2">{overview.pages.map((p) => (<div key={p.id} className="rounded-lg border p-3"><div className="flex items-center justify-between"><span className="font-medium">{p.title}</span><span className="text-xs text-muted-foreground">/{p.slug}</span></div><div className="mt-2 flex flex-wrap gap-3"><Check ok={p.checks.seoTitle} label="SEO title" /><Check ok={p.checks.metaDescription} label="Meta description" /><Check ok={p.checks.slugValid} label="Valid slug" /><Check ok={p.checks.canonical} label="Canonical" /><span className="text-xs text-muted-foreground">{p.checks.indexing}</span></div></div>))}</div>}
+      {!overview ? (
+        <div className="h-16 animate-pulse rounded bg-muted/30" />
+      ) : overview.pages.length === 0 ? (
+        <div className="text-sm text-muted-foreground">No pages to analyze yet.</div>
+      ) : (
+        <div className="space-y-2">
+          {overview.pages.map((p) => (
+            <div key={p.id} className="rounded-lg border p-3">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{p.title}</span>
+                <span className="text-xs text-muted-foreground">/{p.slug}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-3">
+                <Check ok={p.checks.seoTitle} label="SEO title" />
+                <Check ok={p.checks.metaDescription} label="Meta description" />
+                <Check ok={p.checks.slugValid} label="Valid slug" />
+                <Check ok={p.checks.canonical} label="Canonical" />
+                <span className="text-xs text-muted-foreground">{p.checks.indexing}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </CardContent></Card>
   </div>);
 }
