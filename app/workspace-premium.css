@@ -1,0 +1,37 @@
+/* SafarOS premium workspace refinement — light-first, no feature or data-flow changes */
+.so-font { color-scheme: light; }
+.so-font :focus-visible { outline: 2px solid rgba(109,40,217,.7); outline-offset: 2px; }
+.so-font aside { background: #fff; border-color: #e9e7f2; }
+.so-font aside > div:first-child { padding-top: 20px; padding-bottom: 16px; }
+.so-font header.sticky { box-shadow: 0 1px 3px rgba(24,24,40,.035); }
+.so-font main > div { background: #f8f9fc; }
+.so-font main > div > div { max-width: 1480px; }
+.so-font .so-nav-active { border-radius: 10px; }
+.so-font .so-kpi {
+  border-color: #e9eaf2;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(20,20,40,.025);
+}
+.so-font .so-kpi:hover {
+  border-color: #d8d1f5;
+  box-shadow: 0 12px 28px -18px rgba(79,70,229,.35);
+}
+.so-font [data-slot="card"], .so-font .rounded-2xl.border {
+  border-color: #e8eaf1;
+}
+.so-font button { -webkit-tap-highlight-color: transparent; }
+.so-font input, .so-font textarea, .so-font select {
+  border-radius: 10px;
+}
+@media (min-width: 768px) {
+  .so-font main > header { padding-left: 28px; padding-right: 28px; }
+  .so-font main > div { padding: 28px 32px; }
+}
+@media (max-width: 767px) {
+  .so-font main > div { padding: 16px; }
+  .so-font .so-kpi { border-radius: 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .so-font .so-kpi, .so-font .so-kpi:hover { transition: none; transform: none; }
+}
