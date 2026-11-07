@@ -3478,7 +3478,7 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
-  const prospectEdit = path.match(/^\\/platform\\/prospecting\\/leads\\/([^/]+)$/);
+  const prospectEdit = path.match(/^\/platform\/prospecting\/leads\/([^/]+)$/);
   if (prospectEdit) {
     if (!canPlatform(session.role,'agencies:manage')) return err('forbidden',403);
     const id=prospectEdit[1], allowed=['new','contacted','interested','demo_scheduled','converted','not_interested'], set={updatedAt:now};
