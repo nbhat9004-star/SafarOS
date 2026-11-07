@@ -1,4 +1,5 @@
 import './globals.css'
+import './moontrip-workspace.css'
 import { Providers } from './providers'
 
 export const metadata = {

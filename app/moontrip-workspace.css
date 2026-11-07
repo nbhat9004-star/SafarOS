@@ -1,0 +1,440 @@
+/* SafarOS workspace refresh — MoonTrip-inspired visual language, original SafarOS identity. */
+.so-font {
+  --safar-ink: #17243a;
+  --safar-muted: #738096;
+  --safar-border: #e7ebf1;
+  --safar-canvas: #f5f7fa;
+  --safar-surface: #ffffff;
+  --safar-navy: #17243a;
+  --safar-navy-soft: #22334f;
+  --safar-coral: #f07862;
+  --safar-coral-dark: #df654f;
+  --sidebar-background: 222 42% 17%;
+  --sidebar-foreground: 210 25% 96%;
+  --sidebar-border: 220 30% 25%;
+  --sidebar-accent: 220 32% 23%;
+  --sidebar-accent-foreground: 210 25% 98%;
+  background: var(--safar-canvas);
+  color: var(--safar-ink);
+  letter-spacing: -0.012em;
+}
+.so-font aside {
+  background: var(--safar-navy) !important;
+  color: #f3f6fb;
+  border-color: rgba(255,255,255,.09) !important;
+}
+.so-font aside .text-muted-foreground { color: #aab6c8 !important; }
+.so-font aside [class*="border-border"] { border-color: rgba(255,255,255,.10) !important; }
+.so-font aside .so-brandmark {
+  background: linear-gradient(145deg, #f28a72, #dc6656);
+  box-shadow: 0 7px 18px -8px rgba(240,120,98,.7);
+}
+.so-font aside .bg-gradient-to-br.from-violet-500,
+.so-font aside .bg-gradient-to-br.from-indigo-400 {
+  background-image: linear-gradient(145deg,#f28a72,#dc6656) !important;
+}
+.so-font .so-nav button {
+  min-height: 38px;
+  border-radius: 8px;
+  transition: background-color .18s ease, color .18s ease;
+}
+.so-font aside .so-nav button { color: #c3ccda; }
+.so-font aside .so-nav button:hover { background: rgba(255,255,255,.08); color: #fff; }
+.so-font aside .so-nav button.so-nav-active,
+.so-font aside .so-nav .so-nav-active {
+  background: rgba(240,120,98,.17) !important;
+  color: #fff !important;
+  box-shadow: inset 3px 0 0 var(--safar-coral);
+}
+.so-font aside .so-nav button.so-nav-active svg,
+.so-font aside .so-nav .so-nav-active svg { color: #ff9b86 !important; }
+.so-font aside .so-nav button > span.absolute { background: var(--safar-coral) !important; }
+.so-font header {
+  min-height: 68px;
+  background: rgba(255,255,255,.94) !important;
+  border-color: var(--safar-border) !important;
+  box-shadow: 0 2px 12px rgba(24,39,63,.035);
+}
+.so-font header h1 { color: var(--safar-ink); font-weight: 700; letter-spacing: -.025em; }
+.so-font main { background: var(--safar-canvas); }
+.so-font main > div { scroll-behavior: smooth; }
+.so-font .so-kpi,
+.so-font [data-slot="card"] {
+  background: var(--safar-surface);
+  border: 1px solid var(--safar-border);
+  border-radius: 13px;
+  box-shadow: 0 2px 8px rgba(24,39,63,.025);
+}
+.so-font .so-kpi:hover {
+  border-color: #f2c3b9;
+  box-shadow: 0 12px 26px -18px rgba(36,48,68,.28);
+  transform: translateY(-2px);
+}
+.so-font .so-kpi .bg-gradient-to-br {
+  border-radius: 11px;
+  box-shadow: none;
+}
+.so-font main h2 { color: var(--safar-ink); letter-spacing: -.03em; }
+.so-font main .text-muted-foreground { color: var(--safar-muted); }
+.so-font main .border-border { border-color: var(--safar-border); }
+.so-font main input,
+.so-font main textarea,
+.so-font main select {
+  border-color: #dfe5ed;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.so-font main input:focus,
+.so-font main textarea:focus,
+.so-font main select:focus {
+  border-color: #ee9b8a;
+  --tw-ring-color: rgba(240,120,98,.22);
+}
+.so-font main button[class*="bg-violet-600"],
+.so-font main button[class*="bg-primary"] {
+  background-color: var(--safar-coral) !important;
+  color: #fff !important;
+}
+.so-font main button[class*="bg-violet-600"]:hover,
+.so-font main button[class*="bg-primary"]:hover {
+  background-color: var(--safar-coral-dark) !important;
+}
+.so-font main .text-violet-600,
+.so-font main .text-primary { color: var(--safar-coral-dark); }
+.so-font main .bg-violet-50,
+.so-font main .bg-violet-100 { background-color: #fff1ed; }
+.so-font main .border-violet-200 { border-color: #f5d0c8; }
+.so-font main table thead { background: #f8f9fb; }
+.so-font main table th {
+  color: #647187;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+.so-font main table tbody tr:hover { background: #fafbfc; }
+.so-font main .rounded-2xl.border.bg-gradient-to-br {
+  background: linear-gradient(115deg,#fff8f5,#fff 60%,#fff7f4) !important;
+  border-color: #f1ddd8 !important;
+}
+.so-font main .rounded-2xl.border.bg-gradient-to-br .text-violet-600 {
+  color: var(--safar-coral-dark);
+}
+.so-font .so-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.2); }
+.so-font .so-nav { scrollbar-color: rgba(255,255,255,.2) transparent; }
+@media (max-width: 767px) {
+  .so-font header { min-height: 60px; padding-left: 12px; padding-right: 12px; }
+  .so-font main > div { padding: 16px !important; }
+  .so-font .so-kpi:hover { transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .so-font .so-kpi, .so-font .so-nav button { transition: none !important; }
+}
+
+
+/* Dashboard-specific refinement — presentation only; data and navigation remain unchanged. */
+.so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] {
+  position: relative;
+  overflow: hidden;
+  min-height: 142px;
+  padding: 28px 30px;
+  border: 1px solid #f0d9d3;
+  border-radius: 16px;
+  background: linear-gradient(112deg, #fff7f3 0%, #fff 58%, #f8fafc 100%) !important;
+  box-shadow: 0 8px 24px -22px rgba(23,36,58,.35);
+}
+.so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] > div:first-child > div:first-child {
+  color: #c66b59 !important;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .13em;
+}
+.so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] h2 {
+  margin-top: 7px;
+  font-size: clamp(23px, 2.3vw, 30px);
+  line-height: 1.15;
+  letter-spacing: -.04em;
+}
+.so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] p {
+  margin-top: 7px;
+  color: #738096;
+}
+.so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] button {
+  min-height: 38px;
+  border-radius: 8px;
+  font-weight: 650;
+}
+.so-font main .space-y-6 > div:nth-child(2) > div:first-child {
+  color: #65738a;
+  letter-spacing: .14em;
+}
+.so-font main .space-y-6 > div:nth-child(2) .so-kpi {
+  min-height: 116px;
+  border-radius: 12px;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.so-font main .space-y-6 > div:nth-child(2) .so-kpi:hover {
+  border-color: #efc2b8;
+  box-shadow: 0 12px 24px -18px rgba(23,36,58,.28);
+  transform: translateY(-2px);
+}
+.so-font main .space-y-6 > div:nth-child(2) .so-kpi [class*="bg-gradient-to-br"] {
+  background: #fff0eb !important;
+  color: #d96f59 !important;
+  box-shadow: none !important;
+}
+@media (max-width: 767px) {
+  .so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] {
+    min-height: 0;
+    padding: 20px;
+  }
+  .so-font main .space-y-6 > div:nth-child(2) .so-kpi { min-height: 96px; }
+}
+
+
+/* CRM list pages: clearer search/filter rhythm and more readable records. */
+.so-font main .space-y-5 > div:first-child h2 {
+  font-size: 23px;
+  line-height: 1.2;
+  letter-spacing: -.035em;
+  font-weight: 750;
+}
+.so-font main .space-y-5 > div:first-child p {
+  margin-top: 5px;
+  font-size: 13px;
+}
+.so-font main .space-y-5 > div:has(> .relative input[placeholder*="Search"]),
+.so-font main .space-y-5 > div:has(> div.relative input) {
+  align-items: center;
+}
+.so-font main input[placeholder*="Search"] {
+  min-height: 40px;
+  background: #fff;
+}
+.so-font main [data-radix-select-trigger] {
+  min-height: 40px;
+  border-color: #dfe5ed;
+  border-radius: 8px;
+  background: #fff;
+}
+.so-font main table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.so-font main table th {
+  height: 43px;
+  padding-left: 16px;
+  padding-right: 16px;
+  background: #f7f8fa;
+}
+.so-font main table td {
+  height: 57px;
+  padding-left: 16px;
+  padding-right: 16px;
+  border-bottom-color: #edf0f4;
+  font-size: 13px;
+}
+.so-font main table tbody tr:last-child td { border-bottom: 0; }
+.so-font main table tbody tr { transition: background-color .15s ease; }
+.so-font main table tbody tr:hover { background: #fff8f5; }
+.so-font main table tbody tr td:first-child { color: #26364d; font-weight: 620; }
+.so-font main table button[data-slot="button"][data-variant="ghost"] {
+  color: #778398;
+}
+.so-font main table button[data-slot="button"][data-variant="ghost"]:hover {
+  color: #d96f59;
+  background: #fff0eb;
+}
+@media (max-width: 767px) {
+  .so-font main .space-y-5 > div:first-child h2 { font-size: 21px; }
+  .so-font main .space-y-5 > div:first-child button { min-height: 40px; }
+}
+
+
+/* Sales, itinerary, booking, operations and finance surfaces. */
+.so-font main .space-y-5 > .rounded-xl,
+.so-font main .space-y-5 > .rounded-2xl {
+  border-color: #e5e9ef;
+}
+.so-font main [class*="CardHeader"] { border-bottom-color: #edf0f4; }
+.so-font main [data-slot="card"] {
+  border-color: #e5e9ef;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(26,42,66,.025);
+}
+.so-font main [data-slot="card"] [data-slot="card-title"] {
+  color: #26364d;
+  letter-spacing: -.015em;
+}
+.so-font main input:not([type="checkbox"]):not([type="radio"]),
+.so-font main textarea,
+.so-font main select {
+  border-color: #dfe5ed;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.so-font main input:focus,
+.so-font main textarea:focus,
+.so-font main select:focus {
+  border-color: #df927f;
+  box-shadow: 0 0 0 3px rgba(217,111,89,.11);
+}
+.so-font main button[data-slot="button"]:not([data-variant="ghost"]):not([data-variant="outline"]) {
+  border-radius: 8px;
+  font-weight: 650;
+}
+.so-font main button[data-variant="outline"] {
+  border-color: #dfe5ed;
+  border-radius: 8px;
+  background: #fff;
+}
+.so-font main button[data-variant="outline"]:hover {
+  border-color: #e7b5a9;
+  background: #fff8f5;
+  color: #bd624f;
+}
+.so-font main [role="tablist"] {
+  padding: 4px;
+  border: 1px solid #e8ecf1;
+  border-radius: 10px;
+  background: #f7f8fa;
+}
+.so-font main [role="tab"][data-state="active"] {
+  border-radius: 7px;
+  background: #fff;
+  color: #bd624f;
+  box-shadow: 0 1px 3px rgba(26,42,66,.10);
+}
+.so-font main .border-dashed {
+  border-color: #d9e0e9;
+  background: #fafbfd;
+}
+.so-font main .text-primary { color: #d96f59; }
+.so-font main .bg-primary { background-color: #d96f59; }
+.so-font main .ring-primary { --tw-ring-color: #d96f59; }
+@media (max-width: 767px) {
+  .so-font main [role="tablist"] { max-width: 100%; overflow-x: auto; }
+  .so-font main [data-slot="card"] { border-radius: 11px; }
+  .so-font main table { min-width: 640px; }
+}
+
+
+/* Accessibility and severity polish from the authenticated QA pass. */
+/* Keep the fleet alert container calm; its individual expired/upcoming labels carry severity. */
+.so-font main [data-slot="card"].border-rose-200 {
+  border-color: #e5e9ef !important;
+}
+.so-font main [data-slot="card"] svg {
+  display: inline-block;
+  flex: 0 0 auto;
+  vertical-align: middle;
+}
+.so-font main button:focus-visible,
+.so-font main a:focus-visible,
+.so-font aside button:focus-visible {
+  outline: 2px solid #d96f59;
+  outline-offset: 2px;
+}
+@media (max-width: 767px) {
+  .so-font main button[data-slot="button"],
+  .so-font main a[role="button"],
+  .so-font main table button {
+    min-height: 44px;
+  }
+  .so-font main table button[data-slot="button"] {
+    min-width: 44px;
+  }
+  .so-font main .flex.flex-wrap.gap-2 > button {
+    min-height: 44px;
+  }
+}
+
+
+/* The public landing header overlays the hero artwork; keep it transparent.
+   This exception must follow the generic workspace header rule below. */
+.so-font header.safaros-public-header,
+.so-font header.safaros-public-header:is(:hover, :focus-within) {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  color: #fff !important;
+  border-color: rgba(255,255,255,.10) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+.so-font header.safaros-public-header > div {
+  background: transparent !important;
+}
+
+
+/* Full-height MoonTrip-inspired agency navigation — SafarOS branding retained. */
+.so-font aside.so-workspace-sidebar {
+  width: 272px;
+  background: linear-gradient(112deg, #172b49 0%, #142641 58%, #12233d 100%) !important;
+  color: #f4f7fb !important;
+  border-right: 1px solid rgba(255,255,255,.08) !important;
+  box-shadow: 8px 0 28px -26px rgba(9,20,38,.55);
+}
+.so-font aside.so-workspace-sidebar .so-agency-card {
+  background: rgba(255,255,255,.065) !important;
+  border-color: rgba(255,255,255,.10) !important;
+}
+.so-font aside.so-workspace-sidebar > [data-orientation="horizontal"] {
+  background: rgba(255,255,255,.10) !important;
+}
+.so-font aside.so-workspace-sidebar .so-nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.22) transparent;
+}
+.so-font aside.so-workspace-sidebar .so-nav::-webkit-scrollbar { width: 5px; }
+.so-font aside.so-workspace-sidebar .so-nav::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.20);
+  border-radius: 999px;
+}
+.so-font aside.so-workspace-sidebar .so-nav-parent {
+  min-height: 42px;
+  color: #d5dfeb !important;
+  border: 1px solid transparent;
+}
+.so-font aside.so-workspace-sidebar .so-nav-parent:hover {
+  color: #fff !important;
+  background: rgba(255,255,255,.075) !important;
+}
+.so-font aside.so-workspace-sidebar .so-nav-parent-active,
+.so-font aside.so-workspace-sidebar .so-nav-parent.so-nav-active {
+  color: #fff !important;
+  background: rgba(240,120,98,.15) !important;
+  border-color: rgba(240,120,98,.12);
+  box-shadow: inset 3px 0 0 #f07862;
+}
+.so-font aside.so-workspace-sidebar .so-nav-parent-active svg,
+.so-font aside.so-workspace-sidebar .so-nav-parent.so-nav-active svg {
+  color: #ff9b86 !important;
+}
+.so-font aside.so-workspace-sidebar .so-nav-children button {
+  min-height: 35px;
+  border: 1px solid transparent;
+}
+.so-font aside.so-workspace-sidebar .so-nav-children button:hover {
+  color: #fff !important;
+  background: rgba(255,255,255,.075) !important;
+}
+.so-font aside.so-workspace-sidebar .so-nav-children button.so-nav-child-active {
+  color: #fff !important;
+  background: rgba(240,120,98,.14) !important;
+  border-color: rgba(240,120,98,.12);
+}
+.so-font aside.so-workspace-sidebar .so-account-footer {
+  background: linear-gradient(180deg, rgba(18,35,61,.82), #12233d);
+}
+.so-font aside.so-workspace-sidebar button:focus-visible {
+  outline: 2px solid #ff9b86;
+  outline-offset: 2px;
+}
+@media (min-width: 1280px) {
+  .so-font aside.so-workspace-sidebar { width: 288px; }
+}
+@media (max-height: 760px) {
+  .so-font aside.so-workspace-sidebar .so-account-footer { padding-top: 8px; padding-bottom: 8px; }
+  .so-font aside.so-workspace-sidebar .so-account-footer > div { padding: 9px; }
+}
