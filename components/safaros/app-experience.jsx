@@ -1437,7 +1437,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'data_import' && <DataImport key="imp" session={session} onNavigate={navigateTo} />}
           {active === 'data_export' && <DataExport key="exp" session={session} />}
           {active === 'team' && <Team session={session} />}
-          {active === 'settings' && <Settings session={session} />}
+          {active === 'settings' && <Settings session={session} onNavigate={setActive} />}
           </>
           )}
           </div>
@@ -6427,12 +6427,21 @@ function Finance({ session, tab, onNav }) {
   );
 }
 
-function Settings({ session }) {
+function Settings({ session, onNavigate }) {
   const { agency, user } = session;
-  // Agency profile updates are owner-only in the API RBAC policy.
+  const { locale, currency: displayCurrency, timeZone: displayTimeZone, updatePreferences } = useLocalization();
   const canManageAgency = user?.role === 'owner';
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [section, setSection] = useState('profile');
+  const [profile, setProfile] = useState({ name: user?.name || '', phone: user?.phone || '' });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [agencyEditing, setAgencyEditing] = useState(false);
+  const [agencySaving, setAgencySaving] = useState(false);
+  const [resetSending, setResetSending] = useState(false);
+  const [preferences, setPreferences] = useState({
+    locale: locale || 'en',
+    currency: displayCurrency || 'INR',
+    timeZone: displayTimeZone || 'Asia/Kolkata',
+  });
   const [form, setForm] = useState({
     name: agency?.name || '',
     email: agency?.email || user?.email || '',
@@ -6444,74 +6453,233 @@ function Settings({ session }) {
     currency: agency?.currency || 'INR',
     timezone: agency?.timezone || 'Asia/Kolkata',
   });
-  const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
-  const save = async () => {
-    setSaving(true);
+  const updateAgency = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const updateProfile = (key) => (event) => setProfile((current) => ({ ...current, [key]: event.target.value }));
+
+  const saveProfile = async () => {
+    setProfileSaving(true);
     try {
-      const result = await api('/agency', { method: 'PUT', body: JSON.stringify(form) });
-      const updated = result?.agency || form;
-      setForm((current) => ({ ...current, ...updated }));
-      toast.success('Agency profile updated');
-      setEditing(false);
+      const result = await api('/auth/profile', { method: 'PUT', body: JSON.stringify(profile) });
+      setProfile({ name: result.user?.name || profile.name, phone: result.user?.phone || profile.phone });
+      toast.success('Your profile has been updated');
     } catch (error) {
-      toast.error(error?.message || 'Could not update agency profile');
+      toast.error(error?.message || 'Could not update your profile');
     } finally {
-      setSaving(false);
+      setProfileSaving(false);
     }
   };
 
+  const saveAgency = async () => {
+    setAgencySaving(true);
+    try {
+      const result = await api('/agency', { method: 'PUT', body: JSON.stringify(form) });
+      setForm((current) => ({ ...current, ...(result?.agency || {}) }));
+      toast.success('Agency profile updated');
+      setAgencyEditing(false);
+    } catch (error) {
+      toast.error(error?.message || 'Could not update agency profile');
+    } finally {
+      setAgencySaving(false);
+    }
+  };
+
+  const savePreferences = () => {
+    updatePreferences(preferences);
+    toast.success('Workspace preferences saved on this browser');
+  };
+
+  const sendPasswordReset = async () => {
+    if (!user?.email) return toast.error('Your login email is not available');
+    setResetSending(true);
+    try {
+      await api('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: user.email }) });
+      toast.success('If the account is eligible, a password reset link will be sent to your login email.');
+    } catch (error) {
+      toast.error(error?.message || 'Could not request a password reset');
+    } finally {
+      setResetSending(false);
+    }
+  };
+
+  const sections = [
+    { id: 'profile', label: 'My profile', detail: 'Personal details', icon: UserCog },
+    { id: 'agency', label: 'Agency profile', detail: 'Business information', icon: Building2 },
+    { id: 'preferences', label: 'Preferences', detail: 'Language and regional format', icon: Globe },
+    { id: 'security', label: 'Security', detail: 'Password and sign-in', icon: ShieldCheck },
+    { id: 'team', label: 'Team & access', detail: 'Members and permissions', icon: Users, target: 'team' },
+    { id: 'subscription', label: 'Subscription', detail: 'Plan, usage and invoices', icon: CreditCard, target: 'sub_overview' },
+    { id: 'integrations', label: 'Integrations', detail: 'Connected services', icon: Plug, target: 'int_overview' },
+    { id: 'website', label: 'Public website', detail: 'Website and SEO settings', icon: Palette, target: 'web_settings' },
+  ];
+
+  const goToSection = (item) => {
+    if (item.target) {
+      onNavigate?.(item.target);
+      return;
+    }
+    setSection(item.id);
+  };
+
+  const initials = String(profile.name || user?.email || 'S').trim().split(/\\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+
   return (
-    <div className="space-y-4 max-w-3xl">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold">Workspace settings</h2>
-          <p className="text-sm text-muted-foreground mt-1">Manage your travel business profile and regional preferences.</p>
-          {!canManageAgency && <p className="text-xs text-muted-foreground mt-1">Only the agency owner can edit these settings.</p>}
-        </div>
-        {!editing && canManageAgency && <Button onClick={() => setEditing(true)}><Pencil className="h-4 w-4 mr-2" /> Edit agency profile</Button>}
+    <div className="mx-auto w-full max-w-6xl space-y-5">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-600">Workspace</div>
+        <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Settings</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Manage your account, agency workspace and preferences.</p>
       </div>
-      <Card>
-        <CardContent className="p-5">
-          {editing ? (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5"><Label>Agency name</Label><Input value={form.name} onChange={update('name')} required /></div>
-              <div className="space-y-1.5"><Label>Business email</Label><Input type="email" value={form.email} onChange={update('email')} /></div>
-              <div className="space-y-1.5"><Label>Business phone</Label><Input value={form.phone} onChange={update('phone')} placeholder="+91 98765 43210" /></div>
-              <div className="space-y-1.5"><Label>Website</Label><Input value={form.website} onChange={update('website')} placeholder="https://" /></div>
-              <div className="space-y-1.5 sm:col-span-2"><Label>Business address</Label><Input value={form.address} onChange={update('address')} /></div>
-              <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={update('city')} /></div>
-              <div className="space-y-1.5"><Label>Country</Label><Input value={form.country} onChange={update('country')} /></div>
-              <div className="space-y-1.5"><Label>Currency</Label><Input value={form.currency} onChange={update('currency')} placeholder="INR" /></div>
-              <div className="space-y-1.5"><Label>Timezone</Label><Input value={form.timezone} onChange={update('timezone')} placeholder="Asia/Kolkata" /></div>
-              <div className="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-2">
-                <Button variant="outline" onClick={() => { setForm({ name: agency?.name || '', email: agency?.email || user?.email || '', phone: agency?.phone || '', website: agency?.website || '', address: agency?.address || '', city: agency?.city || '', country: agency?.country || 'India', currency: agency?.currency || 'INR', timezone: agency?.timezone || 'Asia/Kolkata' }); setEditing(false); }} disabled={saving}>Cancel</Button>
-                <Button onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : 'Save changes'}</Button>
+
+      <Card className="overflow-hidden border-0 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white shadow-lg">
+        <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400 to-rose-500 text-lg font-bold shadow-lg shadow-black/20">{initials || 'S'}</div>
+            <div className="min-w-0">
+              <div className="truncate text-lg font-semibold">{profile.name || 'Your account'}</div>
+              <div className="truncate text-sm text-white/65">{user?.email || 'No login email available'}</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Badge className="border border-white/15 bg-white/10 text-white hover:bg-white/10">{titleCase(user?.role || 'member')}</Badge>
+                <Badge className="border border-violet-300/20 bg-violet-400/15 text-violet-100 hover:bg-violet-400/15">{titleCase(agency?.plan || 'trial')} plan</Badge>
               </div>
             </div>
-          ) : (
-            <div className="space-y-3">
-              <Row label="Agency name" value={form.name || '—'} />
-              <Row label="Business email" value={form.email || '—'} />
-              <Row label="Business phone" value={form.phone || '—'} />
-              <Row label="Website" value={form.website || '—'} icon={Globe} />
-              <Row label="Business address" value={form.address || '—'} />
-              <Row label="City" value={form.city || '—'} />
-              <Row label="Country" value={form.country || '—'} />
-              <Row label="Currency" value={form.currency || 'INR'} />
-              <Row label="Timezone" value={form.timezone || 'Asia/Kolkata'} />
-              <Separator />
-              <Row label="Workspace slug" value={agency?.slug} icon={Globe} />
-              <Row label="Plan" value={agency?.plan} />
-              <Separator />
-              <Row label="Your role" value={<RoleBadge role={user?.role} />} />
-              <Row label="Agency ID (tenant key)" value={<code className="text-xs">{agency?.id}</code>} icon={Lock} />
-            </div>
-          )}
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
+            <div className="text-xs text-white/55">Workspace</div>
+            <div className="mt-1 font-medium">{agency?.name || 'Your agency'}</div>
+            <div className="mt-0.5 text-xs text-white/55">{agency?.slug ? `/${agency.slug}` : 'Workspace profile'}</div>
+          </div>
         </CardContent>
       </Card>
-      <p className="text-xs text-muted-foreground flex items-center gap-1">
-        <Lock className="h-3 w-3" /> Your agency ID, workspace slug, plan and role are read-only here. Changes apply only to this agency.
-      </p>
+
+      <div className="grid gap-5 lg:grid-cols-[245px_minmax(0,1fr)]">
+        <Card className="h-fit p-2">
+          <div className="px-3 pb-2 pt-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Manage settings</div>
+          <nav className="space-y-1">
+            {sections.map((item) => {
+              const Icon = item.icon;
+              const active = !item.target && section === item.id;
+              return (
+                <button key={item.id} type="button" onClick={() => goToSection(item)}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${active ? 'bg-violet-50 text-violet-800 ring-1 ring-violet-100' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${active ? 'bg-white text-violet-700 shadow-sm' : 'bg-slate-100 text-slate-500'}`}><Icon className="h-4 w-4" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold">{item.label}</span>
+                    <span className={`mt-0.5 block text-xs ${active ? 'text-violet-600/75' : 'text-muted-foreground'}`}>{item.detail}</span>
+                  </span>
+                  {item.target && <ArrowRight className="h-4 w-4 text-slate-400" />}
+                </button>
+              );
+            })}
+          </nav>
+          <Separator className="my-2" />
+          <div className="px-3 py-2 text-xs leading-relaxed text-muted-foreground">Your account and agency data remain separated and scoped to this workspace.</div>
+        </Card>
+
+        <div className="min-w-0 space-y-4">
+          {section === 'profile' && (
+            <>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">My profile</h3>
+                <p className="text-sm text-muted-foreground">Personal details associated with your SafarOS login.</p>
+              </div>
+              <Card>
+                <CardHeader className="pb-3"><CardTitle className="text-base">Personal information</CardTitle><CardDescription>Update the name and phone number shown to your team.</CardDescription></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5"><Label>Full name</Label><Input value={profile.name} onChange={updateProfile('name')} placeholder="Your full name" /></div>
+                    <div className="space-y-1.5"><Label>Phone number</Label><Input value={profile.phone} onChange={updateProfile('phone')} placeholder="+91 98765 43210" /></div>
+                    <div className="space-y-1.5 sm:col-span-2"><Label>Login email</Label><Input value={user?.email || ''} readOnly disabled /><p className="text-xs text-muted-foreground">Your login email is protected and cannot be changed from this form.</p></div>
+                  </div>
+                  <div className="flex justify-end"><Button onClick={saveProfile} disabled={profileSaving || !profile.name.trim()}>{profileSaving ? 'Saving…' : 'Save profile'}</Button></div>
+                </CardContent>
+              </Card>
+              <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+                <div><div className="text-xs text-muted-foreground">Account role</div><div className="mt-1 font-medium capitalize">{user?.role || 'Member'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Account status</div><div className="mt-1 flex items-center gap-2 text-sm font-medium"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Active session</div></div>
+                <div><div className="text-xs text-muted-foreground">Member since</div><div className="mt-1 font-medium">{user?.createdAt ? formatJoined(user.createdAt) : '—'}</div></div>
+                <div><div className="text-xs text-muted-foreground">User ID</div><div className="mt-1 break-all font-mono text-xs">{user?.id || '—'}</div></div>
+              </CardContent></Card>
+            </>
+          )}
+
+          {section === 'agency' && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><h3 className="text-lg font-semibold text-slate-900">Agency profile</h3><p className="text-sm text-muted-foreground">Business identity and workspace details.</p></div>
+                {!agencyEditing && canManageAgency && <Button variant="outline" onClick={() => setAgencyEditing(true)}><Pencil className="mr-2 h-4 w-4" />Edit agency</Button>}
+              </div>
+              {!canManageAgency && <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">Only the agency owner can edit business profile details.</div>}
+              <Card><CardContent className="p-5">
+                {agencyEditing ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5"><Label>Agency name</Label><Input value={form.name} onChange={updateAgency('name')} required /></div>
+                    <div className="space-y-1.5"><Label>Business email</Label><Input type="email" value={form.email} onChange={updateAgency('email')} /></div>
+                    <div className="space-y-1.5"><Label>Business phone</Label><Input value={form.phone} onChange={updateAgency('phone')} /></div>
+                    <div className="space-y-1.5"><Label>Website</Label><Input value={form.website} onChange={updateAgency('website')} placeholder="https://" /></div>
+                    <div className="space-y-1.5 sm:col-span-2"><Label>Business address</Label><Input value={form.address} onChange={updateAgency('address')} /></div>
+                    <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={updateAgency('city')} /></div>
+                    <div className="space-y-1.5"><Label>Country</Label><Input value={form.country} onChange={updateAgency('country')} /></div>
+                    <div className="space-y-1.5"><Label>Accounting currency</Label><Input value={form.currency} onChange={updateAgency('currency')} placeholder="INR" /></div>
+                    <div className="space-y-1.5"><Label>Business timezone</Label><Input value={form.timezone} onChange={updateAgency('timezone')} placeholder="Asia/Kolkata" /></div>
+                    <div className="flex justify-end gap-2 pt-2 sm:col-span-2">
+                      <Button variant="outline" onClick={() => setAgencyEditing(false)} disabled={agencySaving}>Cancel</Button>
+                      <Button onClick={saveAgency} disabled={agencySaving || !form.name.trim()}>{agencySaving ? 'Saving…' : 'Save changes'}</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+                    {[
+                      ['Agency name', form.name], ['Business email', form.email], ['Business phone', form.phone],
+                      ['Website', form.website], ['Business address', form.address], ['City', form.city],
+                      ['Country', form.country], ['Accounting currency', form.currency], ['Business timezone', form.timezone],
+                    ].map(([label, value]) => <div key={label}><div className="text-xs text-muted-foreground">{label}</div><div className="mt-1 break-words text-sm font-medium">{value || '—'}</div></div>)}
+                  </div>
+                )}
+              </CardContent></Card>
+              <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+                <div><div className="text-xs text-muted-foreground">Workspace slug</div><div className="mt-1 font-medium">{agency?.slug || '—'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Plan</div><div className="mt-1 font-medium capitalize">{agency?.plan || 'Trial'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Your access</div><div className="mt-1 font-medium capitalize">{user?.role || 'Member'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Workspace ID</div><div className="mt-1 break-all font-mono text-xs">{agency?.id || '—'}</div></div>
+              </CardContent></Card>
+            </>
+          )}
+
+          {section === 'preferences' && (
+            <>
+              <div><h3 className="text-lg font-semibold text-slate-900">Workspace preferences</h3><p className="text-sm text-muted-foreground">Choose how dates, language and amounts are displayed in this browser.</p></div>
+              <Card><CardHeader className="pb-3"><CardTitle className="text-base">Regional format</CardTitle><CardDescription>These are display preferences and do not convert saved financial records.</CardDescription></CardHeader><CardContent className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5"><Label>Display language</Label><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={preferences.locale} onChange={(e) => setPreferences((v) => ({ ...v, locale: e.target.value }))}><option value="en">English</option><option value="ar">Arabic</option></select></div>
+                  <div className="space-y-1.5"><Label>Display currency</Label><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={preferences.currency} onChange={(e) => setPreferences((v) => ({ ...v, currency: e.target.value }))}>{SUPPORTED_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}</select></div>
+                  <div className="space-y-1.5 sm:col-span-2"><Label>Display timezone</Label><Input value={preferences.timeZone} onChange={(e) => setPreferences((v) => ({ ...v, timeZone: e.target.value }))} placeholder="Asia/Kolkata" /></div>
+                </div>
+                <div className="flex justify-end"><Button onClick={savePreferences}>Save preferences</Button></div>
+                <p className="text-xs text-muted-foreground">Preferences are saved locally in this browser. Your agency's accounting currency and business timezone are managed separately under Agency profile.</p>
+              </CardContent></Card>
+            </>
+          )}
+
+          {section === 'security' && (
+            <>
+              <div><h3 className="text-lg font-semibold text-slate-900">Security</h3><p className="text-sm text-muted-foreground">Keep your SafarOS account protected.</p></div>
+              <Card><CardHeader className="pb-3"><CardTitle className="text-base">Password</CardTitle><CardDescription>Request a secure password-reset link sent to your login email.</CardDescription></CardHeader><CardContent className="space-y-4">
+                <div className="flex flex-col gap-3 rounded-xl border bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="text-sm font-medium">Login email</div><div className="mt-1 break-all text-sm text-muted-foreground">{user?.email || '—'}</div></div><Badge variant="outline" className="w-fit">Password protected</Badge></div>
+                <Button onClick={sendPasswordReset} disabled={resetSending || !user?.email}><Lock className="mr-2 h-4 w-4" />{resetSending ? 'Sending request…' : 'Send password reset link'}</Button>
+              </CardContent></Card>
+              <Card><CardContent className="flex items-start gap-3 p-5"><ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-600" /><div><div className="font-medium">Account access</div><p className="mt-1 text-sm text-muted-foreground">Your role and workspace permissions are managed by the agency owner through Team & Access.</p><Button variant="link" className="mt-1 h-auto p-0" onClick={() => onNavigate?.('team')}>Open Team & Access <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></div></CardContent></Card>
+            </>
+          )}
+
+          {['team', 'subscription', 'integrations', 'website'].includes(section) && (
+            <Card><CardContent className="flex flex-col items-start gap-4 p-6 sm:flex-row sm:items-center">
+              {(() => { const item = sections.find((entry) => entry.id === section); const Icon = item?.icon || Layers; return <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><Icon className="h-6 w-6" /></span>; })()}
+              <div className="min-w-0 flex-1"><h3 className="text-lg font-semibold">{sections.find((entry) => entry.id === section)?.label}</h3><p className="mt-1 text-sm text-muted-foreground">{sections.find((entry) => entry.id === section)?.detail}. This area is managed in its dedicated workspace module.</p></div>
+              <Button onClick={() => onNavigate?.(sections.find((entry) => entry.id === section)?.target)}>Open section <ArrowRight className="ml-2 h-4 w-4" /></Button>
+            </CardContent></Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
