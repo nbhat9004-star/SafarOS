@@ -190,3 +190,62 @@
   }
   .so-font main .space-y-6 > div:nth-child(2) .so-kpi { min-height: 96px; }
 }
+
+
+/* CRM list pages: clearer search/filter rhythm and more readable records. */
+.so-font main .space-y-5 > div:first-child h2 {
+  font-size: 23px;
+  line-height: 1.2;
+  letter-spacing: -.035em;
+  font-weight: 750;
+}
+.so-font main .space-y-5 > div:first-child p {
+  margin-top: 5px;
+  font-size: 13px;
+}
+.so-font main .space-y-5 > div:has(> .relative input[placeholder*="Search"]),
+.so-font main .space-y-5 > div:has(> div.relative input) {
+  align-items: center;
+}
+.so-font main input[placeholder*="Search"] {
+  min-height: 40px;
+  background: #fff;
+}
+.so-font main [data-radix-select-trigger] {
+  min-height: 40px;
+  border-color: #dfe5ed;
+  border-radius: 8px;
+  background: #fff;
+}
+.so-font main table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.so-font main table th {
+  height: 43px;
+  padding-left: 16px;
+  padding-right: 16px;
+  background: #f7f8fa;
+}
+.so-font main table td {
+  height: 57px;
+  padding-left: 16px;
+  padding-right: 16px;
+  border-bottom-color: #edf0f4;
+  font-size: 13px;
+}
+.so-font main table tbody tr:last-child td { border-bottom: 0; }
+.so-font main table tbody tr { transition: background-color .15s ease; }
+.so-font main table tbody tr:hover { background: #fff8f5; }
+.so-font main table tbody tr td:first-child { color: #26364d; font-weight: 620; }
+.so-font main table button[data-slot="button"][data-variant="ghost"] {
+  color: #778398;
+}
+.so-font main table button[data-slot="button"][data-variant="ghost"]:hover {
+  color: #d96f59;
+  background: #fff0eb;
+}
+@media (max-width: 767px) {
+  .so-font main .space-y-5 > div:first-child h2 { font-size: 21px; }
+  .so-font main .space-y-5 > div:first-child button { min-height: 40px; }
+}
