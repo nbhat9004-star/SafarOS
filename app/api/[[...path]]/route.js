@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
 import { getCountryDefaults, getCurrencyMetadata } from '@/lib/localization';
-import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured, isAgencyEmailConfigured } from '@/lib/email';
+import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured, isAgencyEmailConfigured, configuredBaseUrl } from '@/lib/email';
 import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
 import { startAgencyEmailVerification, verifyAgencyEmailCode } from '@/lib/email-verification';
 import {
@@ -4840,7 +4840,7 @@ export async function POST(request, context) {
     }
 
     if (path === '/auth/forgot-password') {
-      if (!(await isEmailConfigured(db))) return err('SafarOS email delivery is not configured. Please contact support so the administrator can connect Resend.', 503);
+      if (!(await isEmailConfigured(db)) || !(await configuredBaseUrl(db))) return err('Password reset email is not configured yet. A SafarOS administrator must connect Resend and set the application base URL in Super Admin → Settings → Email / Resend.', 503);
       await requestPasswordReset(db, 'agency', (await readBody(request)).email, clientIp(request));
       return json({ ok: true, message: GENERIC_RESET_MESSAGE });
     }
