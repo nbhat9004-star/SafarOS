@@ -4830,6 +4830,31 @@ export async function POST(request, context) {
       };
       await db.collection('users').insertOne(user);
       await db.collection('pendingAgencyRegistrations').deleteOne({ id: pending.id });
+
+      // Send the branded welcome email after the account is safely created.
+      // Email delivery is best-effort: a provider outage must never undo signup.
+      try {
+        const baseUrl = await configuredBaseUrl(db);
+        const workspaceUrl = baseUrl ? `${baseUrl}/dashboard` : '';
+        const welcomeBody = `<p style="margin:0 0 10px;">Hello ${String(pending.name || 'there').replace(/[&<>"]/g, '')},</p>`
+          + `<p style="margin:0 0 18px;">Welcome aboard! Your SafarOS workspace is ready. You can now bring your travel business operations together in one place.</p>`
+          + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0;"><tr>`
+          + `<td width="50%" valign="top" style="padding:14px 10px 14px 0;border-bottom:1px solid #edf0f6;"><b style="color:#182344;">Quotes & itineraries</b><br/><span style="font-size:13px;color:#64748b;">Create clear travel proposals.</span></td>`
+          + `<td width="50%" valign="top" style="padding:14px 0 14px 10px;border-bottom:1px solid #edf0f6;"><b style="color:#182344;">Bookings</b><br/><span style="font-size:13px;color:#64748b;">Keep every trip organised.</span></td></tr><tr>`
+          + `<td width="50%" valign="top" style="padding:14px 10px 14px 0;"><b style="color:#182344;">Customers</b><br/><span style="font-size:13px;color:#64748b;">Manage client relationships.</span></td>`
+          + `<td width="50%" valign="top" style="padding:14px 0 14px 10px;"><b style="color:#182344;">Business insights</b><br/><span style="font-size:13px;color:#64748b;">See your operations clearly.</span></td></tr></table>`
+          + (workspaceUrl ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;"><tr><td bgcolor="#6338d8" style="border-radius:10px;"><a href="${workspaceUrl}" style="display:inline-block;padding:15px 24px;color:#fff;font-weight:700;text-decoration:none;border-radius:10px;">Open my SafarOS workspace &rarr;</a></td></tr></table>` : '')
+          + `<div style="padding:17px;background:#f1f5ff;border-radius:12px;color:#46516c;font-size:14px;line-height:1.65;"><b style="color:#182344;">A good first step</b><br/>Complete your agency profile, invite your team and create your first quote or itinerary. You can build at your own pace.</div>`
+          + `<p style="margin-top:22px;">We're glad you're here. Welcome to SafarOS.</p>`;
+        await sendEmail(db, {
+          to: pending.email, subject: 'Welcome aboard SafarOS — your workspace is ready',
+          html: emailLayout('Welcome aboard.', welcomeBody, { preheader: 'Your SafarOS workspace is ready to use', eyebrow: 'WELCOME TO SAFAROS' }),
+          text: `Hello ${pending.name}, welcome aboard! Your SafarOS workspace is ready. ${workspaceUrl ? `Open your workspace: ${workspaceUrl}` : ''} Start by completing your agency profile and creating your first quote or itinerary.`,
+        });
+      } catch (welcomeError) {
+        console.warn('[safaros] welcome email failed:', welcomeError?.message || 'unknown error');
+      }
+
       const token = signSession({ userId, agencyId, role: 'owner' });
       const res = json({
         ok: true,
