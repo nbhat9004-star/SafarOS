@@ -1,7 +1,6 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import styles from './localization.module.css';
 import {
   GCC_COUNTRIES,
   SUPPORTED_CURRENCIES,
@@ -23,7 +22,6 @@ export function useLocalization() {
 export function LocalizationProvider({ children }) {
   const [preferences, setPreferences] = useState(DEFAULTS);
   const [ready, setReady] = useState(false);
-  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -95,11 +93,6 @@ export function LocalizationProvider({ children }) {
     });
   }, []);
 
-  const isArabic = preferences.locale === 'ar';
-  const labels = isArabic
-    ? { trigger: 'اللغة والمنطقة', heading: 'اللغة والمنطقة', country: 'الدولة', language: 'لغة العرض', currency: 'عملة العرض', english: 'الإنجليزية', arabic: 'العربية', note: 'تُحفظ هذه التفضيلات في هذا المتصفح حالياً. تغيير العملة يغيّر طريقة العرض فقط ولا يحوّل السجلات المالية المحفوظة.', done: 'تم' }
-    : { trigger: 'Language & region', heading: 'Language & region', country: 'Country', language: 'Display language', currency: 'Display currency', english: 'English', arabic: 'Arabic', note: 'These preferences currently apply to this browser. Currency selection changes display preferences only; it does not convert saved financial records.', done: 'Done' };
-
   const value = useMemo(() => ({
     ...preferences,
     ready,
@@ -107,48 +100,5 @@ export function LocalizationProvider({ children }) {
     updatePreferences,
   }), [preferences, ready, updatePreferences]);
 
-  return (
-    <LocalizationContext.Provider value={value}>
-      {children}
-      <div className={styles.localeControl} dir="ltr">
-        <button
-          type="button"
-          className={styles.localeTrigger}
-          aria-expanded={open}
-          aria-controls="safaros-locale-panel"
-          onClick={() => setOpen((value) => !value)}
-        >
-          <span aria-hidden="true">◎</span> {labels.trigger}
-        </button>
-        {open && (
-          <section id="safaros-locale-panel" className={styles.localePanel} aria-label={labels.heading}>
-            <div className={styles.heading}>{labels.heading}</div>
-            <label>
-              {labels.country}
-              <select value={preferences.countryCode} onChange={(event) => updatePreferences({ countryCode: event.target.value })}>
-                {Object.values(GCC_COUNTRIES).map((country) => (
-                  <option key={country.code} value={country.code}>{country.name}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {labels.language}
-              <select value={preferences.locale} onChange={(event) => updatePreferences({ locale: event.target.value })}>
-                <option value="en">{labels.english}</option>
-                <option value="ar">{labels.arabic}</option>
-              </select>
-            </label>
-            <label>
-              {labels.currency}
-              <select value={preferences.currency} onChange={(event) => updatePreferences({ currency: event.target.value })}>
-                {SUPPORTED_CURRENCIES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-              </select>
-            </label>
-            <p className={styles.note}>{labels.note}</p>
-            <button type="button" className={styles.done} onClick={() => setOpen(false)}>{labels.done}</button>
-          </section>
-        )}
-      </div>
-    </LocalizationContext.Provider>
-  );
+  return <LocalizationContext.Provider value={value}>{children}</LocalizationContext.Provider>;
 }
