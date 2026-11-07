@@ -130,3 +130,63 @@
 @media (prefers-reduced-motion: reduce) {
   .so-font .so-kpi, .so-font .so-nav button { transition: none !important; }
 }
+
+
+/* Dashboard-specific refinement — presentation only; data and navigation remain unchanged. */
+.so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] {
+  position: relative;
+  overflow: hidden;
+  min-height: 142px;
+  padding: 28px 30px;
+  border: 1px solid #f0d9d3;
+  border-radius: 16px;
+  background: linear-gradient(112deg, #fff7f3 0%, #fff 58%, #f8fafc 100%) !important;
+  box-shadow: 0 8px 24px -22px rgba(23,36,58,.35);
+}
+.so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] > div:first-child > div:first-child {
+  color: #c66b59 !important;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .13em;
+}
+.so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] h2 {
+  margin-top: 7px;
+  font-size: clamp(23px, 2.3vw, 30px);
+  line-height: 1.15;
+  letter-spacing: -.04em;
+}
+.so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] p {
+  margin-top: 7px;
+  color: #738096;
+}
+.so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] button {
+  min-height: 38px;
+  border-radius: 8px;
+  font-weight: 650;
+}
+.so-font main .space-y-6 > div:nth-child(2) > div:first-child {
+  color: #65738a;
+  letter-spacing: .14em;
+}
+.so-font main .space-y-6 > div:nth-child(2) .so-kpi {
+  min-height: 116px;
+  border-radius: 12px;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.so-font main .space-y-6 > div:nth-child(2) .so-kpi:hover {
+  border-color: #efc2b8;
+  box-shadow: 0 12px 24px -18px rgba(23,36,58,.28);
+  transform: translateY(-2px);
+}
+.so-font main .space-y-6 > div:nth-child(2) .so-kpi [class*="bg-gradient-to-br"] {
+  background: #fff0eb !important;
+  color: #d96f59 !important;
+  box-shadow: none !important;
+}
+@media (max-width: 767px) {
+  .so-font main .space-y-6 > div[class*="from-violet-50"][class*="to-indigo-50"] {
+    min-height: 0;
+    padding: 20px;
+  }
+  .so-font main .space-y-6 > div:nth-child(2) .so-kpi { min-height: 96px; }
+}
