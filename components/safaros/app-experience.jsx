@@ -537,7 +537,7 @@ const DESKTOP_NAV = [
   { id: 'ai-tools', label: 'AI & Tools', icon: Sparkles, items: [
     { id: 'copilot', label: 'AI Copilot', icon: Bot }, { id: 'travelrules', label: 'Travel Intelligence', icon: MapPin },
     { id: 'documents', label: 'Document Vault', icon: FileText }, { id: 'customfields', label: 'Custom Fields', icon: Database },
-    { id: 'suppliers_network', label: 'Supplier Network', icon: Network },
+    { id: 'suppliers_network', label: 'Supplier Network', icon: Store },
   ] },
   { id: 'analytics', label: 'Analytics', icon: Gauge, items: [
     { id: 'an_overview', label: 'Overview', icon: Gauge }, { id: 'an_sales', label: 'Sales', icon: TrendingUp },
