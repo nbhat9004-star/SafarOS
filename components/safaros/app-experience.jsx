@@ -6682,7 +6682,7 @@ export function AppExperience({ initialTab = 'login' }) {
     try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
     setSession(null);
     toast.success('Signed out');
-    router.push('/');
+    router.replace('/login');
   };
 
   if (loading) {
