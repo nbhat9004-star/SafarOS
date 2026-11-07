@@ -505,21 +505,106 @@ const TILE_TONES = {
   amber: 'from-amber-500 to-orange-600', sky: 'from-sky-500 to-blue-600', rose: 'from-rose-500 to-pink-600',
 };
 
-// Desktop: minimal major-category rail.
-function DesktopNav({ active, onSelect }) {
-  const cur = majorOf(active);
+// Desktop: full-height MoonTrip-inspired navigation with expandable module groups.
+const DESKTOP_NAV = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, direct: 'overview' },
+  { id: 'crm', label: 'CRM', icon: Contact, items: [
+    { id: 'crm', label: 'CRM Dashboard', icon: LayoutDashboard }, { id: 'leads', label: 'Leads', icon: UserPlus },
+    { id: 'clients', label: 'Clients', icon: Contact }, { id: 'contacts', label: 'Contacts', icon: BookUser },
+    { id: 'followups', label: 'Follow-ups', icon: CalendarClock }, { id: 'tasks', label: 'Tasks', icon: ListTodo },
+    { id: 'activities', label: 'Activities', icon: Activity },
+  ] },
+  { id: 'sales', label: 'Sales', icon: FileText, items: [
+    { id: 'quotations', label: 'Quotations', icon: FileText }, { id: 'quote-create', label: 'Create Quotation', icon: FilePlus },
+    { id: 'packages', label: 'Packages', icon: Package },
+  ] },
+  { id: 'operations', label: 'Operations', icon: Truck, items: [
+    { id: 'itineraries', label: 'Itineraries', icon: Map }, { id: 'bookings', label: 'Bookings', icon: ClipboardList },
+    { id: 'suppliers', label: 'Suppliers', icon: Store }, { id: 'fleet', label: 'Fleet', icon: Truck },
+    { id: 'inventory', label: 'Travel Inventory', icon: BedDouble },
+  ] },
+  { id: 'finance', label: 'Finance', icon: Wallet, items: [
+    { id: 'fin_dashboard', label: 'Finance Overview', icon: Wallet }, { id: 'fin_transactions', label: 'Transactions', icon: Receipt },
+    { id: 'fin_receivables', label: 'Receivables', icon: TrendingUp }, { id: 'fin_payables', label: 'Payables', icon: Store },
+    { id: 'fin_expenses', label: 'Expenses', icon: CreditCard }, { id: 'fin_invoices', label: 'Invoices', icon: FileText },
+    { id: 'fin_payments', label: 'Payments', icon: Banknote }, { id: 'fin_reports', label: 'Reports', icon: BarChart3 },
+  ] },
+  { id: 'discover', label: 'Discover', icon: Compass, direct: 'discover' },
+  { id: 'communications', label: 'Communications', icon: MessageSquare, items: [
+    { id: 'comm_inbox', label: 'Inbox', icon: MessageSquare }, { id: 'comm_conversations', label: 'Conversations', icon: Contact },
+    { id: 'comm_templates', label: 'Templates', icon: FileText }, { id: 'comm_activity', label: 'Activity', icon: Activity },
+  ] },
+  { id: 'ai-tools', label: 'AI & Tools', icon: Sparkles, items: [
+    { id: 'copilot', label: 'AI Copilot', icon: Bot }, { id: 'travelrules', label: 'Travel Intelligence', icon: MapPin },
+    { id: 'documents', label: 'Document Vault', icon: FileText }, { id: 'customfields', label: 'Custom Fields', icon: Database },
+    { id: 'suppliers_network', label: 'Supplier Network', icon: Network },
+  ] },
+  { id: 'analytics', label: 'Analytics', icon: Gauge, items: [
+    { id: 'an_overview', label: 'Overview', icon: Gauge }, { id: 'an_sales', label: 'Sales', icon: TrendingUp },
+    { id: 'an_crm', label: 'CRM', icon: Contact }, { id: 'an_finance', label: 'Finance', icon: Wallet },
+    { id: 'an_operations', label: 'Operations', icon: Truck },
+  ] },
+  { id: 'marketplace', label: 'SafarCurated Marketplace', icon: Store, direct: 'marketplace' },
+  { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck, direct: 'portal_admin' },
+  { id: 'integrations', label: 'Integrations', icon: Plug, items: [
+    { id: 'int_overview', label: 'Integrations', icon: Plug }, { id: 'int_webhooks', label: 'Webhooks', icon: ExternalLink },
+    { id: 'int_api', label: 'Developer API', icon: ShieldCheck },
+  ] },
+  { id: 'data-tools', label: 'Data Tools', icon: Database, items: [
+    { id: 'data_import', label: 'Import Data', icon: Upload }, { id: 'data_export', label: 'Export Data', icon: Download },
+  ] },
+  { id: 'subscription', label: 'Subscription', icon: CreditCard, items: [
+    { id: 'sub_overview', label: 'Plan & Billing', icon: CreditCard }, { id: 'sub_plans', label: 'Plans', icon: Layers },
+    { id: 'sub_usage', label: 'Usage & Limits', icon: Gauge }, { id: 'sub_billing', label: 'Billing History', icon: Receipt },
+  ] },
+  { id: 'team', label: 'Team', icon: Users, direct: 'team' },
+  { id: 'settings', label: 'Settings', icon: Building2, direct: 'settings' },
+];
+
+function DesktopNav({ active, onSelect, expanded, onToggle }) {
   return (
-    <div className="space-y-1">
-      {DESKTOP_WORKSPACES.map((w) => {
-        const Icon = w.icon; const on = cur === w.id;
-        const target = w.home ? 'overview' : w.direct ? w.direct : `ws:${w.id}`;
+    <div className="space-y-1.5 pb-3">
+      {DESKTOP_NAV.map((section) => {
+        const Icon = section.icon;
+        const isGroup = !!section.items;
+        const isExpanded = expanded.includes(section.id);
+        const isActive = section.direct ? active === section.direct : section.items?.some((item) => item.id === active);
         return (
-          <button key={w.id} onClick={() => onSelect(target)}
-            className={`group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${on ? 'so-nav-active' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}>
-            {on && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-violet-600" />}
-            <Icon className={`h-[18px] w-[18px] shrink-0 ${on ? 'text-violet-600 dark:text-violet-300' : 'text-muted-foreground group-hover:text-foreground'}`} />
-            <span className="truncate font-medium">{w.label}</span>
-          </button>
+          <div key={section.id} className="so-nav-section">
+            {isGroup ? (
+              <button type="button" onClick={() => onToggle(section.id)}
+                aria-expanded={isExpanded}
+                className={`so-nav-parent group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${isActive ? 'so-nav-parent-active' : 'text-sidebar-foreground/80 hover:bg-white/[0.07] hover:text-white'}`}>
+                {isActive && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-[#f07862]" />}
+                <Icon className="h-[19px] w-[19px] shrink-0" />
+                <span className="min-w-0 flex-1 truncate text-left font-semibold">{section.label}</span>
+                <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+              </button>
+            ) : (
+              <button type="button" onClick={() => onSelect(section.direct)}
+                className={`so-nav-parent group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${isActive ? 'so-nav-active' : 'text-sidebar-foreground/80 hover:bg-white/[0.07] hover:text-white'}`}>
+                {isActive && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-[#f07862]" />}
+                <Icon className="h-[19px] w-[19px] shrink-0" />
+                <span className="min-w-0 flex-1 truncate text-left font-semibold">{section.label}</span>
+              </button>
+            )}
+            {isGroup && isExpanded && (
+              <div className="so-nav-children ml-3 mt-1 space-y-0.5 border-l border-white/10 pl-3">
+                {section.items.map((item) => {
+                  const ItemIcon = item.icon;
+                  const selected = active === item.id;
+                  return (
+                    <button key={item.id} type="button" onClick={() => onSelect(item.id)}
+                      className={`group flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors ${selected ? 'so-nav-child-active' : 'text-[#b8c7d9] hover:bg-white/[0.07] hover:text-white'}`}>
+                      <ItemIcon className="h-4 w-4 shrink-0 opacity-90" />
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      {selected && <span className="h-1.5 w-1.5 rounded-full bg-[#f07862]" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         );
       })}
     </div>
@@ -1216,6 +1301,7 @@ function DataExport({ session }) {
 
 function Dashboard({ session, onLogout }) {
   const [active, setActive] = useState('overview');
+  const [expandedNav, setExpandedNav] = useState(['crm', 'sales', 'operations', 'finance']);
   const [menuOpen, setMenuOpen] = useState(false);
   const [navPayload, setNavPayload] = useState(null);
   const { user, agency } = session;
@@ -1227,41 +1313,48 @@ function Dashboard({ session, onLogout }) {
   return (
     <div className="min-h-screen flex bg-muted/40 so-font">
       {/* ---------------- Desktop sidebar ---------------- */}
-      <aside className="w-64 xl:w-[272px] shrink-0 border-r border-border bg-sidebar/80 backdrop-blur hidden md:flex flex-col">
-        {/* Brand + agency identity */}
-        <div className="px-4 pt-4 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="so-brandmark flex h-9 w-9 items-center justify-center rounded-xl">
+      <aside className="so-workspace-sidebar w-64 xl:w-[272px] shrink-0 border-r border-border hidden md:flex flex-col">
+        {/* Brand and agency identity */}
+        <div className="shrink-0 px-4 pb-3 pt-4">
+          <div className="flex items-center gap-2.5 px-1">
+            <div className="so-brandmark flex h-10 w-10 items-center justify-center rounded-xl">
               <Layers className="h-5 w-5 text-white" />
             </div>
             <div className="leading-tight">
-              <div className="text-[15px] font-extrabold tracking-tight">SafarOS</div>
-              <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Agency Workspace</div>
+              <div className="text-[16px] font-extrabold tracking-tight text-white">SafarOS</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#aebdd0]">Agency Workspace</div>
             </div>
           </div>
-          <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-border bg-background/70 px-3 py-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white">{initials}</div>
+          <div className="so-agency-card mt-4 flex items-center gap-2.5 rounded-xl border px-3 py-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-xs font-bold text-white">{initials}</div>
             <div className="min-w-0">
-              <div className="truncate text-[13px] font-semibold">{agency?.name || 'Your agency'}</div>
-              <div className="text-[11px] capitalize text-muted-foreground">{agency?.plan || 'trial'} plan</div>
+              <div className="truncate text-[13px] font-semibold text-white">{agency?.name || 'Your agency'}</div>
+              <div className="text-[11px] capitalize text-[#b8c7d9]">{agency?.plan || 'trial'} plan</div>
             </div>
           </div>
         </div>
-        <Separator />
-        <div className="so-nav flex-1 overflow-auto px-3 py-3">
-          <DesktopNav active={active} onSelect={setActive} />
+        <Separator className="mx-4 w-auto bg-white/10" />
+        <div className="so-nav flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-3">
+          <DesktopNav active={active} onSelect={setActive} expanded={expandedNav}
+            onToggle={(id) => setExpandedNav((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])} />
         </div>
-        {/* User footer */}
-        <div className="border-t border-border p-3">
-          <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-xs font-bold text-white">{userInitial}</div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-medium">{user?.name}</div>
-              <div className="truncate text-[11px] text-muted-foreground">{user?.email}</div>
+        {/* Pinned account, role, plan and sign-out card */}
+        <div className="so-account-footer shrink-0 border-t border-white/10 p-3">
+          <div className="rounded-xl border border-white/10 bg-white/[0.06] p-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f28a72] to-[#dc6656] text-xs font-bold text-white">{userInitial}</div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-semibold text-white">{user?.name || 'Account holder'}</div>
+                <div className="truncate text-[11px] capitalize text-[#b8c7d9]">{user?.role || 'Member'}</div>
+              </div>
             </div>
-            <button onClick={onLogout} title="Sign out" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
-              <LogOut className="h-4 w-4" />
+            <div className="mt-2.5 rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-center text-[11px] font-semibold capitalize text-[#e0e8f2]">
+              {agency?.plan || 'Trial'} Plan
+            </div>
+            <button onClick={onLogout} className="mt-2 flex min-h-9 w-full items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-[#e0e8f2] transition-colors hover:bg-white/[0.12] hover:text-white">
+              <LogOut className="h-3.5 w-3.5" /> Sign Out
             </button>
+            <div className="mt-2 text-center text-[10px] font-medium tracking-wide text-[#8fa3bd]">SafarOS v0.1.0</div>
           </div>
         </div>
       </aside>
