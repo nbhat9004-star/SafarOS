@@ -2767,6 +2767,8 @@ function platformReadPerm(path) {
   if (path.startsWith('/platform/safarcurated')) return 'integrations:read';
   if (path.startsWith('/platform/integrations')) return 'integrations:read';
   if (path.startsWith('/platform/analytics')) return 'analytics:read';
+  if (path.startsWith('/platform/prospecting')) return 'agencies:read';
+  if (path.startsWith('/platform/usage')) return 'analytics:read';
   if (path.startsWith('/platform/audit')) return 'audit:read';
   if (path.startsWith('/platform/settings')) return 'settings:read';
   if (path.startsWith('/platform/early-access')) return 'agencies:read';
@@ -3242,6 +3244,37 @@ async function platformGet(db, session, path, sp) {
     });
   }
 
+  if (path === '/platform/prospecting/search') {
+    const query = String(sp.get('q') || '').trim().slice(0, 200);
+    if (query.length < 3) return err('Enter at least 3 characters to search');
+    const result = await searchBusinesses(query, { limit: 20 });
+    return json({ configured: result.configured, provider: result.provider, query, results: result.results });
+  }
+  if (path === '/platform/prospecting/leads') {
+    const all = await db.collection('platformProspectLeads').find({}, { projection: { _id: 0 } }).sort({ updatedAt: -1 }).limit(1000).toArray();
+    const q = String(sp.get('q') || '').toLowerCase(), status = String(sp.get('status') || '');
+    const leads = all.filter(x => (!status || x.status === status) && (!q || [x.name,x.phone,x.email,x.website,x.city].some(v => String(v || '').toLowerCase().includes(q))));
+    return json({ leads, total: leads.length });
+  }
+  if (path === '/platform/usage') {
+    const [agencies, users, subs] = await Promise.all([
+      db.collection('agencies').find({}, { projection: { _id: 0, id: 1, name: 1, city: 1, plan: 1, status: 1, trialEndsAt: 1, email: 1, phone: 1 } }).toArray(),
+      db.collection('users').find({}, { projection: { _id: 0, agencyId: 1, email: 1, role: 1, lastLoginAt: 1 } }).toArray(),
+      db.collection('agencySubscriptions').find({}, { projection: { _id: 0, agencyId: 1, planId: 1, status: 1, trialEndsAt: 1 } }).toArray(),
+    ]);
+    const now = Date.now(), subMap = Object.fromEntries(subs.map(x => [x.agencyId,x]));
+    const rows = await Promise.all(agencies.map(async agency => {
+      const members = users.filter(u => u.agencyId === agency.id), logins = members.map(u => u.lastLoginAt).filter(Boolean).sort();
+      const lastActiveAt = logins.length ? logins[logins.length-1] : null, sub = subMap[agency.id] || {};
+      const trialEndsAt = sub.trialEndsAt || agency.trialEndsAt || null;
+      const trialDaysRemaining = trialEndsAt ? Math.ceil((new Date(trialEndsAt).getTime()-now)/86400000) : null;
+      const [leads, quotations, bookings] = await Promise.all([
+        db.collection('leads').countDocuments({agencyId:agency.id}), db.collection('quotations').countDocuments({agencyId:agency.id}), db.collection('bookings').countDocuments({agencyId:agency.id}),
+      ]);
+      return {id:agency.id,name:agency.name,city:agency.city||'',plan:sub.planId||agency.plan||'trial',memberCount:members.length,activeMembers:members.filter(u=>u.lastLoginAt&&now-new Date(u.lastLoginAt).getTime()<=604800000).length,lastActiveAt,dailyActive:!!lastActiveAt&&now-new Date(lastActiveAt).getTime()<=86400000,trialEndsAt,trialDaysRemaining,ownerEmail:agency.email||members.find(u=>u.role==='owner')?.email||'',phone:agency.phone||'',leads,quotations,bookings};
+    }));
+    return json({agencies:rows,summary:{total:rows.length,dailyActive:rows.filter(x=>x.dailyActive).length,trialEndingSoon:rows.filter(x=>x.trialDaysRemaining!==null&&x.trialDaysRemaining>=0&&x.trialDaysRemaining<=7).length,inactive:rows.filter(x=>!x.lastActiveAt||now-new Date(x.lastActiveAt).getTime()>259200000).length}});
+  }
   if (path === '/platform/audit-logs') {
     const search = (sp.get('search') || '').toLowerCase(); const action = sp.get('action') || '';
     const q = {}; if (action) q.action = action;
@@ -3277,6 +3310,17 @@ async function platformGet(db, session, path, sp) {
 async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
   if (path.startsWith('/platform/safarcurated/')) return scPlatformAction(db, session, path, request);
+  if (path === '/platform/prospecting/leads') {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const name = str(body.name,180).trim(); if (!name) return err('Business name is required');
+    const sourceId = str(body.sourceId,180);
+    const duplicate = sourceId ? await db.collection('platformProspectLeads').findOne({sourceId}) : null;
+    if (duplicate) return json({lead:duplicate,duplicate:true});
+    const doc = {id:uuidv4(),sourceId,name,category:str(body.category,120),address:str(body.address,400),city:str(body.city,120),phone:str(body.phone,60),email:str(body.email,180),website:str(body.website,400),whatsapp:str(body.whatsapp,40),mapUrl:str(body.mapUrl,500),source:'google_places',status:'new',notes:'',assignedTo:'',createdAt:now,updatedAt:now,createdBy:session.adminId};
+    await db.collection('platformProspectLeads').insertOne(doc);
+    await platformAudit(db,session,request,{action:'prospect_lead.saved',targetType:'prospect_lead',targetId:doc.id});
+    const {_id,...lead}=doc; return json({lead},201);
+  }
   if (path === '/platform/themes') {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
     const name = str(body.name, 80);
@@ -3434,6 +3478,19 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
+  const prospectEdit = path.match(/^\\/platform\\/prospecting\\/leads\\/([^/]+)$/);
+  if (prospectEdit) {
+    if (!canPlatform(session.role,'agencies:manage')) return err('forbidden',403);
+    const id=prospectEdit[1], allowed=['new','contacted','interested','demo_scheduled','converted','not_interested'], set={updatedAt:now};
+    if(body.status!==undefined){if(!allowed.includes(String(body.status)))return err('Invalid lead status');set.status=String(body.status);}
+    if(body.notes!==undefined)set.notes=str(body.notes,2000);
+    if(body.assignedTo!==undefined)set.assignedTo=str(body.assignedTo,120);
+    if(body.email!==undefined)set.email=str(body.email,180);
+    const r=await db.collection('platformProspectLeads').updateOne({id},{$set:set});
+    if(!r.matchedCount)return err('Prospect lead not found',404);
+    await platformAudit(db,session,request,{action:'prospect_lead.updated',targetType:'prospect_lead',targetId:id});
+    return json({lead:await db.collection('platformProspectLeads').findOne({id},{projection:{_id:0}})});
+  }
   const themeEdit = path.match(/^\/platform\/themes\/([^/]+)$/);
   if (themeEdit) {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
