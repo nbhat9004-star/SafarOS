@@ -249,3 +249,71 @@
   .so-font main .space-y-5 > div:first-child h2 { font-size: 21px; }
   .so-font main .space-y-5 > div:first-child button { min-height: 40px; }
 }
+
+
+/* Sales, itinerary, booking, operations and finance surfaces. */
+.so-font main .space-y-5 > .rounded-xl,
+.so-font main .space-y-5 > .rounded-2xl {
+  border-color: #e5e9ef;
+}
+.so-font main [class*="CardHeader"] { border-bottom-color: #edf0f4; }
+.so-font main [data-slot="card"] {
+  border-color: #e5e9ef;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(26,42,66,.025);
+}
+.so-font main [data-slot="card"] [data-slot="card-title"] {
+  color: #26364d;
+  letter-spacing: -.015em;
+}
+.so-font main input:not([type="checkbox"]):not([type="radio"]),
+.so-font main textarea,
+.so-font main select {
+  border-color: #dfe5ed;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.so-font main input:focus,
+.so-font main textarea:focus,
+.so-font main select:focus {
+  border-color: #df927f;
+  box-shadow: 0 0 0 3px rgba(217,111,89,.11);
+}
+.so-font main button[data-slot="button"]:not([data-variant="ghost"]):not([data-variant="outline"]) {
+  border-radius: 8px;
+  font-weight: 650;
+}
+.so-font main button[data-variant="outline"] {
+  border-color: #dfe5ed;
+  border-radius: 8px;
+  background: #fff;
+}
+.so-font main button[data-variant="outline"]:hover {
+  border-color: #e7b5a9;
+  background: #fff8f5;
+  color: #bd624f;
+}
+.so-font main [role="tablist"] {
+  padding: 4px;
+  border: 1px solid #e8ecf1;
+  border-radius: 10px;
+  background: #f7f8fa;
+}
+.so-font main [role="tab"][data-state="active"] {
+  border-radius: 7px;
+  background: #fff;
+  color: #bd624f;
+  box-shadow: 0 1px 3px rgba(26,42,66,.10);
+}
+.so-font main .border-dashed {
+  border-color: #d9e0e9;
+  background: #fafbfd;
+}
+.so-font main .text-primary { color: #d96f59; }
+.so-font main .bg-primary { background-color: #d96f59; }
+.so-font main .ring-primary { --tw-ring-color: #d96f59; }
+@media (max-width: 767px) {
+  .so-font main [role="tablist"] { max-width: 100%; overflow-x: auto; }
+  .so-font main [data-slot="card"] { border-radius: 11px; }
+  .so-font main table { min-width: 640px; }
+}
