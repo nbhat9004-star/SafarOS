@@ -1311,9 +1311,9 @@ function Dashboard({ session, onLogout }) {
   const userInitial = (user?.name || 'U').trim().charAt(0).toUpperCase();
 
   return (
-    <div className="min-h-screen flex bg-muted/40 so-font">
+    <div className="h-screen overflow-hidden flex bg-muted/40 so-font">
       {/* ---------------- Desktop sidebar ---------------- */}
-      <aside className="so-workspace-sidebar w-64 xl:w-[272px] shrink-0 border-r border-border hidden md:flex flex-col">
+      <aside className="so-workspace-sidebar h-screen sticky top-0 w-64 xl:w-[272px] shrink-0 border-r border-border hidden md:flex flex-col">
         {/* Brand and agency identity */}
         <div className="shrink-0 px-4 pb-3 pt-4">
           <div className="flex items-center gap-2.5 px-1">
@@ -1360,8 +1360,8 @@ function Dashboard({ session, onLogout }) {
       </aside>
 
       {/* ---------------- Main workspace ---------------- */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="sticky top-0 z-30 h-16 border-b border-border bg-background/85 backdrop-blur flex items-center justify-between gap-3 px-4 sm:px-6">
+      <main className="h-screen min-h-0 flex-1 flex flex-col min-w-0">
+        <header className="sticky top-0 z-30 h-16 shrink-0 border-b border-border bg-background/85 backdrop-blur flex items-center justify-between gap-3 px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-2.5">
             <button onClick={() => setMenuOpen(true)} aria-label="Open menu"
               className="md:hidden -ml-1 flex h-9 w-9 items-center justify-center rounded-lg text-foreground hover:bg-accent">
@@ -1392,7 +1392,7 @@ function Dashboard({ session, onLogout }) {
           </div>
         </header>
 
-        <div className="p-4 sm:p-6 lg:p-8 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 lg:p-8">
           <div className="mx-auto w-full max-w-[1400px]">
           {String(active).startsWith('ws:') ? (
             <WorkspaceLauncher majorId={String(active).slice(3)} onOpen={setActive} />
