@@ -243,16 +243,3 @@ html { scroll-behavior: smooth; }
 .so-kpi { transition: transform .25s cubic-bezier(.22,1,.36,1), box-shadow .25s ease, border-color .25s ease; }
 .so-kpi:hover { transform: translateY(-2px); box-shadow: 0 12px 28px -14px rgba(79,70,229,0.4); }
 /* ===================================================================================== */
-
-/* Public landing navigation: enforce contrast on every viewport. */
-header.safaros-public-header,
-header.safaros-public-header:is(:hover, :focus-within) {
-  background: #020617 !important;
-  background-color: #020617 !important;
-  background-image: none !important;
-  color: #fff !important;
-  opacity: 1 !important;
-}
-header.safaros-public-header > div {
-  background: transparent !important;
-}
