@@ -93,6 +93,9 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
   const [loading, setLoading] = useState(false);
   const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '', countryCode });
   const [countrySearch, setCountrySearch] = useState('');
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
   const [login, setLogin] = useState({ email: '', password: '' });
 
   const doSignup = async () => {
@@ -100,11 +103,23 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
     try {
       const selectedCountryCode = signup.countryCode || countryCode;
       const regionalDefaults = getCountryDefaults(selectedCountryCode);
-      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: selectedCountryCode, country: regionalDefaults?.country, currency: regionalDefaults?.currency || currency, currencySymbol: regionalDefaults?.currencySymbol, currencyPosition: regionalDefaults?.currencyPosition, currencyDecimalPlaces: regionalDefaults?.currencyDecimalPlaces }) });
-      toast.success('Agency workspace created');
+      const result = await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: selectedCountryCode, country: regionalDefaults?.country, currency: regionalDefaults?.currency || currency, currencySymbol: regionalDefaults?.currencySymbol, currencyPosition: regionalDefaults?.currencyPosition, currencyDecimalPlaces: regionalDefaults?.currencyDecimalPlaces }) });
+      setPendingEmail(result.email || signup.email.trim().toLowerCase());
+      setVerificationPending(true);
+      setVerificationCode('');
+      toast.success('Verification code sent to your email');
+    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+  };
+  const doVerifyEmail = async () => {
+    if (!/^\\d{6}$/.test(verificationCode.trim())) { toast.error('Enter the six-digit verification code'); return; }
+    setLoading(true);
+    try {
+      await api('/auth/verify-email', { method: 'POST', body: JSON.stringify({ email: pendingEmail, code: verificationCode.trim() }) });
+      toast.success('Email verified. Your workspace is ready.');
       onAuthed();
     } catch (e) { toast.error(e.message); } finally { setLoading(false); }
   };
+
   const doLogin = async () => {
     setLoading(true);
     try {
@@ -153,6 +168,22 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
               </TabsList>
 
               <TabsContent value="signup" className="space-y-3 mt-4">
+                {verificationPending ? (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+                      <div className="font-semibold text-slate-900">Verify your email</div>
+                      <p className="mt-1 text-sm text-slate-600">We sent a six-digit code to <strong>{pendingEmail}</strong>. Enter it below to create your workspace. The code expires in 10 minutes.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>6-digit verification code</Label>
+                      <Input inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\\D/g, '').slice(0, 6))} onKeyDown={(e) => e.key === 'Enter' && doVerifyEmail()} />
+                    </div>
+                    <Button className="w-full" onClick={doVerifyEmail} disabled={loading || verificationCode.length !== 6}>{loading ? 'Verifying…' : 'Verify email and create workspace'}</Button>
+                    <button type="button" onClick={doSignup} disabled={loading} className="w-full text-center text-sm text-violet-700 hover:underline disabled:opacity-50">Resend verification code</button>
+                    <button type="button" onClick={() => { setVerificationPending(false); setVerificationCode(''); }} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">Change signup details</button>
+                  </div>
+                ) : (
+                  <>
                 <div className="space-y-1.5">
                   <Label>{t('Your name', 'اسمك')}</Label>
                   <Input placeholder="Jane Doe" value={signup.name}
@@ -187,6 +218,8 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                 <button type="button" onClick={() => setTab('login')} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">
                   {t('Already have an account?', 'لديك حساب بالفعل؟')} <span className="font-medium text-foreground">{t('Sign in', 'تسجيل الدخول')}</span>
                 </button>
+                  </>
+                )}
               </TabsContent>
 
               <TabsContent value="login" className="space-y-3 mt-4">
