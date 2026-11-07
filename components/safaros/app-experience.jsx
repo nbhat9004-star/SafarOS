@@ -1225,9 +1225,9 @@ function Dashboard({ session, onLogout }) {
   const userInitial = (user?.name || 'U').trim().charAt(0).toUpperCase();
 
   return (
-    <div className="min-h-screen flex bg-muted/40 so-font">
+    <div className="h-screen overflow-hidden flex bg-muted/40 so-font">
       {/* ---------------- Desktop sidebar ---------------- */}
-      <aside className="w-64 xl:w-[272px] shrink-0 border-r border-border bg-sidebar/80 backdrop-blur hidden md:flex flex-col">
+      <aside className="h-screen sticky top-0 w-64 xl:w-[272px] shrink-0 border-r border-border bg-sidebar/80 backdrop-blur hidden md:flex flex-col">
         {/* Brand + agency identity */}
         <div className="px-4 pt-4 pb-3">
           <div className="flex items-center gap-2.5">
@@ -1248,27 +1248,34 @@ function Dashboard({ session, onLogout }) {
           </div>
         </div>
         <Separator />
-        <div className="so-nav flex-1 overflow-auto px-3 py-3">
+        <div className="so-nav min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
           <DesktopNav active={active} onSelect={setActive} />
         </div>
-        {/* User footer */}
-        <div className="border-t border-border p-3">
-          <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-xs font-bold text-white">{userInitial}</div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-medium">{user?.name}</div>
-              <div className="truncate text-[11px] text-muted-foreground">{user?.email}</div>
+        {/* Fixed account footer — remains visible while navigation scrolls */}
+        <div className="shrink-0 border-t border-border bg-sidebar p-3">
+          <div className="rounded-xl border border-border bg-background/60 p-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-xs font-bold text-white">{userInitial}</div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-semibold">{user?.name || 'Workspace user'}</div>
+                <div className="truncate text-[11px] text-muted-foreground capitalize">{user?.role || 'Member'}</div>
+              </div>
             </div>
-            <button onClick={onLogout} title="Sign out" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
-              <LogOut className="h-4 w-4" />
+            <div className="mt-2 flex items-center justify-center gap-1.5 rounded-lg bg-muted/70 px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {titleCase(agency?.plan || 'trial')} Plan
+            </div>
+            <button onClick={onLogout} className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-border text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground">
+              <LogOut className="h-3.5 w-3.5" /> Sign out
             </button>
+            <div className="pt-2 text-center text-[10px] text-muted-foreground">SafarOS · v0.1.0</div>
           </div>
         </div>
       </aside>
 
       {/* ---------------- Main workspace ---------------- */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="sticky top-0 z-30 h-16 border-b border-border bg-background/85 backdrop-blur flex items-center justify-between gap-3 px-4 sm:px-6">
+      <main className="h-screen min-h-0 flex-1 flex flex-col min-w-0">
+        <header className="sticky top-0 z-30 h-16 shrink-0 border-b border-border bg-background/85 backdrop-blur flex items-center justify-between gap-3 px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-2.5">
             <button onClick={() => setMenuOpen(true)} aria-label="Open menu"
               className="md:hidden -ml-1 flex h-9 w-9 items-center justify-center rounded-lg text-foreground hover:bg-accent">
@@ -1299,7 +1306,7 @@ function Dashboard({ session, onLogout }) {
           </div>
         </header>
 
-        <div className="p-4 sm:p-6 lg:p-8 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 lg:p-8">
           <div className="mx-auto w-full max-w-[1400px]">
           {String(active).startsWith('ws:') ? (
             <WorkspaceLauncher majorId={String(active).slice(3)} onOpen={setActive} />
@@ -1358,7 +1365,7 @@ function Dashboard({ session, onLogout }) {
         <div onClick={() => setMenuOpen(false)}
           className={`absolute inset-0 bg-black/50 transition-opacity duration-300 ${menuOpen ? 'opacity-100' : 'opacity-0'}`} />
         <div className={`absolute left-0 top-0 flex h-full w-72 max-w-[84%] flex-col border-r border-border bg-sidebar shadow-2xl transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          <div className="flex items-center justify-between p-4">
+          <div className="shrink-0 flex items-center justify-between p-4">
             <span className="flex items-center gap-2 text-[15px] font-extrabold">
               <span className="so-brandmark flex h-8 w-8 items-center justify-center rounded-lg"><Layers className="h-4 w-4 text-white" /></span>
               SafarOS
@@ -1367,7 +1374,7 @@ function Dashboard({ session, onLogout }) {
               className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground hover:bg-accent"><X className="h-5 w-5" /></button>
           </div>
           <Separator />
-          <div className="flex items-center gap-3 p-4">
+          <div className="shrink-0 flex items-center gap-3 p-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-sm font-bold text-white">
               {initials}
             </div>
@@ -1377,7 +1384,7 @@ function Dashboard({ session, onLogout }) {
             </div>
           </div>
           <Separator />
-          <nav className="so-nav flex-1 overflow-auto px-3 py-3">
+          <nav className="so-nav min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
             <MobileAccordion active={active} onSelect={go} />
           </nav>
           <div className="border-t border-border p-3">
