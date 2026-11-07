@@ -348,3 +348,20 @@
     min-height: 44px;
   }
 }
+
+
+/* The public landing header overlays the hero artwork; keep it transparent.
+   This exception must follow the generic workspace header rule below. */
+.so-font header.safaros-public-header,
+.so-font header.safaros-public-header:is(:hover, :focus-within) {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  color: #fff !important;
+  border-color: rgba(255,255,255,.10) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+.so-font header.safaros-public-header > div {
+  background: transparent !important;
+}
