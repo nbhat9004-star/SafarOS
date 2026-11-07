@@ -365,3 +365,76 @@
 .so-font header.safaros-public-header > div {
   background: transparent !important;
 }
+
+
+/* Full-height MoonTrip-inspired agency navigation — SafarOS branding retained. */
+.so-font aside.so-workspace-sidebar {
+  width: 272px;
+  background: linear-gradient(112deg, #172b49 0%, #142641 58%, #12233d 100%) !important;
+  color: #f4f7fb !important;
+  border-right: 1px solid rgba(255,255,255,.08) !important;
+  box-shadow: 8px 0 28px -26px rgba(9,20,38,.55);
+}
+.so-font aside.so-workspace-sidebar .so-agency-card {
+  background: rgba(255,255,255,.065) !important;
+  border-color: rgba(255,255,255,.10) !important;
+}
+.so-font aside.so-workspace-sidebar > [data-orientation="horizontal"] {
+  background: rgba(255,255,255,.10) !important;
+}
+.so-font aside.so-workspace-sidebar .so-nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.22) transparent;
+}
+.so-font aside.so-workspace-sidebar .so-nav::-webkit-scrollbar { width: 5px; }
+.so-font aside.so-workspace-sidebar .so-nav::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.20);
+  border-radius: 999px;
+}
+.so-font aside.so-workspace-sidebar .so-nav-parent {
+  min-height: 42px;
+  color: #d5dfeb !important;
+  border: 1px solid transparent;
+}
+.so-font aside.so-workspace-sidebar .so-nav-parent:hover {
+  color: #fff !important;
+  background: rgba(255,255,255,.075) !important;
+}
+.so-font aside.so-workspace-sidebar .so-nav-parent-active,
+.so-font aside.so-workspace-sidebar .so-nav-parent.so-nav-active {
+  color: #fff !important;
+  background: rgba(240,120,98,.15) !important;
+  border-color: rgba(240,120,98,.12);
+  box-shadow: inset 3px 0 0 #f07862;
+}
+.so-font aside.so-workspace-sidebar .so-nav-parent-active svg,
+.so-font aside.so-workspace-sidebar .so-nav-parent.so-nav-active svg {
+  color: #ff9b86 !important;
+}
+.so-font aside.so-workspace-sidebar .so-nav-children button {
+  min-height: 35px;
+  border: 1px solid transparent;
+}
+.so-font aside.so-workspace-sidebar .so-nav-children button:hover {
+  color: #fff !important;
+  background: rgba(255,255,255,.075) !important;
+}
+.so-font aside.so-workspace-sidebar .so-nav-children button.so-nav-child-active {
+  color: #fff !important;
+  background: rgba(240,120,98,.14) !important;
+  border-color: rgba(240,120,98,.12);
+}
+.so-font aside.so-workspace-sidebar .so-account-footer {
+  background: linear-gradient(180deg, rgba(18,35,61,.82), #12233d);
+}
+.so-font aside.so-workspace-sidebar button:focus-visible {
+  outline: 2px solid #ff9b86;
+  outline-offset: 2px;
+}
+@media (min-width: 1280px) {
+  .so-font aside.so-workspace-sidebar { width: 288px; }
+}
+@media (max-height: 760px) {
+  .so-font aside.so-workspace-sidebar .so-account-footer { padding-top: 8px; padding-bottom: 8px; }
+  .so-font aside.so-workspace-sidebar .so-account-footer > div { padding: 9px; }
+}
