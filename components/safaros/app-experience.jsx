@@ -27,7 +27,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { can } from '@/lib/rbac';
 import { useLocalization } from '@/components/safaros/localization-provider';
-import { GCC_COUNTRIES, SUPPORTED_CURRENCIES, getCountryDefaults } from '@/lib/localization';
+import { COUNTRY_OPTIONS, SUPPORTED_CURRENCIES, getCountryDefaults, getCountryCodeByName } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
@@ -92,12 +92,15 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
   const [tab, setTab] = useState(initialTab === 'signup' ? 'signup' : 'login');
   const [loading, setLoading] = useState(false);
   const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '', countryCode });
+  const [countrySearch, setCountrySearch] = useState('');
   const [login, setLogin] = useState({ email: '', password: '' });
 
   const doSignup = async () => {
     setLoading(true);
     try {
-      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: signup.countryCode || countryCode, currency }) });
+      const selectedCountryCode = signup.countryCode || countryCode;
+      const regionalDefaults = getCountryDefaults(selectedCountryCode);
+      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: selectedCountryCode, country: regionalDefaults?.country, currency: regionalDefaults?.currency || currency }) });
       toast.success('Agency workspace created');
       onAuthed();
     } catch (e) { toast.error(e.message); } finally { setLoading(false); }
@@ -172,9 +175,11 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                 </div>
                 <div className="space-y-1.5">
                   <Label>{t('Country', 'الدولة')}</Label>
-                  <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup({ ...signup, countryCode: code }); if (defaults) updatePreferences({ countryCode: code }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                    {Object.values(GCC_COUNTRIES).map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+                  <Input value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} placeholder="Search all countries…" aria-label="Search countries" />
+                  <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup((current) => ({ ...current, countryCode: code })); if (defaults) updatePreferences({ countryCode: code, currency: defaults.currency, timeZone: defaults.timeZone }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    {COUNTRY_OPTIONS.filter((country) => !countrySearch || country.name.toLowerCase().includes(countrySearch.toLowerCase()) || country.code.toLowerCase().includes(countrySearch.toLowerCase())).map((country) => <option key={country.code} value={country.code}>{country.flag} {country.name} ({country.currency})</option>)}
                   </select>
+                  <p className="text-xs text-muted-foreground">Your workspace currency will default to {getCountryDefaults(signup.countryCode || countryCode)?.currency || currency} based on this country.</p>
                 </div>
                 <Button className="w-full" onClick={doSignup} disabled={loading}>
                   {loading ? t('Creating...', 'جارٍ الإنشاء...') : t('Create Workspace', 'إنشاء مساحة العمل')}
@@ -6343,12 +6348,13 @@ function Finance({ session, tab, onNav }) {
 
 function Settings({ session, onNavigate }) {
   const { agency, user } = session;
-  const { locale, currency: displayCurrency, timeZone: displayTimeZone, updatePreferences } = useLocalization();
+  const { locale, countryCode, currency: displayCurrency, timeZone: displayTimeZone, updatePreferences } = useLocalization();
   const canManageAgency = user?.role === 'owner';
   const [section, setSection] = useState('profile');
   const [profile, setProfile] = useState({ name: user?.name || '', phone: user?.phone || '' });
   const [profileSaving, setProfileSaving] = useState(false);
   const [agencyEditing, setAgencyEditing] = useState(false);
+  const [agencyCountrySearch, setAgencyCountrySearch] = useState('');
   const [agencySaving, setAgencySaving] = useState(false);
   const [resetSending, setResetSending] = useState(false);
   const [preferences, setPreferences] = useState({
@@ -6364,7 +6370,8 @@ function Settings({ session, onNavigate }) {
     address: agency?.address || '',
     city: agency?.city || '',
     country: agency?.country || 'India',
-    currency: agency?.currency || 'INR',
+    countryCode: agency?.countryCode || getCountryCodeByName(agency?.country) || countryCode || 'IN',
+    currency: agency?.currency || getCountryDefaults(agency?.countryCode || getCountryCodeByName(agency?.country) || countryCode || 'IN')?.currency || 'INR',
     timezone: agency?.timezone || 'Asia/Kolkata',
   });
   const updateAgency = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
@@ -6532,8 +6539,8 @@ function Settings({ session, onNavigate }) {
                     <div className="space-y-1.5"><Label>Website</Label><Input value={form.website} onChange={updateAgency('website')} placeholder="https://" /></div>
                     <div className="space-y-1.5 sm:col-span-2"><Label>Business address</Label><Input value={form.address} onChange={updateAgency('address')} /></div>
                     <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={updateAgency('city')} /></div>
-                    <div className="space-y-1.5"><Label>Country</Label><Input value={form.country} onChange={updateAgency('country')} /></div>
-                    <div className="space-y-1.5"><Label>Accounting currency</Label><Input value={form.currency} onChange={updateAgency('currency')} placeholder="INR" /></div>
+                    <div className="space-y-1.5"><Label>Country</Label><Input value={agencyCountrySearch} onChange={(e) => setAgencyCountrySearch(e.target.value)} placeholder="Search all countries…" /><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.countryCode || 'IN'} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setForm((current) => ({ ...current, countryCode: code, country: defaults?.country || current.country, currency: defaults?.currency || current.currency, timezone: defaults?.timeZone || current.timezone })); }}>{COUNTRY_OPTIONS.filter((country) => !agencyCountrySearch || country.name.toLowerCase().includes(agencyCountrySearch.toLowerCase()) || country.code.toLowerCase().includes(agencyCountrySearch.toLowerCase())).map((country) => <option key={country.code} value={country.code}>{country.flag} {country.name}</option>)}</select></div>
+                    <div className="space-y-1.5"><Label>Accounting currency (ISO 4217)</Label><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.currency} onChange={updateAgency('currency')}>{SUPPORTED_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}</select><p className="text-xs text-muted-foreground">Changing the default does not convert historical invoices or transactions.</p></div>
                     <div className="space-y-1.5"><Label>Business timezone</Label><Input value={form.timezone} onChange={updateAgency('timezone')} placeholder="Asia/Kolkata" /></div>
                     <div className="flex justify-end gap-2 pt-2 sm:col-span-2">
                       <Button variant="outline" onClick={() => setAgencyEditing(false)} disabled={agencySaving}>Cancel</Button>
