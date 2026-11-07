@@ -62,7 +62,7 @@ function Header() {
 
   return (
     <>
-      <header className={`fixed inset-x-0 top-0 z-50 transition-colors duration-300 ${scrolled ? 'border-b border-white/10 bg-slate-950/90 backdrop-blur-xl' : 'bg-slate-950/40 backdrop-blur-md'}`} style={!scrolled ? { backgroundColor: 'rgba(2,6,23,0.48)', backgroundImage: `linear-gradient(180deg, rgba(2,6,23,0.62) 0%, rgba(2,6,23,0.28) 100%), url("${IMG.hero}")`, backgroundSize: 'cover', backgroundPosition: 'center top', backgroundRepeat: 'no-repeat' } : undefined}>
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 !bg-slate-950 shadow-lg shadow-black/20 backdrop-blur-xl" style={{ background: 'rgba(2, 6, 23, 0.96)', backgroundColor: '#020617', backgroundImage: 'none', color: '#ffffff', isolation: 'isolate' }}>
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <a href="/" className="flex items-center gap-2 text-white" data-testid="nav-logo">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600 shadow-lg shadow-indigo-900/40"><Layers className="h-4 w-4" /></span>
