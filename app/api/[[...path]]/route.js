@@ -8,6 +8,7 @@ import { getDb } from '@/lib/db';
 import { getCountryDefaults, getCurrencyMetadata } from '@/lib/localization';
 import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured, isAgencyEmailConfigured } from '@/lib/email';
 import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
+import { startAgencyEmailVerification, verifyAgencyEmailCode } from '@/lib/email-verification';
 import {
   COOKIE_NAME, PORTAL_COOKIE, PLATFORM_COOKIE, hashPassword, verifyPassword, signSession, getSession,
   signPortalSession, getPortalSession, signPlatformSession, getPlatformSession,
@@ -4780,38 +4781,66 @@ export async function POST(request, context) {
       return json({ module: safe }, 201);
     }
 
-    // Agency onboarding: creates an agency + its owner user (REBUILD).
+    // Public agency signup: issue an email OTP first; create no account until verified.
     if (path === '/auth/register-agency') {
       const { agencyName, name, email, password, countryCode } = await readBody(request);
-      if (!agencyName || !name || !email || !password) return err('agencyName, name, email, password required');
-      const existing = await db.collection('users').findOne({ email: String(email).toLowerCase() });
-      if (existing) return err('email already registered', 409);
+      if (!agencyName || !name || !email || !password) return err('Agency name, your name, email and password are required.');
+      if (String(password).length < 8 || String(password).length > 200) return err('Password must be at least 8 characters.');
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const existing = await db.collection('users').findOne({ email: normalizedEmail }, { projection: { _id: 1 } });
+      if (existing) return err('This email is already registered. Please sign in instead.', 409);
+      const regionalDefaults = getCountryDefaults(countryCode || 'IN');
+      if (!regionalDefaults) return err('Please select a valid country.');
+      const passwordHash = await hashPassword(password);
+      const result = await startAgencyEmailVerification(db, {
+        agencyName, name, email: normalizedEmail, countryCode: regionalDefaults.countryCode, passwordHash,
+      });
+      if (!result.ok) return err(result.error, result.status || 400);
+      return json({ ok: true, verificationRequired: true, email: result.email, expiresInSeconds: result.expiresInSeconds }, 202);
+    }
 
+    // Verify OTP and only then create the agency owner and issue a session.
+    if (path === '/auth/verify-email') {
+      const body = await readBody(request);
+      const result = await verifyAgencyEmailCode(db, body.email, body.code);
+      if (!result.ok) return err(result.error, 400);
+      const pending = result.registration;
+      const existing = await db.collection('users').findOne({ email: pending.email }, { projection: { _id: 1 } });
+      if (existing) {
+        await db.collection('pendingAgencyRegistrations').deleteOne({ id: pending.id });
+        return err('This email is already registered. Please sign in instead.', 409);
+      }
+      const regionalDefaults = getCountryDefaults(pending.countryCode || 'IN') || getCountryDefaults('IN');
       const agencyId = uuidv4();
       const now = new Date().toISOString();
-      const slug = String(agencyName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40) || 'agency';
-      const regionalDefaults = getCountryDefaults(countryCode || 'IN') || getCountryDefaults('IN');
-      await db.collection('agencies').insertOne({
-        id: agencyId, name: agencyName, slug, plan: 'trial',
+      const slug = String(pending.agencyName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40) || 'agency';
+      const agency = {
+        id: agencyId, name: pending.agencyName, slug, plan: 'trial',
         country: regionalDefaults.country, countryCode: regionalDefaults.countryCode,
         currency: regionalDefaults.currency, currencySymbol: regionalDefaults.currencySymbol,
         currencyPosition: regionalDefaults.currencyPosition, currencyDecimalPlaces: regionalDefaults.currencyDecimalPlaces,
         timezone: regionalDefaults.timeZone, createdAt: now,
-      });
+      };
+      await db.collection('agencies').insertOne(agency);
       const userId = uuidv4();
-      await db.collection('users').insertOne({
-        id: userId, agencyId, name, email: String(email).toLowerCase(),
-        passwordHash: await hashPassword(password), role: 'owner', status: 'active', createdAt: now,
-      });
+      const user = {
+        id: userId, agencyId, name: pending.name, email: pending.email,
+        passwordHash: pending.passwordHash, role: 'owner', status: 'active',
+        emailVerified: true, emailVerifiedAt: now, createdAt: now,
+      };
+      await db.collection('users').insertOne(user);
+      await db.collection('pendingAgencyRegistrations').deleteOne({ id: pending.id });
       const token = signSession({ userId, agencyId, role: 'owner' });
       const res = json({
-        user: { id: userId, name, email: String(email).toLowerCase(), role: 'owner' },
-        agency: { id: agencyId, name: agencyName, slug, plan: 'trial', country: regionalDefaults.country, countryCode: regionalDefaults.countryCode, currency: regionalDefaults.currency, currencySymbol: regionalDefaults.currencySymbol, currencyPosition: regionalDefaults.currencyPosition, currencyDecimalPlaces: regionalDefaults.currencyDecimalPlaces, timezone: regionalDefaults.timeZone },
+        ok: true,
+        user: { id: userId, name: pending.name, email: pending.email, role: 'owner', emailVerified: true },
+        agency,
       }, 201);
       return setSessionCookie(res, token);
     }
 
     if (path === '/auth/forgot-password') {
+      if (!(await isEmailConfigured(db))) return err('SafarOS email delivery is not configured. Please contact support so the administrator can connect Resend.', 503);
       await requestPasswordReset(db, 'agency', (await readBody(request)).email, clientIp(request));
       return json({ ok: true, message: GENERIC_RESET_MESSAGE });
     }
@@ -4826,6 +4855,7 @@ export async function POST(request, context) {
       if (String(email).toLowerCase() === DEMO_USER_EMAIL) await ensureDemoAgency(db); // env-gated demo seed
       const user = await db.collection('users').findOne({ email: String(email).toLowerCase() });
       if (!user || !(await verifyPassword(password, user.passwordHash))) return err('invalid credentials', 401);
+      if (user.emailVerified === false) return err('Please verify your email address before signing in.', 403);
       // Platform-level suspension (set by Super Admin) locks a user/agency out. Absent/active status passes.
       if (user.status === 'suspended') return err('Your account has been suspended. Please contact support.', 403);
       const agencyDoc = await db.collection('agencies').findOne({ id: user.agencyId }, { projection: { _id: 0, status: 1 } });
