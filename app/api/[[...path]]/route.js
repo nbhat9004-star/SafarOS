@@ -5397,6 +5397,24 @@ export async function PUT(request, context) {
     if (!session) return err('unauthenticated', 401);
     const db = await getDb();
 
+    if (path === '/auth/profile') {
+      const body = await readBody(request);
+      const name = str(body.name, 100).trim();
+      if (!name) return err('Your name is required');
+      const phone = str(body.phone, 40).trim();
+      const updatedAt = new Date().toISOString();
+      const result = await db.collection('users').updateOne(
+        { id: session.userId, agencyId: session.agencyId },
+        { $set: { name, phone, updatedAt } }
+      );
+      if (!result.matchedCount) return err('User account not found', 404);
+      const user = await db.collection('users').findOne(
+        { id: session.userId, agencyId: session.agencyId },
+        { projection: { _id: 0, passwordHash: 0 } }
+      );
+      return json({ user });
+    }
+
     if (path.match(/^\/integrations\/[^/]+$/) || path.match(/^\/webhooks\/[^/]+$/) || path.match(/^\/dev\/api-keys\/[^/]+$/)) {
       if (!can(session.role, 'integrations:manage')) return err('forbidden', 403);
       return integrationsPut(db, session, path, await readBody(request));
