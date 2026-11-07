@@ -317,3 +317,34 @@
   .so-font main [data-slot="card"] { border-radius: 11px; }
   .so-font main table { min-width: 640px; }
 }
+
+
+/* Accessibility and severity polish from the authenticated QA pass. */
+/* Keep the fleet alert container calm; its individual expired/upcoming labels carry severity. */
+.so-font main [data-slot="card"].border-rose-200 {
+  border-color: #e5e9ef !important;
+}
+.so-font main [data-slot="card"] svg {
+  display: inline-block;
+  flex: 0 0 auto;
+  vertical-align: middle;
+}
+.so-font main button:focus-visible,
+.so-font main a:focus-visible,
+.so-font aside button:focus-visible {
+  outline: 2px solid #d96f59;
+  outline-offset: 2px;
+}
+@media (max-width: 767px) {
+  .so-font main button[data-slot="button"],
+  .so-font main a[role="button"],
+  .so-font main table button {
+    min-height: 44px;
+  }
+  .so-font main table button[data-slot="button"] {
+    min-width: 44px;
+  }
+  .so-font main .flex.flex-wrap.gap-2 > button {
+    min-height: 44px;
+  }
+}
