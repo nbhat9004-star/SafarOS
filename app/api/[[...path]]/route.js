@@ -4942,6 +4942,8 @@ export async function POST(request, context) {
       if (user.status === 'suspended') return err('Your account has been suspended. Please contact support.', 403);
       const agencyDoc = await db.collection('agencies').findOne({ id: user.agencyId }, { projection: { _id: 0, status: 1 } });
       if (agencyDoc && (agencyDoc.status === 'suspended' || agencyDoc.status === 'deleted')) return err('This agency workspace is not active. Please contact SafarOS support.', 403);
+      const loginAt = new Date().toISOString();
+      await db.collection('users').updateOne({ id: user.id, agencyId: user.agencyId }, { $set: { lastLoginAt: loginAt } });
       const token = signSession({ userId: user.id, agencyId: user.agencyId, role: user.role });
       const res = json({ ok: true });
       return setSessionCookie(res, token);
