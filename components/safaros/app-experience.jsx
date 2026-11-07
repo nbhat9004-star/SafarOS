@@ -100,7 +100,7 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
     try {
       const selectedCountryCode = signup.countryCode || countryCode;
       const regionalDefaults = getCountryDefaults(selectedCountryCode);
-      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: selectedCountryCode, country: regionalDefaults?.country, currency: regionalDefaults?.currency || currency }) });
+      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: selectedCountryCode, country: regionalDefaults?.country, currency: regionalDefaults?.currency || currency, currencySymbol: regionalDefaults?.currencySymbol, currencyPosition: regionalDefaults?.currencyPosition, currencyDecimalPlaces: regionalDefaults?.currencyDecimalPlaces }) });
       toast.success('Agency workspace created');
       onAuthed();
     } catch (e) { toast.error(e.message); } finally { setLoading(false); }
@@ -177,7 +177,7 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                   <Label>{t('Country', 'الدولة')}</Label>
                   <Input value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} placeholder="Search all countries…" aria-label="Search countries" />
                   <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup((current) => ({ ...current, countryCode: code })); if (defaults) updatePreferences({ countryCode: code, currency: defaults.currency, timeZone: defaults.timeZone }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                    {COUNTRY_OPTIONS.filter((country) => !countrySearch || country.name.toLowerCase().includes(countrySearch.toLowerCase()) || country.code.toLowerCase().includes(countrySearch.toLowerCase())).map((country) => <option key={country.code} value={country.code}>{country.flag} {country.name} ({country.currency})</option>)}
+                    {COUNTRY_OPTIONS.filter((country) => country.code === (signup.countryCode || countryCode) || !countrySearch || country.name.toLowerCase().includes(countrySearch.toLowerCase()) || country.code.toLowerCase().includes(countrySearch.toLowerCase())).map((country) => <option key={country.code} value={country.code}>{country.flag} {country.name} ({country.currency})</option>)}
                   </select>
                   <p className="text-xs text-muted-foreground">Your workspace currency will default to {getCountryDefaults(signup.countryCode || countryCode)?.currency || currency} based on this country.</p>
                 </div>
@@ -6372,6 +6372,7 @@ function Settings({ session, onNavigate }) {
     country: agency?.country || 'India',
     countryCode: agency?.countryCode || getCountryCodeByName(agency?.country) || countryCode || 'IN',
     currency: agency?.currency || getCountryDefaults(agency?.countryCode || getCountryCodeByName(agency?.country) || countryCode || 'IN')?.currency || 'INR',
+    currencySymbol: agency?.currencySymbol || '', currencyPosition: agency?.currencyPosition || 'before', currencyDecimalPlaces: agency?.currencyDecimalPlaces ?? 2,
     timezone: agency?.timezone || 'Asia/Kolkata',
   });
   const updateAgency = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
@@ -6539,7 +6540,7 @@ function Settings({ session, onNavigate }) {
                     <div className="space-y-1.5"><Label>Website</Label><Input value={form.website} onChange={updateAgency('website')} placeholder="https://" /></div>
                     <div className="space-y-1.5 sm:col-span-2"><Label>Business address</Label><Input value={form.address} onChange={updateAgency('address')} /></div>
                     <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={updateAgency('city')} /></div>
-                    <div className="space-y-1.5"><Label>Country</Label><Input value={agencyCountrySearch} onChange={(e) => setAgencyCountrySearch(e.target.value)} placeholder="Search all countries…" /><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.countryCode || 'IN'} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setForm((current) => ({ ...current, countryCode: code, country: defaults?.country || current.country, currency: defaults?.currency || current.currency, timezone: defaults?.timeZone || current.timezone })); }}>{COUNTRY_OPTIONS.filter((country) => !agencyCountrySearch || country.name.toLowerCase().includes(agencyCountrySearch.toLowerCase()) || country.code.toLowerCase().includes(agencyCountrySearch.toLowerCase())).map((country) => <option key={country.code} value={country.code}>{country.flag} {country.name}</option>)}</select></div>
+                    <div className="space-y-1.5"><Label>Country</Label><Input value={agencyCountrySearch} onChange={(e) => setAgencyCountrySearch(e.target.value)} placeholder="Search all countries…" /><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.countryCode || 'IN'} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setForm((current) => ({ ...current, countryCode: code, country: defaults?.country || current.country, currency: defaults?.currency || current.currency, currencySymbol: defaults?.currencySymbol || current.currencySymbol, currencyPosition: defaults?.currencyPosition || current.currencyPosition, currencyDecimalPlaces: defaults?.currencyDecimalPlaces ?? current.currencyDecimalPlaces, timezone: defaults?.timeZone || current.timezone })); }}>{COUNTRY_OPTIONS.filter((country) => country.code === form.countryCode || !agencyCountrySearch || country.name.toLowerCase().includes(agencyCountrySearch.toLowerCase()) || country.code.toLowerCase().includes(agencyCountrySearch.toLowerCase())).map((country) => <option key={country.code} value={country.code}>{country.flag} {country.name}</option>)}</select></div>
                     <div className="space-y-1.5"><Label>Accounting currency (ISO 4217)</Label><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.currency} onChange={updateAgency('currency')}>{SUPPORTED_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}</select><p className="text-xs text-muted-foreground">Changing the default does not convert historical invoices or transactions.</p></div>
                     <div className="space-y-1.5"><Label>Business timezone</Label><Input value={form.timezone} onChange={updateAgency('timezone')} placeholder="Asia/Kolkata" /></div>
                     <div className="flex justify-end gap-2 pt-2 sm:col-span-2">
