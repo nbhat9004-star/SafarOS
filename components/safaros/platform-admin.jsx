@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus, Target, Activity, Phone, Mail, ExternalLink, MessageCircle,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -36,6 +36,8 @@ const money = (n, c = 'INR') => `${c} ${Number(n || 0).toLocaleString()}`;
 const fdate = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return '—'; } };
 const fdt = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return '—'; } };
 const humanize = (k) => String(k).replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+const Stat = ({ label, value }) => <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{label}</div><div className="mt-1 text-2xl font-semibold">{Number(value || 0).toLocaleString()}</div></CardContent></Card>;
+
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -49,6 +51,8 @@ const NAV = [
   { id: 'safarcurated', label: 'SafarCurated', icon: Globe },
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'prospecting', label: 'Lead Discovery', icon: Target },
+  { id: 'usage', label: 'Agency Usage & Growth', icon: Activity },
   { id: 'audit', label: 'Audit Logs', icon: ScrollText },
   { id: 'settings', label: 'Platform Settings', icon: SettingsIcon },
 ];
@@ -577,6 +581,32 @@ function SafarCuratedView({ admin }) {
   </div>);
 }
 
+
+function ProspectingView() {
+  const [query,setQuery]=useState('Tour and travel operators in Srinagar'),[results,setResults]=useState([]),[saved,setSaved]=useState([]),[busy,setBusy]=useState(false),[configured,setConfigured]=useState(true);
+  const loadSaved=()=>api('/prospecting/leads').then(d=>setSaved((d.leads||[]).map(x=>x.sourceId))).catch(e=>toast.error(e.message));
+  useEffect(()=>{loadSaved();},[]);
+  const search=async()=>{setBusy(true);try{const d=await api('/prospecting/search?'+new URLSearchParams({q:query}));setConfigured(d.configured);setResults(d.results||[]);if(!d.configured)toast.error('Google Places API key is not configured on the server.');}catch(e){toast.error(e.message);}finally{setBusy(false);}};
+  const save=async r=>{try{const d=await api('/prospecting/leads',{method:'POST',body:JSON.stringify({...r,city:query.split(/ in /i).pop()||''})});toast.success(d.duplicate?'This business is already saved':'Lead saved');setSaved(x=>[...x,r.sourceId]);}catch(e){toast.error(e.message);}};
+  return <div className="space-y-4">
+    <Card><CardContent className="p-4 space-y-3"><div className="font-semibold">Find travel businesses</div><p className="text-xs text-muted-foreground">Search public business listings by category and location.</p><div className="flex gap-2"><Input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&search()} placeholder="Tour operators in Srinagar"/><Button onClick={search} disabled={busy}>{busy?'Searching…':'Search'}</Button></div>{!configured&&<p className="text-xs text-amber-700">Configure Google Places credentials in Platform API & Integrations.</p>}</CardContent></Card>
+    {results.map((r,i)=><Card key={r.sourceId||i}><CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0 space-y-1"><div className="font-semibold">{r.name}</div><div className="text-xs text-muted-foreground">{r.category} · {r.address}</div><div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">{r.phone&&<a href={'tel:'+r.phone} className="text-violet-700"><Phone className="inline h-3.5 w-3.5 mr-1"/>{r.phone}</a>}{r.website&&<a target="_blank" rel="noreferrer" href={r.website} className="text-violet-700"><ExternalLink className="inline h-3.5 w-3.5 mr-1"/>Website</a>}{r.email&&<a href={'mailto:'+r.email} className="text-violet-700"><Mail className="inline h-3.5 w-3.5 mr-1"/>{r.email}</a>}{r.whatsapp&&<a target="_blank" rel="noreferrer" href={'https://wa.me/'+r.whatsapp} className="text-emerald-700"><MessageCircle className="inline h-3.5 w-3.5 mr-1"/>WhatsApp link</a>}{r.mapUrl&&<a target="_blank" rel="noreferrer" href={r.mapUrl} className="text-violet-700">Maps</a>}</div><p className="text-xs text-muted-foreground">Rating: {r.rating??'—'} {r.reviews?'('+r.reviews+' reviews)':''}. Google Places does not verify email or WhatsApp availability.</p></div><Button size="sm" variant="outline" disabled={saved.includes(r.sourceId)} onClick={()=>save(r)}>{saved.includes(r.sourceId)?'Saved':'Save lead'}</Button></CardContent></Card>)}
+    <p className="text-xs text-muted-foreground">Saved prospects are stored separately from agency CRM. Use public contact details responsibly; no bulk outreach is performed.</p>
+  </div>;
+}
+function UsageGrowthView() {
+  const [data,setData]=useState(null),[q,setQ]=useState('');
+  useEffect(()=>{api('/usage').then(setData).catch(e=>toast.error(e.message));},[]);
+  if(!data)return <div className="h-40 animate-pulse rounded-lg border bg-muted/30"/>;
+  const rows=(data.agencies||[]).filter(a=>[a.name,a.city,a.ownerEmail].some(v=>String(v||'').toLowerCase().includes(q.toLowerCase())));
+  return <div className="space-y-4">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Stat label="Agencies" value={data.summary.total}/><Stat label="Active today" value={data.summary.dailyActive}/><Stat label="Trial ending in 7 days" value={data.summary.trialEndingSoon}/><Stat label="Inactive 3+ days / no login" value={data.summary.inactive}/></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">Agency engagement</h3><p className="text-xs text-muted-foreground">Login activity and business-volume indicators</p></div><Input className="w-64" placeholder="Search agency, city or email…" value={q} onChange={e=>setQ(e.target.value)}/></div>
+    <Card><CardContent className="p-0 overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Agency</TableHead><TableHead>Plan / trial</TableHead><TableHead>Last login</TableHead><TableHead>Members active (7d)</TableHead><TableHead>Leads</TableHead><TableHead>Quotes</TableHead><TableHead>Bookings</TableHead><TableHead>Contact</TableHead></TableRow></TableHeader><TableBody>{rows.map(a=><TableRow key={a.id}><TableCell><div className="font-medium">{a.name}</div><div className="text-xs text-muted-foreground">{a.city||'—'}</div></TableCell><TableCell className="capitalize">{a.plan}<div className="text-xs text-muted-foreground">{a.trialDaysRemaining===null?'':a.trialDaysRemaining<0?'Trial expired':a.trialDaysRemaining+' days left'}</div></TableCell><TableCell className="text-xs">{fdt(a.lastActiveAt)}</TableCell><TableCell>{a.activeMembers}/{a.memberCount}</TableCell><TableCell>{a.leads}</TableCell><TableCell>{a.quotations}</TableCell><TableCell>{a.bookings}</TableCell><TableCell className="text-xs">{a.ownerEmail&&<a className="text-violet-700" href={'mailto:'+a.ownerEmail}>{a.ownerEmail}</a>}{a.phone&&<div>{a.phone}</div>}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>
+    <p className="text-xs text-muted-foreground">Activity is based on successful login timestamps. Business totals are current record counts, not a historical daily feature-usage log. Older accounts without login timestamps will appear inactive until their next login.</p>
+  </div>;
+}
+
 // ---------- Analytics ----------
 function AnalyticsView() {
   const [d, setD] = useState(null);
@@ -787,6 +817,8 @@ export default function PlatformAdmin() {
         {section === 'safarcurated' && <SafarCuratedView admin={admin} />}
         {section === 'integrations' && <IntegrationsView />}
         {section === 'analytics' && <AnalyticsView />}
+        {section === 'prospecting' && <ProspectingView />}
+        {section === 'usage' && <UsageGrowthView />}
         {section === 'audit' && <AuditView />}
         {section === 'settings' && <SettingsView admin={admin} onPasswordChanged={reloadMe} />}
       </div>

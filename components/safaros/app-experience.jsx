@@ -27,7 +27,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { can } from '@/lib/rbac';
 import { useLocalization } from '@/components/safaros/localization-provider';
-import { GCC_COUNTRIES, SUPPORTED_CURRENCIES, getCountryDefaults } from '@/lib/localization';
+import { COUNTRY_OPTIONS, SUPPORTED_CURRENCIES, getCountryDefaults, getCountryCodeByName, getCurrencyMetadata } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
@@ -92,16 +92,39 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
   const [tab, setTab] = useState(initialTab === 'signup' ? 'signup' : 'login');
   const [loading, setLoading] = useState(false);
   const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '', countryCode });
+  const [countrySearch, setCountrySearch] = useState('');
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const verificationInputRef = useRef(null);
+  const [pendingEmail, setPendingEmail] = useState('');
   const [login, setLogin] = useState({ email: '', password: '' });
 
   const doSignup = async () => {
     setLoading(true);
     try {
-      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: signup.countryCode || countryCode, currency }) });
-      toast.success('Agency workspace created');
+      const selectedCountryCode = signup.countryCode || countryCode;
+      const regionalDefaults = getCountryDefaults(selectedCountryCode);
+      const result = await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: selectedCountryCode, country: regionalDefaults?.country, currency: regionalDefaults?.currency || currency, currencySymbol: regionalDefaults?.currencySymbol, currencyPosition: regionalDefaults?.currencyPosition, currencyDecimalPlaces: regionalDefaults?.currencyDecimalPlaces }) });
+      setPendingEmail(result.email || signup.email.trim().toLowerCase());
+      setVerificationPending(true);
+      setVerificationCode('');
+      toast.success('Verification code sent to your email');
+    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+  };
+  const doVerifyEmail = async () => {
+    // Read the live DOM value as well as React state. This covers mobile OTP
+    // autofill/keyboards that can update the input without synchronising state.
+    const enteredCode = String(verificationInputRef.current?.value ?? verificationCode).replace(/\D/g, '').slice(0, 6);
+    setVerificationCode(enteredCode);
+    if (!/^\d{6}$/.test(enteredCode)) { toast.error('Enter the six-digit verification code'); return; }
+    setLoading(true);
+    try {
+      await api('/auth/verify-email', { method: 'POST', body: JSON.stringify({ email: pendingEmail, code: enteredCode }) });
+      toast.success('Email verified. Your workspace is ready.');
       onAuthed();
     } catch (e) { toast.error(e.message); } finally { setLoading(false); }
   };
+
   const doLogin = async () => {
     setLoading(true);
     try {
@@ -150,6 +173,22 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
               </TabsList>
 
               <TabsContent value="signup" className="space-y-3 mt-4">
+                {verificationPending ? (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+                      <div className="font-semibold text-slate-900">Verify your email</div>
+                      <p className="mt-1 text-sm text-slate-600">We sent a six-digit code to <strong>{pendingEmail}</strong>. Enter it below to create your workspace. The code expires in 10 minutes.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>6-digit verification code</Label>
+                      <Input ref={verificationInputRef} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))} onInput={(e) => setVerificationCode(e.currentTarget.value.replace(/\D/g, '').slice(0, 6))} onKeyDown={(e) => e.key === 'Enter' && doVerifyEmail()} />
+                    </div>
+                    <Button className="w-full" onClick={doVerifyEmail} disabled={loading || verificationCode.length !== 6}>{loading ? 'Verifying…' : 'Verify email and create workspace'}</Button>
+                    <button type="button" onClick={doSignup} disabled={loading} className="w-full text-center text-sm text-violet-700 hover:underline disabled:opacity-50">Resend verification code</button>
+                    <button type="button" onClick={() => { setVerificationPending(false); setVerificationCode(''); }} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">Change signup details</button>
+                  </div>
+                ) : (
+                  <>
                 <div className="space-y-1.5">
                   <Label>{t('Your name', 'اسمك')}</Label>
                   <Input placeholder="Jane Doe" value={signup.name}
@@ -172,9 +211,11 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                 </div>
                 <div className="space-y-1.5">
                   <Label>{t('Country', 'الدولة')}</Label>
-                  <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup({ ...signup, countryCode: code }); if (defaults) updatePreferences({ countryCode: code }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                    {Object.values(GCC_COUNTRIES).map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+                  <Input value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} placeholder="Search all countries…" aria-label="Search countries" />
+                  <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup((current) => ({ ...current, countryCode: code })); if (defaults) updatePreferences({ countryCode: code, currency: defaults.currency, timeZone: defaults.timeZone }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    {COUNTRY_OPTIONS.filter((country) => country.code === (signup.countryCode || countryCode) || !countrySearch || country.name.toLowerCase().includes(countrySearch.toLowerCase()) || country.code.toLowerCase().includes(countrySearch.toLowerCase())).map((country) => <option key={country.code} value={country.code}>{country.flag} {country.name} ({country.currency})</option>)}
                   </select>
+                  <p className="text-xs text-muted-foreground">Your workspace currency will default to {getCountryDefaults(signup.countryCode || countryCode)?.currency || currency} based on this country.</p>
                 </div>
                 <Button className="w-full" onClick={doSignup} disabled={loading}>
                   {loading ? t('Creating...', 'جارٍ الإنشاء...') : t('Create Workspace', 'إنشاء مساحة العمل')}
@@ -182,6 +223,8 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                 <button type="button" onClick={() => setTab('login')} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">
                   {t('Already have an account?', 'لديك حساب بالفعل؟')} <span className="font-medium text-foreground">{t('Sign in', 'تسجيل الدخول')}</span>
                 </button>
+                  </>
+                )}
               </TabsContent>
 
               <TabsContent value="login" className="space-y-3 mt-4">
@@ -6343,12 +6386,13 @@ function Finance({ session, tab, onNav }) {
 
 function Settings({ session, onNavigate }) {
   const { agency, user } = session;
-  const { locale, currency: displayCurrency, timeZone: displayTimeZone, updatePreferences } = useLocalization();
+  const { locale, countryCode, currency: displayCurrency, timeZone: displayTimeZone, updatePreferences } = useLocalization();
   const canManageAgency = user?.role === 'owner';
   const [section, setSection] = useState('profile');
   const [profile, setProfile] = useState({ name: user?.name || '', phone: user?.phone || '' });
   const [profileSaving, setProfileSaving] = useState(false);
   const [agencyEditing, setAgencyEditing] = useState(false);
+  const [agencyCountrySearch, setAgencyCountrySearch] = useState('');
   const [agencySaving, setAgencySaving] = useState(false);
   const [resetSending, setResetSending] = useState(false);
   const [preferences, setPreferences] = useState({
@@ -6364,7 +6408,9 @@ function Settings({ session, onNavigate }) {
     address: agency?.address || '',
     city: agency?.city || '',
     country: agency?.country || 'India',
-    currency: agency?.currency || 'INR',
+    countryCode: agency?.countryCode || getCountryCodeByName(agency?.country) || countryCode || 'IN',
+    currency: agency?.currency || getCountryDefaults(agency?.countryCode || getCountryCodeByName(agency?.country) || countryCode || 'IN')?.currency || 'INR',
+    currencySymbol: agency?.currencySymbol || '', currencyPosition: agency?.currencyPosition || 'before', currencyDecimalPlaces: agency?.currencyDecimalPlaces ?? 2,
     timezone: agency?.timezone || 'Asia/Kolkata',
   });
   const updateAgency = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
@@ -6532,8 +6578,8 @@ function Settings({ session, onNavigate }) {
                     <div className="space-y-1.5"><Label>Website</Label><Input value={form.website} onChange={updateAgency('website')} placeholder="https://" /></div>
                     <div className="space-y-1.5 sm:col-span-2"><Label>Business address</Label><Input value={form.address} onChange={updateAgency('address')} /></div>
                     <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={updateAgency('city')} /></div>
-                    <div className="space-y-1.5"><Label>Country</Label><Input value={form.country} onChange={updateAgency('country')} /></div>
-                    <div className="space-y-1.5"><Label>Accounting currency</Label><Input value={form.currency} onChange={updateAgency('currency')} placeholder="INR" /></div>
+                    <div className="space-y-1.5"><Label>Country</Label><Input value={agencyCountrySearch} onChange={(e) => setAgencyCountrySearch(e.target.value)} placeholder="Search all countries…" /><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.countryCode || 'IN'} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setForm((current) => ({ ...current, countryCode: code, country: defaults?.country || current.country, currency: defaults?.currency || current.currency, currencySymbol: defaults?.currencySymbol || current.currencySymbol, currencyPosition: defaults?.currencyPosition || current.currencyPosition, currencyDecimalPlaces: defaults?.currencyDecimalPlaces ?? current.currencyDecimalPlaces, timezone: defaults?.timeZone || current.timezone })); }}>{COUNTRY_OPTIONS.filter((country) => country.code === form.countryCode || !agencyCountrySearch || country.name.toLowerCase().includes(agencyCountrySearch.toLowerCase()) || country.code.toLowerCase().includes(agencyCountrySearch.toLowerCase())).map((country) => <option key={country.code} value={country.code}>{country.flag} {country.name}</option>)}</select></div>
+                    <div className="space-y-1.5"><Label>Accounting currency (ISO 4217)</Label><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.currency} onChange={(e) => { const currency = e.target.value; const meta = getCurrencyMetadata(currency); setForm((current) => ({ ...current, currency, currencySymbol: meta.currencySymbol, currencyPosition: meta.currencyPosition, currencyDecimalPlaces: meta.currencyDecimalPlaces })); }}>{SUPPORTED_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}</select><p className="text-xs text-muted-foreground">Changing the default does not convert historical invoices or transactions.</p></div>
                     <div className="space-y-1.5"><Label>Business timezone</Label><Input value={form.timezone} onChange={updateAgency('timezone')} placeholder="Asia/Kolkata" /></div>
                     <div className="flex justify-end gap-2 pt-2 sm:col-span-2">
                       <Button variant="outline" onClick={() => setAgencyEditing(false)} disabled={agencySaving}>Cancel</Button>
