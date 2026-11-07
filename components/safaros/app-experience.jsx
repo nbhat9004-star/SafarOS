@@ -27,7 +27,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { can } from '@/lib/rbac';
 import { useLocalization } from '@/components/safaros/localization-provider';
-import { GCC_COUNTRIES, getCountryDefaults } from '@/lib/localization';
+import { GCC_COUNTRIES, SUPPORTED_CURRENCIES, getCountryDefaults } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
@@ -6427,7 +6427,7 @@ function Settings({ session, onNavigate }) {
     setSection(item.id);
   };
 
-  const initials = String(profile.name || user?.email || 'S').trim().split(/\\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+  const initials = String(profile.name || user?.email || 'S').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5">
