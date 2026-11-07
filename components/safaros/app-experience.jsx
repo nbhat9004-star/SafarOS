@@ -111,7 +111,7 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
     } catch (e) { toast.error(e.message); } finally { setLoading(false); }
   };
   const doVerifyEmail = async () => {
-    if (!/^\\d{6}$/.test(verificationCode.trim())) { toast.error('Enter the six-digit verification code'); return; }
+    if (!/^\d{6}$/.test(verificationCode.trim())) { toast.error('Enter the six-digit verification code'); return; }
     setLoading(true);
     try {
       await api('/auth/verify-email', { method: 'POST', body: JSON.stringify({ email: pendingEmail, code: verificationCode.trim() }) });
@@ -176,7 +176,7 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                     </div>
                     <div className="space-y-1.5">
                       <Label>6-digit verification code</Label>
-                      <Input inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\\D/g, '').slice(0, 6))} onKeyDown={(e) => e.key === 'Enter' && doVerifyEmail()} />
+                      <Input inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))} onKeyDown={(e) => e.key === 'Enter' && doVerifyEmail()} />
                     </div>
                     <Button className="w-full" onClick={doVerifyEmail} disabled={loading || verificationCode.length !== 6}>{loading ? 'Verifying…' : 'Verify email and create workspace'}</Button>
                     <button type="button" onClick={doSignup} disabled={loading} className="w-full text-center text-sm text-violet-700 hover:underline disabled:opacity-50">Resend verification code</button>
