@@ -3523,7 +3523,7 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
-  const notificationRead=path.match(/^\\/platform\\/notifications\\/([^/]+)\\/read$/);
+  const notificationRead=path.match(/^\/platform\/notifications\/([^/]+)\/read$/);
   if(notificationRead){await db.collection('platformUserNotifications').updateOne({id:notificationRead[1]},{ $addToSet:{readBy:session.adminId} });return json({ok:true});}
   const prospectEdit = path.match(/^\/platform\/prospecting\/leads\/([^/]+)$/);
   if (prospectEdit) {
