@@ -3087,6 +3087,10 @@ async function scPlatformAction(db, session, path, request) {
 async function platformGet(db, session, path, sp) {
   if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
   if (path === '/platform/safarcurated') return json(await scPlatformSummary(db));
+  if (path === '/platform/notifications/inbox') {
+    const items = await db.collection('platformUserNotifications').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(50).toArray();
+    return json({notifications:items.map(n=>({...n,read:Array.isArray(n.readBy)&&n.readBy.includes(session.adminId)}))});
+  }
   if (path === '/platform/notifications') {
     const items = await db.collection('platformAgencyNotifications').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(100).toArray();
     return json({notifications:items});
@@ -3325,6 +3329,15 @@ async function platformGet(db, session, path, sp) {
 async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
   if (path.startsWith('/platform/safarcurated/')) return scPlatformAction(db, session, path, request);
+  if (path === '/platform/notifications/system') {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const title=str(body.title,120).trim(), message=str(body.message,2000).trim();
+    if(!title||!message)return err('Enter a title and message.');
+    const now=new Date().toISOString(), item={id:uuidv4(),title,message,kind:['info','success','warning'].includes(body.kind)?body.kind:'info',createdAt:now,createdBy:session.adminId,readBy:[],audience:'platform_admins'};
+    await db.collection('platformUserNotifications').insertOne(item);
+    await platformAudit(db,session,request,{action:'platform_notification.sent',targetType:'notification',targetId:item.id});
+    return json({ok:true,notification:item},201);
+  }
   if (path === '/platform/notifications') {
     if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
     const title=str(body.title,120).trim(), message=str(body.message,2000).trim();
@@ -3510,6 +3523,8 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
+  const notificationRead=path.match(/^\\/platform\\/notifications\\/([^/]+)\\/read$/);
+  if(notificationRead){await db.collection('platformUserNotifications').updateOne({id:notificationRead[1]},{ $addToSet:{readBy:session.adminId} });return json({ok:true});}
   const prospectEdit = path.match(/^\/platform\/prospecting\/leads\/([^/]+)$/);
   if (prospectEdit) {
     if (!canPlatform(session.role,'agencies:manage')) return err('forbidden',403);
