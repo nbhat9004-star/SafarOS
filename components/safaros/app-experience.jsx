@@ -309,7 +309,7 @@ const NAV = [
   {
     group: 'Marketplace',
     items: [
-      // Replaces the operator-facing Website Builder entry. Builder code (web_*) is retained, not deleted, pending migration approval.
+      // SafarCurated is the agency-facing public marketplace; legacy Website Builder routes redirect to this workspace.
       { id: 'marketplace', label: 'SafarCurated Marketplace', icon: Store },
     ],
   },
@@ -370,7 +370,7 @@ const SECTION_TITLES = {
   fin_payments: 'Payments',
   comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
   copilot: 'AI Copilot', portal_admin: 'Customer Portal Access',
-  marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
+  marketplace: 'SafarCurated Marketplace', web_dashboard: 'SafarCurated Marketplace', web_settings: 'SafarCurated Marketplace', web_appearance: 'SafarCurated Marketplace', web_pages: 'SafarCurated Marketplace', web_seo: 'SafarCurated Marketplace', web_preview: 'SafarCurated Marketplace',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
   int_overview: 'Integrations', int_webhooks: 'Webhooks', int_api: 'Developer API',
@@ -386,7 +386,7 @@ function sectionGroupOf(id) {
   }
   // prefix groups (fin_, comm_, web_, an_, sub_, int_)
   const pref = String(id).split('_')[0];
-  const map = { fin: 'Finance', comm: 'Communications', web: 'Website', an: 'Analytics', sub: 'Subscription & Billing', int: 'Integrations' };
+  const map = { fin: 'Finance', comm: 'Communications', web: 'More', an: 'Analytics', sub: 'Subscription & Billing', int: 'Integrations' };
   return map[pref] || 'Workspace';
 }
 
@@ -1382,7 +1382,8 @@ function Dashboard({ session, onLogout }) {
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
           {active === 'copilot' && <CopilotWorkspace session={session} />}
-          {String(active).startsWith('web_') && <Website key="web" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('web_' + t)} />}
+          {/* Legacy Website Builder entry now routes to the SafarCurated public marketplace; agency microsites are no longer the public website experience. */}
+           {String(active).startsWith('web_') && <MarketplaceWorkspace key="marketplace-legacy" />}
           {String(active).startsWith('an_') && <Analytics key="an" session={session} tab={String(active).slice(3)} onNav={(t) => setActive('an_' + t)} />}
           {String(active).startsWith('sub_') && <Billing key="sub" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('sub_' + t)} />}
           {String(active).startsWith('int_') && <Integrations key="int" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('int_' + t)} />}
