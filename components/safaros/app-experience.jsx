@@ -224,12 +224,13 @@ const NAV = [
       { id: 'activities', label: 'Activities', icon: Activity },
     ],
   },
+  { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles },
+  { id: 'supply-hub', label: 'Supply Hub', icon: Database },
   {
     group: 'Quotations',
     items: [
       { id: 'quotations', label: 'Quotations', icon: FileText },
       { id: 'quote-create', label: 'Create Quotation', icon: FilePlus },
-      { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles },
     ],
   },
   {
@@ -237,7 +238,6 @@ const NAV = [
     items: [
       { id: 'discover', label: 'Discover Suppliers', icon: Compass },
       { id: 'packages', label: 'Packages', icon: Package },
-      { id: 'supply-hub', label: 'Supply Hub', icon: Database },
       { id: 'itineraries', label: 'Itineraries', icon: Map },
       { id: 'suppliers', label: 'Suppliers', icon: Store },
       { id: 'bookings', label: 'Bookings', icon: ClipboardList },
@@ -403,11 +403,13 @@ const MOBILE_NAV = [
     { id: 'crm', label: 'Dashboard' }, { id: 'leads', label: 'Leads' }, { id: 'clients', label: 'Clients' },
     { id: 'contacts', label: 'Contacts' }, { id: 'followups', label: 'Follow-ups' }, { id: 'tasks', label: 'Tasks' }, { id: 'activities', label: 'Activities' },
   ] },
+  { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles, leaf: true },
+  { id: 'supply-hub', label: 'Supply Hub', icon: Database, leaf: true },
   { id: 'sales', label: 'Sales', icon: FileText, items: [
-    { id: 'quotations', label: 'Quotations' }, { id: 'quote-create', label: 'Create Quotation' }, { id: 'packages', label: 'Packages' }, { id: 'sales-rescue', label: 'Sales Rescue' },
+    { id: 'quotations', label: 'Quotations' }, { id: 'quote-create', label: 'Create Quotation' }, { id: 'packages', label: 'Packages' },
   ] },
   { id: 'operations', label: 'Operations', icon: Truck, items: [
-    { id: 'itineraries', label: 'Itineraries' }, { id: 'supply-hub', label: 'Supply Hub' }, { id: 'bookings', label: 'Bookings' }, { id: 'suppliers', label: 'Suppliers' }, { id: 'fleet', label: 'Fleet' }, { id: 'inventory', label: 'Travel Inventory' },
+    { id: 'itineraries', label: 'Itineraries' }, { id: 'bookings', label: 'Bookings' }, { id: 'suppliers', label: 'Suppliers' }, { id: 'fleet', label: 'Fleet' }, { id: 'inventory', label: 'Travel Inventory' },
   ] },
   { id: 'finance', label: 'Finance', icon: Wallet, items: [
     { id: 'fin_dashboard', label: 'Finance Dashboard' }, { id: 'fin_transactions', label: 'Transactions' }, { id: 'fin_receivables', label: 'Customer Receivables' },
@@ -439,15 +441,15 @@ const DESKTOP_WORKSPACES = [
     { id: 'tasks', label: 'Tasks', desc: 'Team tasks', icon: ListTodo, tone: 'rose' },
     { id: 'activities', label: 'Activities', desc: 'CRM activity timeline', icon: Activity, tone: 'sky' },
   ] },
+  { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles, direct: 'sales-rescue' },
+  { id: 'supply-hub', label: 'Supply Hub', icon: Database, direct: 'supply-hub' },
   { id: 'sales', label: 'Sales', icon: FileText, subtitle: 'Quotations & travel packages', tiles: [
     { id: 'quotations', label: 'Quotations', desc: 'Create and manage quotes', icon: FileText, tone: 'violet' },
     { id: 'quote-create', label: 'Create Quotation', desc: 'Start a new quotation', icon: FilePlus, tone: 'emerald' },
     { id: 'packages', label: 'Packages', desc: 'Travel packages', icon: Package, tone: 'amber' },
-    { id: 'sales-rescue', label: 'Sales Rescue', desc: 'Find alternatives while the customer is still chatting', icon: Sparkles, tone: 'violet' },
   ] },
   { id: 'operations', label: 'Operations', icon: Truck, subtitle: 'Itineraries, bookings, suppliers & fleet', tiles: [
     { id: 'itineraries', label: 'Itineraries', desc: 'Day-by-day travel plans', icon: Map, tone: 'violet' },
-    { id: 'supply-hub', label: 'Supply Hub', desc: 'Discover and manage your complete travel supply', icon: Database, tone: 'emerald' },
     { id: 'bookings', label: 'Bookings', desc: 'Manage bookings', icon: ClipboardList, tone: 'sky' },
     { id: 'suppliers', label: 'Suppliers', desc: 'Supplier management', icon: Store, tone: 'emerald' },
     { id: 'fleet', label: 'Fleet', desc: 'Vehicles and drivers', icon: Truck, tone: 'amber' },
