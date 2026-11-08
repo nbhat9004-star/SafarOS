@@ -298,7 +298,7 @@ const NAV = [
       { id: 'int_api', label: 'Developer API', icon: ShieldCheck },
     ],
   },
-  { id: 'copilot', label: 'Copilot', icon: Sparkles },
+  { id: 'copilot', label: 'Safar Intelligence', icon: Sparkles },
   { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck },
   {
     group: 'Data Tools',
@@ -326,7 +326,7 @@ const SECTION_TITLES = {
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
   fin_payments: 'Payments',
   comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
-  copilot: 'AI Copilot', portal_admin: 'Customer Portal Access',
+  copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access',
   marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
@@ -416,7 +416,7 @@ const MOBILE_NAV = [
     { id: 'discover', label: 'Supplier Discovery' }, { id: 'suppliers', label: 'Saved Suppliers' },
   ] },
   { id: 'aitools', label: 'AI & Tools', icon: Sparkles, items: [
-    { id: 'copilot', label: 'AI Copilot' }, { id: 'an_overview', label: 'Analytics' },
+    { id: 'copilot', label: 'Safar Intelligence' }, { id: 'an_overview', label: 'Analytics' },
   ] },
   { id: 'more', label: 'More', icon: LayoutGrid, items: [
     { id: 'marketplace', label: 'SafarCurated Marketplace' }, { id: 'int_overview', label: 'Integrations' }, { id: 'data_import', label: 'Import Data' }, { id: 'data_export', label: 'Export Data' }, { id: 'sub_overview', label: 'Subscription' }, { id: 'team', label: 'Team' }, { id: 'settings', label: 'Settings' },
@@ -460,7 +460,7 @@ const DESKTOP_WORKSPACES = [
   { id: 'discover', label: 'Discover', icon: Compass, direct: 'discover' },
   { id: 'more', label: 'More', icon: LayoutGrid, subtitle: 'Communications, tools & settings', tiles: [
     { id: 'comm_inbox', label: 'Communications', desc: 'Inbox, templates & logs', icon: MessageSquare, tone: 'sky' },
-    { id: 'copilot', label: 'AI Copilot', desc: 'Your agency intelligence assistant', icon: Sparkles, tone: 'violet' },
+    { id: 'copilot', label: 'Safar Intelligence', desc: 'Your agency intelligence assistant', icon: Sparkles, tone: 'violet' },
     { id: 'an_overview', label: 'Analytics', desc: 'Business insights & reports', icon: Gauge, tone: 'emerald' },
     { id: 'travelrules', label: 'Travel Intelligence', desc: 'Rules & surcharges', icon: MapPin, tone: 'violet' },
     { id: 'documents', label: 'Document Vault', desc: 'Secure document storage', icon: FileText, tone: 'sky' },
@@ -1338,7 +1338,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'marketplace' && <MarketplaceWorkspace key="marketplace" />}
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
-          {active === 'copilot' && <CopilotWorkspace session={session} />}
+          {active === 'copilot' && <Safar IntelligenceWorkspace session={session} />}
           {String(active).startsWith('web_') && <Website key="web" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('web_' + t)} />}
           {String(active).startsWith('an_') && <Analytics key="an" session={session} tab={String(active).slice(3)} onNav={(t) => setActive('an_' + t)} />}
           {String(active).startsWith('sub_') && <Billing key="sub" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('sub_' + t)} />}
@@ -1358,7 +1358,7 @@ function Dashboard({ session, onLogout }) {
         </div>
       </main>
 
-      <CopilotFab session={session} />
+      <Safar IntelligenceFab session={session} />
 
       {/* Mobile navigation drawer */}
       <div className={`fixed inset-0 z-50 overflow-hidden md:hidden ${menuOpen ? '' : 'pointer-events-none'}`}>
@@ -1496,7 +1496,7 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
             { label: 'Operations', desc: 'Trips & suppliers', icon: Truck, tone: 'emerald', go: 'ws:operations' },
             { label: 'Finance', desc: 'Money & invoices', icon: Wallet, tone: 'amber', go: 'ws:finance' },
             { label: 'Discover', desc: 'Find suppliers', icon: Compass, tone: 'rose', go: 'discover' },
-            { label: 'AI Copilot', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
+            { label: 'Safar Intelligence', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
           ].map((w) => {
             const Icon = w.icon;
             return (
@@ -1589,7 +1589,7 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
                     { label: 'Bookings', icon: ClipboardList, go: 'bookings' },
                     { label: 'Packages', icon: Package, go: 'packages' },
                     { label: 'Payments', icon: Banknote, go: 'fin_payments' },
-                    { label: 'Copilot', icon: Sparkles, go: 'copilot' },
+                    { label: 'Safar Intelligence', icon: Sparkles, go: 'copilot' },
                   ].map((q) => {
                     const Icon = q.icon;
                     return (
@@ -6916,7 +6916,7 @@ const COPILOT_SUGGESTIONS = [
   'Draft a friendly payment reminder',
 ];
 
-function CopilotChat({ session }) {
+function Safar IntelligenceChat({ session }) {
   const [status, setStatus] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -6973,17 +6973,17 @@ function CopilotChat({ session }) {
   </div>);
 }
 
-function CopilotWorkspace({ session }) {
-  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Safar Intelligence</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
+function Safar IntelligenceWorkspace({ session }) {
+  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Safar Intelligence</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><Safar IntelligenceChat session={session} /></CardContent></Card>);
 }
 
-function CopilotFab({ session }) {
+function Safar IntelligenceFab({ session }) {
   const [open, setOpen] = useState(false);
   const role = session && session.user && session.user.role;
   if (role && !can(role, 'ai:use')) return null;
   return (<>
     <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Safar Intelligence">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
-    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Safar Intelligence</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
+    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Safar Intelligence</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><Safar IntelligenceChat session={session} /></div></div>}
   </>);
 }
 
