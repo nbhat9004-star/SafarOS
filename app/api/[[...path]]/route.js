@@ -3247,7 +3247,10 @@ async function platformGet(db, session, path, sp) {
   if (path === '/platform/prospecting/search') {
     const query = String(sp.get('q') || '').trim().slice(0, 200);
     if (query.length < 3) return err('Enter at least 3 characters to search');
-    const result = await searchBusinesses(query, { limit: 20 });
+    // Super Admin prospecting must use the same encrypted platform credential
+    // configured in API & Integrations, not only a Vercel environment variable.
+    const apiKey = await resolveProviderSecret(db, 'google_places', 'apiKey');
+    const result = await searchBusinesses(query, { limit: 20, apiKey });
     return json({ configured: result.configured, provider: result.provider, query, results: result.results });
   }
   if (path === '/platform/prospecting/leads') {
