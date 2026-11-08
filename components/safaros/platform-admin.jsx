@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus, Bell, Send,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -41,6 +41,7 @@ const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'agencies', label: 'Agencies', icon: Building2 },
   { id: 'users', label: 'Users', icon: UsersIcon },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
   { id: 'plans', label: 'Plans', icon: Layers },
   { id: 'themes', label: 'Website Theme Library', icon: Palette },
@@ -592,6 +593,61 @@ function AnalyticsView() {
   </div>);
 }
 
+
+// ---------- Central Notification Management ----------
+function NotificationsView() {
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState({ title: '', message: '', audience: 'all', agencyId: '', role: '', category: 'announcement', priority: 'normal', actionUrl: '' });
+  const [sending, setSending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    try { setData(await api('/notifications')); }
+    catch (e) { toast.error(e.message); }
+    finally { setRefreshing(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const send = async () => {
+    if (!form.title.trim() || !form.message.trim()) { toast.error('Enter a title and message'); return; }
+    if (form.audience === 'agency' && !form.agencyId.trim()) { toast.error('Enter an agency ID'); return; }
+    if (form.audience === 'role' && !form.role) { toast.error('Choose a role'); return; }
+    setSending(true);
+    try {
+      const payload = { ...form, agencyIds: form.audience === 'agency' ? [form.agencyId.trim()] : [], role: form.audience === 'role' ? form.role : '' };
+      const result = await api('/notifications', { method: 'POST', body: JSON.stringify(payload) });
+      toast.success(`Notification sent to ${result.sent} user(s)`);
+      setForm((v) => ({ ...v, title: '', message: '', actionUrl: '' }));
+      await load();
+    } catch (e) { toast.error(e.message); }
+    finally { setSending(false); }
+  };
+
+  return (<div className="space-y-5">
+    <div className="grid gap-3 sm:grid-cols-2">
+      <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Notifications delivered</div><div className="mt-1 text-2xl font-bold">{data?.stats?.total ?? '—'}</div><div className="text-xs text-muted-foreground">Platform announcements across user inboxes</div></CardContent></Card>
+      <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Unread notifications</div><div className="mt-1 text-2xl font-bold">{data?.stats?.unread ?? '—'}</div><div className="text-xs text-muted-foreground">Currently unread by recipients</div></CardContent></Card>
+    </div>
+    <Card><CardHeader><CardTitle className="text-base">Compose announcement</CardTitle></CardHeader><CardContent className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5 sm:col-span-2"><Label>Title</Label><Input maxLength={120} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Important SafarOS update" /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Message</Label><Textarea rows={4} maxLength={2000} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} placeholder="Write the announcement for your users…" /></div>
+        <div className="space-y-1.5"><Label>Audience</Label><select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value })}><option value="all">All active users</option><option value="agency">One agency</option><option value="role">Users by role</option></select></div>
+        {form.audience === 'agency' && <div className="space-y-1.5"><Label>Agency ID</Label><Input value={form.agencyId} onChange={(e) => setForm({ ...form, agencyId: e.target.value })} placeholder="Agency ID" /></div>}
+        {form.audience === 'role' && <div className="space-y-1.5"><Label>Role</Label><select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="">Choose role</option><option value="owner">Owner</option><option value="manager">Manager</option><option value="agent">Agent</option><option value="finance">Finance</option></select></div>}
+        <div className="space-y-1.5"><Label>Category</Label><select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option value="announcement">Announcement</option><option value="system">System update</option><option value="billing">Billing</option><option value="security">Security</option><option value="maintenance">Maintenance</option></select></div>
+        <div className="space-y-1.5"><Label>Priority</Label><select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="critical">Critical</option></select></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Optional in-app destination</Label><Input value={form.actionUrl} onChange={(e) => setForm({ ...form, actionUrl: e.target.value })} placeholder="/dashboard" /></div>
+      </div>
+      <div className="flex justify-end"><Button onClick={send} disabled={sending}>{sending ? 'Sending…' : <><Send className="mr-2 h-4 w-4" /> Send notification</>}</Button></div>
+    </CardContent></Card>
+    <Card><CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Recent platform notifications</CardTitle><Button variant="outline" size="sm" onClick={load} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</Button></div></CardHeader><CardContent className="p-0">
+      {!data ? <div className="p-6 text-sm text-muted-foreground">Loading notification activity…</div> : !data.notifications?.length ? <div className="p-8 text-center text-sm text-muted-foreground">No platform announcements sent yet.</div> : <div className="divide-y">{data.notifications.map((n) => <div key={n.id} className="flex items-start justify-between gap-3 p-4"><div className="min-w-0"><div className="font-medium text-sm">{n.title}</div><p className="mt-1 text-xs text-muted-foreground">{n.message}</p><div className="mt-2 text-[11px] text-muted-foreground">{n.category} · {n.priority} · {fdt(n.createdAt)}</div></div><Badge variant="outline">{n.readAt ? 'Read' : 'Unread'}</Badge></div>)}</div>}
+    </CardContent></Card>
+  </div>);
+}
+
 // ---------- Audit Logs ----------
 function AuditView() {
   const [rows, setRows] = useState(null);
@@ -779,6 +835,7 @@ export default function PlatformAdmin() {
         {section === 'dashboard' && <DashboardView />}
         {section === 'agencies' && <AgenciesView />}
         {section === 'users' && <UsersView />}
+        {section === 'notifications' && <NotificationsView />}
         {section === 'subscriptions' && <SubscriptionsView />}
         {section === 'plans' && <PlansView />}
         {section === 'themes' && <WebsiteThemesView />}

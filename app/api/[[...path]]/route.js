@@ -152,6 +152,29 @@ async function logActivity(db, session, { type, message, refType = '', refId = '
   }
 }
 
+// Create tenant-scoped in-app notifications for selected agency roles.
+// Notification failures must never roll back or block the underlying business action.
+async function notifyAgencyRoles(db, session, roles, { title, message, category = 'system', priority = 'normal', actionUrl = '' }) {
+  try {
+    const recipients = await db.collection('users').find({
+      agencyId: session.agencyId,
+      role: { $in: roles },
+      status: { $ne: 'suspended' },
+      id: { $ne: session.userId },
+    }, { projection: { _id: 0, id: 1, agencyId: 1 } }).limit(500).toArray();
+    if (!recipients.length) return;
+    const now = new Date().toISOString();
+    await db.collection('notifications').insertMany(recipients.map((user) => ({
+      id: uuidv4(), userId: user.id, agencyId: user.agencyId, source: 'agency',
+      title: String(title || '').slice(0, 120), message: String(message || '').slice(0, 2000),
+      category, priority, actionUrl: typeof actionUrl === 'string' && actionUrl.startsWith('/') ? actionUrl.slice(0, 300) : '',
+      readAt: null, createdAt: now, updatedAt: now,
+    })), { ordered: false });
+  } catch (e) {
+    console.warn('[safaros] notification delivery skipped:', e.message);
+  }
+}
+
 function buildLeadFields(body, { partial = false } = {}) {
   const out = {};
   if (!partial || body.name !== undefined) {
@@ -5293,6 +5316,11 @@ export async function POST(request, context) {
       if (fromQuotation) await db.collection('quotations').updateOne(tenantFilter(session2, { id: fromQuotation.id, convertedBookingId: newBookingId }), { $set: { convertedBookingNumber: bookingNumber } });
       const { _id, ...safe } = doc;
       await logActivity(db, session2, { type: 'booking_created', message: fromQuotation ? `Booking ${bookingNumber} created from ${fromQuotation.quotationNumber}` : `Booking ${bookingNumber} created for ${cust.customerName}`, refType: 'booking', refId: safe.id });
+      await notifyAgencyRoles(db, session2, ['owner', 'manager'], {
+        title: 'New booking created',
+        message: `Booking ${bookingNumber} for ${cust.customerName} has been created by ${session2.name || 'a team member'}.`,
+        category: 'booking', priority: 'normal', actionUrl: '/dashboard',
+      });
       return json({ booking: safe }, 201);
     }
 
