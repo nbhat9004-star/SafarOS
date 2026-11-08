@@ -817,8 +817,10 @@ export default function PlatformAdmin() {
   const [admin, setAdmin] = useState(undefined); // undefined = loading, null = logged out
   const [section, setSection] = useState('dashboard');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const reloadMe = useCallback(async () => { try { const d = await api('/auth/me'); setAdmin(d.admin); } catch { setAdmin(null); } }, []);
   useEffect(() => { reloadMe(); }, [reloadMe]);
+  useEffect(() => { if(!admin || admin.mustChangePassword)return; const load=async()=>{try{const d=await api('/notifications/inbox');setUnreadNotifications((d.notifications||[]).filter(n=>!n.read).length);}catch{}};load();const timer=setInterval(load,60000);return()=>clearInterval(timer);},[admin]);
   const logout = async () => { try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ } setAdmin(null); };
   const go = (id) => { setSection(id); setMenuOpen(false); };
 
@@ -840,9 +842,10 @@ export default function PlatformAdmin() {
         <button onClick={() => setMenuOpen(true)} aria-label="Open menu" className="flex h-9 w-9 items-center justify-center rounded-md text-slate-200 hover:bg-slate-800"><Menu className="h-5 w-5" /></button>
         <div className="flex items-center gap-2"><Shield className="h-5 w-5 text-violet-400" /><div className="leading-tight"><div className="text-sm font-bold">SafarOS</div><div className="text-[10px] uppercase tracking-wider text-violet-300">Platform Admin</div></div></div>
         <span className="ml-auto truncate text-xs text-slate-400">{TITLES[section]}</span>
+        <Button variant="ghost" size="icon" className="relative text-white" aria-label="Open notifications" onClick={()=>setSection("notifications")}><Bell className="h-5 w-5"/>{unreadNotifications>0&&<span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-rose-500"/>}</Button>
       </header>
       {/* Desktop header */}
-      <header className="hidden md:flex items-center justify-between border-b bg-white px-6 py-4"><h1 className="text-lg font-semibold text-slate-900">{TITLES[section]}</h1><div className="flex items-center gap-3"><Button variant="ghost" size="icon" aria-label="Open notifications" onClick={()=>setSection("notifications")}><Bell className="h-5 w-5" /></Button><Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> super_admin</Badge></div></header>
+      <header className="hidden md:flex items-center justify-between border-b bg-white px-6 py-4"><h1 className="text-lg font-semibold text-slate-900">{TITLES[section]}</h1><div className="flex items-center gap-3"><Button variant="ghost" size="icon" aria-label="Open notifications" className="relative" onClick={()=>setSection("notifications")}><Bell className="h-5 w-5" />{unreadNotifications>0&&<span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-rose-500"/>}</Button><Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> super_admin</Badge></div></header>
       {admin.mustChangePassword && section !== 'settings' && (<div className="mx-4 mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:mx-6">For security, please change your temporary password in <button className="font-medium underline" onClick={() => setSection('settings')}>Platform Settings → Security</button>.</div>)}
       <div className="p-4 sm:p-6">
         {section === 'dashboard' && <DashboardView />}
