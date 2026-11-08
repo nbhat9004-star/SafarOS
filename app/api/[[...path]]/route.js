@@ -5,8 +5,10 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
-import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured, isAgencyEmailConfigured } from '@/lib/email';
+import { getCountryDefaults, getCurrencyMetadata } from '@/lib/localization';
+import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured, isAgencyEmailConfigured, configuredBaseUrl } from '@/lib/email';
 import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
+import { startAgencyEmailVerification, verifyAgencyEmailCode } from '@/lib/email-verification';
 import {
   COOKIE_NAME, PORTAL_COOKIE, PLATFORM_COOKIE, hashPassword, verifyPassword, signSession, getSession,
   signPortalSession, getPortalSession, signPlatformSession, getPlatformSession,
@@ -2765,6 +2767,9 @@ function platformReadPerm(path) {
   if (path.startsWith('/platform/safarcurated')) return 'integrations:read';
   if (path.startsWith('/platform/integrations')) return 'integrations:read';
   if (path.startsWith('/platform/analytics')) return 'analytics:read';
+  if (path.startsWith('/platform/prospecting')) return 'agencies:read';
+  if (path.startsWith('/platform/notifications')) return 'agencies:read';
+  if (path.startsWith('/platform/usage')) return 'analytics:read';
   if (path.startsWith('/platform/audit')) return 'audit:read';
   if (path.startsWith('/platform/settings')) return 'settings:read';
   if (path.startsWith('/platform/early-access')) return 'agencies:read';
@@ -3082,6 +3087,14 @@ async function scPlatformAction(db, session, path, request) {
 async function platformGet(db, session, path, sp) {
   if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
   if (path === '/platform/safarcurated') return json(await scPlatformSummary(db));
+  if (path === '/platform/notifications/inbox') {
+    const items = await db.collection('platformUserNotifications').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(50).toArray();
+    return json({notifications:items.map(n=>({...n,read:Array.isArray(n.readBy)&&n.readBy.includes(session.adminId)}))});
+  }
+  if (path === '/platform/notifications') {
+    const items = await db.collection('platformAgencyNotifications').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(100).toArray();
+    return json({notifications:items});
+  }
 
   if (path === '/platform/themes') {
     for (const theme of PLATFORM_WEBSITE_THEME_DEFAULTS) {
@@ -3240,6 +3253,47 @@ async function platformGet(db, session, path, sp) {
     });
   }
 
+  if (path === '/platform/prospecting/search') {
+    const query = String(sp.get('q') || '').trim().slice(0, 200);
+    if (query.length < 3) return err('Enter at least 3 characters to search');
+    // Super Admin prospecting must use the same encrypted platform credential
+    // configured in API & Integrations, not only a Vercel environment variable.
+    const apiKey = await resolveProviderSecret(db, 'google_places', 'apiKey');
+    const result = await searchBusinesses(query, { limit: 20, apiKey });
+    return json({ configured: result.configured, provider: result.provider, query, results: result.results });
+  }
+  if (path === '/platform/prospecting/leads') {
+    const all = await db.collection('platformProspectLeads').find({}, { projection: { _id: 0 } }).sort({ updatedAt: -1 }).limit(1000).toArray();
+    const q = String(sp.get('q') || '').toLowerCase(), status = String(sp.get('status') || '');
+    const leads = all.filter(x => (!status || x.status === status) && (!q || [x.name,x.phone,x.email,x.website,x.city].some(v => String(v || '').toLowerCase().includes(q))));
+    return json({ leads, total: leads.length });
+  }
+  if (path === '/platform/usage') {
+    const [agencies, users, subs, usageEvents] = await Promise.all([
+      db.collection('agencies').find({}, { projection: { _id: 0, id: 1, name: 1, city: 1, plan: 1, status: 1, trialEndsAt: 1, email: 1, phone: 1 } }).toArray(),
+      db.collection('users').find({}, { projection: { _id: 0, agencyId: 1, email: 1, role: 1, lastLoginAt: 1 } }).toArray(),
+      db.collection('agencySubscriptions').find({}, { projection: { _id: 0, agencyId: 1, planId: 1, status: 1, trialEndsAt: 1 } }).toArray(),
+      db.collection('agencyUsageEvents').find({ occurredAt: { $gte: new Date(Date.now()-30*86400000).toISOString() } }, { projection: { _id: 0, agencyId: 1, userId: 1, feature: 1, action: 1, occurredAt: 1 } }).toArray(),
+    ]);
+    const now = Date.now(), subMap = Object.fromEntries(subs.map(x => [x.agencyId,x]));
+    const rows = await Promise.all(agencies.map(async agency => {
+      const members = users.filter(u => u.agencyId === agency.id), logins = members.map(u => u.lastLoginAt).filter(Boolean).sort();
+      const lastActiveAt = logins.length ? logins[logins.length-1] : null, sub = subMap[agency.id] || {};
+      const trialEndsAt = sub.trialEndsAt || agency.trialEndsAt || null;
+      const trialDaysRemaining = trialEndsAt ? Math.ceil((new Date(trialEndsAt).getTime()-now)/86400000) : null;
+      const [leads, quotations, bookings] = await Promise.all([
+        db.collection('leads').countDocuments({agencyId:agency.id}), db.collection('quotations').countDocuments({agencyId:agency.id}), db.collection('bookings').countDocuments({agencyId:agency.id}),
+      ]);
+      const events = usageEvents.filter(e=>e.agencyId===agency.id);
+      const featureUsage = Object.entries(events.reduce((m,e)=>{m[e.feature]=(m[e.feature]||0)+1;return m;},{})).map(([feature,count])=>({feature,count})).sort((a,b)=>b.count-a.count);
+      const featureUsers = new Set(events.map(e=>e.userId).filter(Boolean)).size;
+      const recentEvents = events.filter(e=>now-new Date(e.occurredAt).getTime()<=7*86400000).length;
+      const adoptionScore = Math.min(100, Math.round(featureUsage.length/10*55 + Math.min(recentEvents,40)/40*45));
+      return {id:agency.id,name:agency.name,city:agency.city||'',plan:sub.planId||agency.plan||'trial',memberCount:members.length,activeMembers:members.filter(u=>u.lastLoginAt&&now-new Date(u.lastLoginAt).getTime()<=604800000).length,lastActiveAt,dailyActive:!!lastActiveAt&&now-new Date(lastActiveAt).getTime()<=86400000,trialEndsAt,trialDaysRemaining,ownerEmail:agency.email||members.find(u=>u.role==='owner')?.email||'',phone:agency.phone||'',leads,quotations,bookings,featureUsage,featureUsers,events7d:recentEvents,events30d:events.length,adoptionScore};
+    }));
+    const featureTotals = {}; for (const event of usageEvents) featureTotals[event.feature] = (featureTotals[event.feature] || 0) + 1;
+    return json({agencies:rows,features:Object.entries(featureTotals).map(([feature,count])=>({feature,count})).sort((a,b)=>b.count-a.count),summary:{total:rows.length,dailyActive:rows.filter(x=>x.dailyActive).length,trialEndingSoon:rows.filter(x=>x.trialDaysRemaining!==null&&x.trialDaysRemaining>=0&&x.trialDaysRemaining<=7).length,inactive:rows.filter(x=>!x.lastActiveAt||now-new Date(x.lastActiveAt).getTime()>259200000).length,events7d:usageEvents.filter(e=>now-new Date(e.occurredAt).getTime()<=7*86400000).length,events30d:usageEvents.length}});
+  }
   if (path === '/platform/audit-logs') {
     const search = (sp.get('search') || '').toLowerCase(); const action = sp.get('action') || '';
     const q = {}; if (action) q.action = action;
@@ -3275,6 +3329,43 @@ async function platformGet(db, session, path, sp) {
 async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
   if (path.startsWith('/platform/safarcurated/')) return scPlatformAction(db, session, path, request);
+  if (path === '/platform/notifications/system') {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const title=str(body.title,120).trim(), message=str(body.message,2000).trim();
+    if(!title||!message)return err('Enter a title and message.');
+    const now=new Date().toISOString(), item={id:uuidv4(),title,message,kind:['info','success','warning'].includes(body.kind)?body.kind:'info',createdAt:now,createdBy:session.adminId,readBy:[],audience:'platform_admins'};
+    await db.collection('platformUserNotifications').insertOne(item);
+    await platformAudit(db,session,request,{action:'platform_notification.sent',targetType:'notification',targetId:item.id});
+    return json({ok:true,notification:item},201);
+  }
+  if (path === '/platform/notifications') {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const title=str(body.title,120).trim(), message=str(body.message,2000).trim();
+    const agencyIds=Array.isArray(body.agencyIds)?[...new Set(body.agencyIds.map(x=>str(x,100)).filter(Boolean))].slice(0,200):[];
+    if(!title||!message||!agencyIds.length)return err('Choose at least one agency and enter a title and message.');
+    const agencies=await db.collection('agencies').find({id:{$in:agencyIds},status:{$nin:['suspended','deleted']}},{projection:{_id:0,id:1,name:1}}).toArray();
+    if(!agencies.length)return err('No matching agencies were found.');
+    const users=await db.collection('users').find({agencyId:{$in:agencies.map(a=>a.id)},status:{$ne:'suspended'}},{projection:{_id:0,agencyId:1,email:1}}).toArray();
+    const now=new Date().toISOString(),campaignId=uuidv4(),kind=['info','success','warning'].includes(body.kind)?body.kind:'info';
+    await db.collection('agencyNotifications').insertMany(agencies.map(a=>({id:uuidv4(),campaignId,agencyId:a.id,title,message,kind,createdAt:now,createdBy:session.adminId,readBy:[]})));
+    let emailSent=0,emailFailed=0;
+    if(body.sendEmail===true){const recipients=[...new Map(users.map(u=>[`${u.agencyId}:${String(u.email||'').trim().toLowerCase()}`,{agencyId:u.agencyId,to:String(u.email||'').trim().toLowerCase()}]).filter(([,r])=>EMAIL_ADDR_RE.test(r.to))).values()];for(const recipient of recipients){const result=await sendEmail(db,{to:recipient.to,agencyId:recipient.agencyId,subject:`SafarOS: ${title}`,html:emailLayout(title,`<p>${message.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\n/g,'<br/>')}</p>`),text:message});if(result.ok)emailSent++;else emailFailed++;}}
+    const campaign={id:campaignId,title,message,kind,agencyIds:agencies.map(a=>a.id),agencyCount:agencies.length,sendEmail:body.sendEmail===true,emailSent,emailFailed,createdAt:now,createdBy:session.adminId};
+    await db.collection('platformAgencyNotifications').insertOne(campaign);
+    await platformAudit(db,session,request,{action:'agency_notification.sent',targetType:'notification',targetId:campaignId,metadata:{agencyCount:agencies.length,sendEmail:body.sendEmail===true,emailSent,emailFailed}});
+    return json({ok:true,campaign},201);
+  }
+  if (path === '/platform/prospecting/leads') {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const name = str(body.name,180).trim(); if (!name) return err('Business name is required');
+    const sourceId = str(body.sourceId,180);
+    const duplicate = sourceId ? await db.collection('platformProspectLeads').findOne({sourceId}) : null;
+    if (duplicate) return json({lead:duplicate,duplicate:true});
+    const doc = {id:uuidv4(),sourceId,name,category:str(body.category,120),address:str(body.address,400),city:str(body.city,120),phone:str(body.phone,60),email:str(body.email,180),website:str(body.website,400),whatsapp:str(body.whatsapp,40),mapUrl:str(body.mapUrl,500),source:'google_places',status:'new',notes:'',assignedTo:'',createdAt:now,updatedAt:now,createdBy:session.adminId};
+    await db.collection('platformProspectLeads').insertOne(doc);
+    await platformAudit(db,session,request,{action:'prospect_lead.saved',targetType:'prospect_lead',targetId:doc.id});
+    const {_id,...lead}=doc; return json({lead},201);
+  }
   if (path === '/platform/themes') {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
     const name = str(body.name, 80);
@@ -3432,6 +3523,21 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
+  const notificationRead=path.match(/^\/platform\/notifications\/([^/]+)\/read$/);
+  if(notificationRead){await db.collection('platformUserNotifications').updateOne({id:notificationRead[1]},{ $addToSet:{readBy:session.adminId} });return json({ok:true});}
+  const prospectEdit = path.match(/^\/platform\/prospecting\/leads\/([^/]+)$/);
+  if (prospectEdit) {
+    if (!canPlatform(session.role,'agencies:manage')) return err('forbidden',403);
+    const id=prospectEdit[1], allowed=['new','contacted','interested','demo_scheduled','converted','not_interested'], set={updatedAt:now};
+    if(body.status!==undefined){if(!allowed.includes(String(body.status)))return err('Invalid lead status');set.status=String(body.status);}
+    if(body.notes!==undefined)set.notes=str(body.notes,2000);
+    if(body.assignedTo!==undefined)set.assignedTo=str(body.assignedTo,120);
+    if(body.email!==undefined)set.email=str(body.email,180);
+    const r=await db.collection('platformProspectLeads').updateOne({id},{$set:set});
+    if(!r.matchedCount)return err('Prospect lead not found',404);
+    await platformAudit(db,session,request,{action:'prospect_lead.updated',targetType:'prospect_lead',targetId:id});
+    return json({lead:await db.collection('platformProspectLeads').findOne({id},{projection:{_id:0}})});
+  }
   const themeEdit = path.match(/^\/platform\/themes\/([^/]+)$/);
   if (themeEdit) {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
@@ -3646,6 +3752,12 @@ export async function GET(request, context) {
       if (path === '/platform/auth/me') return platformMe(pdb, ps);
       if (ps.mcp) return err('password change required', 403);
       return platformGet(pdb, ps, path, new URL(request.url).searchParams);
+    }
+    if (path === '/notifications') {
+      const session=getSession(request); if(!session)return err('unauthenticated',401);
+      const db=await getDb();
+      const items=await db.collection('agencyNotifications').find({agencyId:session.agencyId},{projection:{_id:0}}).sort({createdAt:-1}).limit(50).toArray();
+      return json({notifications:items.map(n=>({...n,read:Array.isArray(n.readBy)&&n.readBy.includes(session.userId)}))});
     }
     if (path === '/' || path === '') {
       return json({ app: 'SafarOS', status: 'ok', message: 'SafarOS API — B2B multi-tenant foundation' });
@@ -4518,6 +4630,13 @@ export async function POST(request, context) {
       return platformPost(db, ps, path, await readBody(request), request);
     }
 
+    if (path === '/usage/event') {
+      const session=getSession(request); if(!session)return err('unauthenticated',401);
+      const body=await readBody(request), allowed=['overview','crm','leads','clients','contacts','followups','tasks','activities','quotations','packages','itineraries','suppliers','discover','bookings','fleet','inventory','marketplace','finance','communications','analytics','billing','integrations','portal','documents','customfields'];
+      const feature=String(body.feature||'').toLowerCase(); if(!allowed.includes(feature))return err('Unknown usage feature');
+      await db.collection('agencyUsageEvents').insertOne({id:uuidv4(),agencyId:session.agencyId,userId:session.userId,feature,action:'view',occurredAt:new Date().toISOString()});
+      return json({ok:true});
+    }
     // ---- Landing page early-access / contact form (public, no auth) ----
     if (path === '/early-access') return earlyAccessSubmit(db, await readBody(request));
 
@@ -4779,33 +4898,91 @@ export async function POST(request, context) {
       return json({ module: safe }, 201);
     }
 
-    // Agency onboarding: creates an agency + its owner user (REBUILD).
+    // Public agency signup: issue an email OTP first; create no account until verified.
     if (path === '/auth/register-agency') {
-      const { agencyName, name, email, password } = await readBody(request);
-      if (!agencyName || !name || !email || !password) return err('agencyName, name, email, password required');
-      const existing = await db.collection('users').findOne({ email: String(email).toLowerCase() });
-      if (existing) return err('email already registered', 409);
+      const { agencyName, name, email, password, countryCode } = await readBody(request);
+      if (!agencyName || !name || !email || !password) return err('Agency name, your name, email and password are required.');
+      if (String(password).length < 8 || String(password).length > 200) return err('Password must be at least 8 characters.');
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const existing = await db.collection('users').findOne({ email: normalizedEmail }, { projection: { _id: 1 } });
+      if (existing) return err('This email is already registered. Please sign in instead.', 409);
+      const regionalDefaults = getCountryDefaults(countryCode || 'IN');
+      if (!regionalDefaults) return err('Please select a valid country.');
+      const passwordHash = await hashPassword(password);
+      const result = await startAgencyEmailVerification(db, {
+        agencyName, name, email: normalizedEmail, countryCode: regionalDefaults.countryCode, passwordHash,
+      });
+      if (!result.ok) return err(result.error, result.status || 400);
+      return json({ ok: true, verificationRequired: true, email: result.email, expiresInSeconds: result.expiresInSeconds }, 202);
+    }
 
+    // Verify OTP and only then create the agency owner and issue a session.
+    if (path === '/auth/verify-email') {
+      const body = await readBody(request);
+      const result = await verifyAgencyEmailCode(db, body.email, body.code);
+      if (!result.ok) return err(result.error, 400);
+      const pending = result.registration;
+      const existing = await db.collection('users').findOne({ email: pending.email }, { projection: { _id: 1 } });
+      if (existing) {
+        await db.collection('pendingAgencyRegistrations').deleteOne({ id: pending.id });
+        return err('This email is already registered. Please sign in instead.', 409);
+      }
+      const regionalDefaults = getCountryDefaults(pending.countryCode || 'IN') || getCountryDefaults('IN');
       const agencyId = uuidv4();
       const now = new Date().toISOString();
-      const slug = String(agencyName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40) || 'agency';
-      await db.collection('agencies').insertOne({
-        id: agencyId, name: agencyName, slug, plan: 'trial', createdAt: now,
-      });
+      const slug = String(pending.agencyName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40) || 'agency';
+      const agency = {
+        id: agencyId, name: pending.agencyName, slug, plan: 'trial',
+        country: regionalDefaults.country, countryCode: regionalDefaults.countryCode,
+        currency: regionalDefaults.currency, currencySymbol: regionalDefaults.currencySymbol,
+        currencyPosition: regionalDefaults.currencyPosition, currencyDecimalPlaces: regionalDefaults.currencyDecimalPlaces,
+        timezone: regionalDefaults.timeZone, createdAt: now,
+      };
+      await db.collection('agencies').insertOne(agency);
       const userId = uuidv4();
-      await db.collection('users').insertOne({
-        id: userId, agencyId, name, email: String(email).toLowerCase(),
-        passwordHash: await hashPassword(password), role: 'owner', status: 'active', createdAt: now,
-      });
+      const user = {
+        id: userId, agencyId, name: pending.name, email: pending.email,
+        passwordHash: pending.passwordHash, role: 'owner', status: 'active',
+        emailVerified: true, emailVerifiedAt: now, createdAt: now,
+      };
+      await db.collection('users').insertOne(user);
+      await db.collection('pendingAgencyRegistrations').deleteOne({ id: pending.id });
+
+      // Send the branded welcome email after the account is safely created.
+      // Email delivery is best-effort: a provider outage must never undo signup.
+      try {
+        const baseUrl = await configuredBaseUrl(db);
+        const workspaceUrl = baseUrl ? `${baseUrl}/dashboard` : '';
+        const welcomeBody = `<p style="margin:0 0 10px;">Hello ${String(pending.name || 'there').replace(/[&<>"]/g, '')},</p>`
+          + `<p style="margin:0 0 18px;">Welcome aboard! Your SafarOS workspace is ready. You can now bring your travel business operations together in one place.</p>`
+          + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0;"><tr>`
+          + `<td width="50%" valign="top" style="padding:14px 10px 14px 0;border-bottom:1px solid #edf0f6;"><b style="color:#182344;">Quotes & itineraries</b><br/><span style="font-size:13px;color:#64748b;">Create clear travel proposals.</span></td>`
+          + `<td width="50%" valign="top" style="padding:14px 0 14px 10px;border-bottom:1px solid #edf0f6;"><b style="color:#182344;">Bookings</b><br/><span style="font-size:13px;color:#64748b;">Keep every trip organised.</span></td></tr><tr>`
+          + `<td width="50%" valign="top" style="padding:14px 10px 14px 0;"><b style="color:#182344;">Customers</b><br/><span style="font-size:13px;color:#64748b;">Manage client relationships.</span></td>`
+          + `<td width="50%" valign="top" style="padding:14px 0 14px 10px;"><b style="color:#182344;">Business insights</b><br/><span style="font-size:13px;color:#64748b;">See your operations clearly.</span></td></tr></table>`
+          + (workspaceUrl ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;"><tr><td bgcolor="#6338d8" style="border-radius:10px;"><a href="${workspaceUrl}" style="display:inline-block;padding:15px 24px;color:#fff;font-weight:700;text-decoration:none;border-radius:10px;">Open my SafarOS workspace &rarr;</a></td></tr></table>` : '')
+          + `<div style="padding:17px;background:#f1f5ff;border-radius:12px;color:#46516c;font-size:14px;line-height:1.65;"><b style="color:#182344;">A good first step</b><br/>Complete your agency profile, invite your team and create your first quote or itinerary. You can build at your own pace.</div>`
+          + `<p style="margin-top:22px;">We're glad you're here. Welcome to SafarOS.</p>`;
+        await sendEmail(db, {
+          to: pending.email, subject: 'Welcome aboard SafarOS — your workspace is ready',
+          html: emailLayout('Welcome aboard.', welcomeBody, { preheader: 'Your SafarOS workspace is ready to use', eyebrow: 'WELCOME TO SAFAROS' }),
+          text: `Hello ${pending.name}, welcome aboard! Your SafarOS workspace is ready. ${workspaceUrl ? `Open your workspace: ${workspaceUrl}` : ''} Start by completing your agency profile and creating your first quote or itinerary.`,
+        });
+      } catch (welcomeError) {
+        console.warn('[safaros] welcome email failed:', welcomeError?.message || 'unknown error');
+      }
+
       const token = signSession({ userId, agencyId, role: 'owner' });
       const res = json({
-        user: { id: userId, name, email: String(email).toLowerCase(), role: 'owner' },
-        agency: { id: agencyId, name: agencyName, slug, plan: 'trial' },
+        ok: true,
+        user: { id: userId, name: pending.name, email: pending.email, role: 'owner', emailVerified: true },
+        agency,
       }, 201);
       return setSessionCookie(res, token);
     }
 
     if (path === '/auth/forgot-password') {
+      if (!(await isEmailConfigured(db)) || !(await configuredBaseUrl(db))) return err('Password reset email is not configured yet. A SafarOS administrator must connect Resend and set the application base URL in Super Admin → Settings → Email / Resend.', 503);
       await requestPasswordReset(db, 'agency', (await readBody(request)).email, clientIp(request));
       return json({ ok: true, message: GENERIC_RESET_MESSAGE });
     }
@@ -4820,10 +4997,13 @@ export async function POST(request, context) {
       if (String(email).toLowerCase() === DEMO_USER_EMAIL) await ensureDemoAgency(db); // env-gated demo seed
       const user = await db.collection('users').findOne({ email: String(email).toLowerCase() });
       if (!user || !(await verifyPassword(password, user.passwordHash))) return err('invalid credentials', 401);
+      if (user.emailVerified === false) return err('Please verify your email address before signing in.', 403);
       // Platform-level suspension (set by Super Admin) locks a user/agency out. Absent/active status passes.
       if (user.status === 'suspended') return err('Your account has been suspended. Please contact support.', 403);
       const agencyDoc = await db.collection('agencies').findOne({ id: user.agencyId }, { projection: { _id: 0, status: 1 } });
       if (agencyDoc && (agencyDoc.status === 'suspended' || agencyDoc.status === 'deleted')) return err('This agency workspace is not active. Please contact SafarOS support.', 403);
+      const loginAt = new Date().toISOString();
+      await db.collection('users').updateOne({ id: user.id, agencyId: user.agencyId }, { $set: { lastLoginAt: loginAt } });
       const token = signSession({ userId: user.id, agencyId: user.agencyId, role: user.role });
       const res = json({ ok: true });
       return setSessionCookie(res, token);
@@ -5371,6 +5551,12 @@ export async function PUT(request, context) {
   const params = await context.params;
   const path = pathOf(params);
   try {
+    if (path === '/notifications/read') {
+      const session=getSession(request); if(!session)return err('unauthenticated',401);
+      const body=await readBody(request), ids=Array.isArray(body.ids)?body.ids.slice(0,100):[];
+      if(ids.length)await (await getDb()).collection('agencyNotifications').updateMany({agencyId:session.agencyId,id:{$in:ids}},{ $addToSet:{readBy:session.userId} });
+      return json({ok:true});
+    }
     // Customer Portal profile update (portal session; isolated from staff auth) — intercept first.
     if (path.startsWith('/portal/')) {
       const ps = getPortalSession(request);
@@ -5515,9 +5701,21 @@ export async function PUT(request, context) {
     // Agency onboarding setup — updates the session's own agency only.
     if (path === '/agency') {      if (!can(session.role, 'agency:manage')) return err('forbidden', 403);
       const b = await readBody(request);
-      const fields = ['name', 'phone', 'website', 'address', 'city', 'country', 'currency', 'timezone'];
+      const fields = ['name', 'phone', 'website', 'address', 'city', 'country', 'countryCode', 'currency', 'currencySymbol', 'currencyPosition', 'currencyDecimalPlaces', 'timezone'];
       const update = {};
-      for (const k of fields) { if (b[k] !== undefined) update[k] = String(b[k]); }
+      for (const k of fields) { if (b[k] !== undefined) update[k] = k === 'currencyDecimalPlaces' ? Math.max(0, Math.min(4, Number(b[k]) || 0)) : String(b[k]); }
+      if (b.countryCode !== undefined) {
+        const defaults = getCountryDefaults(b.countryCode);
+        if (!defaults) return err('Please select a valid country');
+        if (b.country === undefined) update.country = defaults.country;
+        if (b.currency === undefined) update.currency = defaults.currency;
+        if (b.timezone === undefined) update.timezone = defaults.timeZone;
+        const currencyMeta = getCurrencyMetadata(update.currency || defaults.currency);
+        if (b.currencySymbol === undefined) update.currencySymbol = currencyMeta.currencySymbol;
+        if (b.currencyPosition === undefined) update.currencyPosition = currencyMeta.currencyPosition;
+        if (b.currencyDecimalPlaces === undefined) update.currencyDecimalPlaces = currencyMeta.currencyDecimalPlaces;
+      }
+      if (update.currency && !/^[A-Z]{3}$/.test(update.currency)) return err('Please use a valid ISO 4217 currency code');
       if (b.email !== undefined) update.email = String(b.email).toLowerCase();
       update.setupCompleted = true;
       update.updatedAt = new Date().toISOString();

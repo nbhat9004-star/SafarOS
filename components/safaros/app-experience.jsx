@@ -27,7 +27,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { can } from '@/lib/rbac';
 import { useLocalization } from '@/components/safaros/localization-provider';
-import { GCC_COUNTRIES, SUPPORTED_CURRENCIES, getCountryDefaults } from '@/lib/localization';
+import { COUNTRY_OPTIONS, SUPPORTED_CURRENCIES, getCountryDefaults, getCountryCodeByName, getCurrencyMetadata } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
@@ -44,7 +44,7 @@ import {
   Banknote, Printer, Undo2,
   MessageSquare, Sparkles, Send, Bot, Megaphone, UserCog, ExternalLink,
   Palette, Gauge, PieChart, Compass, Star, LayoutGrid, ChevronRight,
-  Upload, Download, Database, Loader2, AlertCircle, FileSpreadsheet, Ticket, Plug,
+  Upload, Download, Database, Loader2, AlertCircle, FileSpreadsheet, Ticket, Plug, Bell,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -92,16 +92,39 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
   const [tab, setTab] = useState(initialTab === 'signup' ? 'signup' : 'login');
   const [loading, setLoading] = useState(false);
   const [signup, setSignup] = useState({ agencyName: '', name: '', email: '', password: '', countryCode });
+  const [countrySearch, setCountrySearch] = useState('');
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const verificationInputRef = useRef(null);
+  const [pendingEmail, setPendingEmail] = useState('');
   const [login, setLogin] = useState({ email: '', password: '' });
 
   const doSignup = async () => {
     setLoading(true);
     try {
-      await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: signup.countryCode || countryCode, currency }) });
-      toast.success('Agency workspace created');
+      const selectedCountryCode = signup.countryCode || countryCode;
+      const regionalDefaults = getCountryDefaults(selectedCountryCode);
+      const result = await api('/auth/register-agency', { method: 'POST', body: JSON.stringify({ ...signup, countryCode: selectedCountryCode, country: regionalDefaults?.country, currency: regionalDefaults?.currency || currency, currencySymbol: regionalDefaults?.currencySymbol, currencyPosition: regionalDefaults?.currencyPosition, currencyDecimalPlaces: regionalDefaults?.currencyDecimalPlaces }) });
+      setPendingEmail(result.email || signup.email.trim().toLowerCase());
+      setVerificationPending(true);
+      setVerificationCode('');
+      toast.success('Verification code sent to your email');
+    } catch (e) { toast.error(e.message); } finally { setLoading(false); }
+  };
+  const doVerifyEmail = async () => {
+    // Read the live DOM value as well as React state. This covers mobile OTP
+    // autofill/keyboards that can update the input without synchronising state.
+    const enteredCode = String(verificationInputRef.current?.value ?? verificationCode).replace(/\D/g, '').slice(0, 6);
+    setVerificationCode(enteredCode);
+    if (!/^\d{6}$/.test(enteredCode)) { toast.error('Enter the six-digit verification code'); return; }
+    setLoading(true);
+    try {
+      await api('/auth/verify-email', { method: 'POST', body: JSON.stringify({ email: pendingEmail, code: enteredCode }) });
+      toast.success('Email verified. Your workspace is ready.');
       onAuthed();
     } catch (e) { toast.error(e.message); } finally { setLoading(false); }
   };
+
   const doLogin = async () => {
     setLoading(true);
     try {
@@ -150,6 +173,22 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
               </TabsList>
 
               <TabsContent value="signup" className="space-y-3 mt-4">
+                {verificationPending ? (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+                      <div className="font-semibold text-slate-900">Verify your email</div>
+                      <p className="mt-1 text-sm text-slate-600">We sent a six-digit code to <strong>{pendingEmail}</strong>. Enter it below to create your workspace. The code expires in 10 minutes.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>6-digit verification code</Label>
+                      <Input ref={verificationInputRef} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))} onInput={(e) => setVerificationCode(e.currentTarget.value.replace(/\D/g, '').slice(0, 6))} onKeyDown={(e) => e.key === 'Enter' && doVerifyEmail()} />
+                    </div>
+                    <Button className="w-full" onClick={doVerifyEmail} disabled={loading || verificationCode.length !== 6}>{loading ? 'Verifying…' : 'Verify email and create workspace'}</Button>
+                    <button type="button" onClick={doSignup} disabled={loading} className="w-full text-center text-sm text-violet-700 hover:underline disabled:opacity-50">Resend verification code</button>
+                    <button type="button" onClick={() => { setVerificationPending(false); setVerificationCode(''); }} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">Change signup details</button>
+                  </div>
+                ) : (
+                  <>
                 <div className="space-y-1.5">
                   <Label>{t('Your name', 'اسمك')}</Label>
                   <Input placeholder="Jane Doe" value={signup.name}
@@ -172,9 +211,11 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                 </div>
                 <div className="space-y-1.5">
                   <Label>{t('Country', 'الدولة')}</Label>
-                  <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup({ ...signup, countryCode: code }); if (defaults) updatePreferences({ countryCode: code }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                    {Object.values(GCC_COUNTRIES).map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+                  <Input value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} placeholder="Search all countries…" aria-label="Search countries" />
+                  <select required value={signup.countryCode || countryCode} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setSignup((current) => ({ ...current, countryCode: code })); if (defaults) updatePreferences({ countryCode: code, currency: defaults.currency, timeZone: defaults.timeZone }); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    {COUNTRY_OPTIONS.filter((country) => country.code === (signup.countryCode || countryCode) || !countrySearch || country.name.toLowerCase().includes(countrySearch.toLowerCase()) || country.code.toLowerCase().includes(countrySearch.toLowerCase())).map((country) => <option key={country.code} value={country.code}>{country.flag} {country.name} ({country.currency})</option>)}
                   </select>
+                  <p className="text-xs text-muted-foreground">Your workspace currency will default to {getCountryDefaults(signup.countryCode || countryCode)?.currency || currency} based on this country.</p>
                 </div>
                 <Button className="w-full" onClick={doSignup} disabled={loading}>
                   {loading ? t('Creating...', 'جارٍ الإنشاء...') : t('Create Workspace', 'إنشاء مساحة العمل')}
@@ -182,6 +223,8 @@ function AuthView({ onAuthed, initialTab = 'login' }) {
                 <button type="button" onClick={() => setTab('login')} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">
                   {t('Already have an account?', 'لديك حساب بالفعل؟')} <span className="font-medium text-foreground">{t('Sign in', 'تسجيل الدخول')}</span>
                 </button>
+                  </>
+                )}
               </TabsContent>
 
               <TabsContent value="login" className="space-y-3 mt-4">
@@ -266,7 +309,7 @@ const NAV = [
   {
     group: 'Marketplace',
     items: [
-      // Replaces the operator-facing Website Builder entry. Builder code (web_*) is retained, not deleted, pending migration approval.
+      // SafarCurated is the agency-facing public marketplace; legacy Website Builder routes redirect to this workspace.
       { id: 'marketplace', label: 'SafarCurated Marketplace', icon: Store },
     ],
   },
@@ -327,7 +370,7 @@ const SECTION_TITLES = {
   fin_payments: 'Payments',
   comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
   copilot: 'AI Copilot', portal_admin: 'Customer Portal Access',
-  marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
+  marketplace: 'SafarCurated Marketplace', web_dashboard: 'SafarCurated Marketplace', web_settings: 'SafarCurated Marketplace', web_appearance: 'SafarCurated Marketplace', web_pages: 'SafarCurated Marketplace', web_seo: 'SafarCurated Marketplace', web_preview: 'SafarCurated Marketplace',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
   int_overview: 'Integrations', int_webhooks: 'Webhooks', int_api: 'Developer API',
@@ -343,7 +386,7 @@ function sectionGroupOf(id) {
   }
   // prefix groups (fin_, comm_, web_, an_, sub_, int_)
   const pref = String(id).split('_')[0];
-  const map = { fin: 'Finance', comm: 'Communications', web: 'Website', an: 'Analytics', sub: 'Subscription & Billing', int: 'Integrations' };
+  const map = { fin: 'Finance', comm: 'Communications', web: 'More', an: 'Analytics', sub: 'Subscription & Billing', int: 'Integrations' };
   return map[pref] || 'Workspace';
 }
 
@@ -1218,7 +1261,13 @@ function Dashboard({ session, onLogout }) {
   const [active, setActive] = useState('overview');
   const [menuOpen, setMenuOpen] = useState(false);
   const [navPayload, setNavPayload] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const { user, agency } = session;
+  const loadNotifications = async () => { try { const d=await api('/notifications'); setNotifications(d.notifications||[]); } catch { /* notifications are non-blocking */ } };
+  useEffect(() => { loadNotifications(); const timer=setInterval(loadNotifications,60000); return () => clearInterval(timer); }, []);
+  useEffect(() => { const raw=String(active||'overview'); const feature=raw.startsWith('fin_')?'finance':raw.startsWith('comm_')?'communications':raw.startsWith('an_')?'analytics':raw.startsWith('sub_')?'billing':raw.startsWith('int_')?'integrations':raw.startsWith('ws:')?raw.slice(3):raw; api('/usage/event',{method:'POST',body:JSON.stringify({feature})}).catch(()=>{}); }, [active]);
+  const markNotificationRead = async (item) => { if(item.read)return; try { await api('/notifications/read',{method:'PUT',body:JSON.stringify({ids:[item.id]})}); setNotifications(rows=>rows.map(n=>n.id===item.id?{...n,read:true}:n)); } catch { /* ignore */ } };
   const go = (id) => { setActive(id); setMenuOpen(false); };
   const navigateTo = (id, payload = null) => { setNavPayload(payload); setActive(id); setMenuOpen(false); };
   const initials = (agency?.name || 'S').trim().charAt(0).toUpperCase();
@@ -1293,6 +1342,17 @@ function Dashboard({ session, onLogout }) {
           <div className="flex items-center gap-2 sm:gap-3">
             <GlobalSearch onNavigate={go} />
             <SyncStatusIndicator />
+            <div className="relative">
+              <Button variant="outline" size="icon" aria-label="Notifications" onClick={()=>setNotificationsOpen(v=>!v)} className="relative">
+                <Bell className="h-4 w-4" />
+                {notifications.some(n=>!n.read) && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-background bg-rose-500" />}
+              </Button>
+              {notificationsOpen && <div className="absolute right-0 top-12 z-50 w-[min(360px,calc(100vw-2rem))] rounded-xl border border-border bg-background p-3 shadow-xl">
+                <div className="mb-2 flex items-center justify-between"><span className="font-semibold">Notifications</span><span className="text-xs text-muted-foreground">{notifications.filter(n=>!n.read).length} unread</span></div>
+                <div className="max-h-80 space-y-2 overflow-y-auto">{notifications.length===0?<p className="py-6 text-center text-sm text-muted-foreground">You're all caught up.</p>:notifications.map(n=><button key={n.id} onClick={()=>markNotificationRead(n)} className={`block w-full rounded-lg border p-3 text-left ${n.read?'border-border bg-background':'border-violet-200 bg-violet-50/70'}`}><div className="text-sm font-semibold">{n.title}</div><p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{n.message}</p><div className="mt-2 text-[10px] text-muted-foreground">{new Date(n.createdAt).toLocaleString()}</div></button>)}</div>
+                <button className="mt-2 w-full rounded-md border px-3 py-2 text-xs font-medium hover:bg-accent" onClick={()=>{loadNotifications();setNotificationsOpen(false);}}>Refresh</button>
+              </div>}
+            </div>
             <div className="hidden items-center gap-2.5 rounded-full border border-border bg-background px-2 py-1 pr-3 sm:flex">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-[11px] font-bold text-white">{userInitial}</div>
               <div className="text-right leading-tight">
@@ -1339,7 +1399,8 @@ function Dashboard({ session, onLogout }) {
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
           {active === 'copilot' && <CopilotWorkspace session={session} />}
-          {String(active).startsWith('web_') && <Website key="web" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('web_' + t)} />}
+          {/* Legacy Website Builder entry now routes to the SafarCurated public marketplace; agency microsites are no longer the public website experience. */}
+           {String(active).startsWith('web_') && <MarketplaceWorkspace key="marketplace-legacy" />}
           {String(active).startsWith('an_') && <Analytics key="an" session={session} tab={String(active).slice(3)} onNav={(t) => setActive('an_' + t)} />}
           {String(active).startsWith('sub_') && <Billing key="sub" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('sub_' + t)} />}
           {String(active).startsWith('int_') && <Integrations key="int" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('int_' + t)} />}
@@ -6343,12 +6404,13 @@ function Finance({ session, tab, onNav }) {
 
 function Settings({ session, onNavigate }) {
   const { agency, user } = session;
-  const { locale, currency: displayCurrency, timeZone: displayTimeZone, updatePreferences } = useLocalization();
+  const { locale, countryCode, currency: displayCurrency, timeZone: displayTimeZone, updatePreferences } = useLocalization();
   const canManageAgency = user?.role === 'owner';
   const [section, setSection] = useState('profile');
   const [profile, setProfile] = useState({ name: user?.name || '', phone: user?.phone || '' });
   const [profileSaving, setProfileSaving] = useState(false);
   const [agencyEditing, setAgencyEditing] = useState(false);
+  const [agencyCountrySearch, setAgencyCountrySearch] = useState('');
   const [agencySaving, setAgencySaving] = useState(false);
   const [resetSending, setResetSending] = useState(false);
   const [preferences, setPreferences] = useState({
@@ -6364,7 +6426,9 @@ function Settings({ session, onNavigate }) {
     address: agency?.address || '',
     city: agency?.city || '',
     country: agency?.country || 'India',
-    currency: agency?.currency || 'INR',
+    countryCode: agency?.countryCode || getCountryCodeByName(agency?.country) || countryCode || 'IN',
+    currency: agency?.currency || getCountryDefaults(agency?.countryCode || getCountryCodeByName(agency?.country) || countryCode || 'IN')?.currency || 'INR',
+    currencySymbol: agency?.currencySymbol || '', currencyPosition: agency?.currencyPosition || 'before', currencyDecimalPlaces: agency?.currencyDecimalPlaces ?? 2,
     timezone: agency?.timezone || 'Asia/Kolkata',
   });
   const updateAgency = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
@@ -6532,8 +6596,8 @@ function Settings({ session, onNavigate }) {
                     <div className="space-y-1.5"><Label>Website</Label><Input value={form.website} onChange={updateAgency('website')} placeholder="https://" /></div>
                     <div className="space-y-1.5 sm:col-span-2"><Label>Business address</Label><Input value={form.address} onChange={updateAgency('address')} /></div>
                     <div className="space-y-1.5"><Label>City</Label><Input value={form.city} onChange={updateAgency('city')} /></div>
-                    <div className="space-y-1.5"><Label>Country</Label><Input value={form.country} onChange={updateAgency('country')} /></div>
-                    <div className="space-y-1.5"><Label>Accounting currency</Label><Input value={form.currency} onChange={updateAgency('currency')} placeholder="INR" /></div>
+                    <div className="space-y-1.5"><Label>Country</Label><Input value={agencyCountrySearch} onChange={(e) => setAgencyCountrySearch(e.target.value)} placeholder="Search all countries…" /><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.countryCode || 'IN'} onChange={(e) => { const code = e.target.value; const defaults = getCountryDefaults(code); setForm((current) => ({ ...current, countryCode: code, country: defaults?.country || current.country, currency: defaults?.currency || current.currency, currencySymbol: defaults?.currencySymbol || current.currencySymbol, currencyPosition: defaults?.currencyPosition || current.currencyPosition, currencyDecimalPlaces: defaults?.currencyDecimalPlaces ?? current.currencyDecimalPlaces, timezone: defaults?.timeZone || current.timezone })); }}>{COUNTRY_OPTIONS.filter((country) => country.code === form.countryCode || !agencyCountrySearch || country.name.toLowerCase().includes(agencyCountrySearch.toLowerCase()) || country.code.toLowerCase().includes(agencyCountrySearch.toLowerCase())).map((country) => <option key={country.code} value={country.code}>{country.flag} {country.name}</option>)}</select></div>
+                    <div className="space-y-1.5"><Label>Accounting currency (ISO 4217)</Label><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.currency} onChange={(e) => { const currency = e.target.value; const meta = getCurrencyMetadata(currency); setForm((current) => ({ ...current, currency, currencySymbol: meta.currencySymbol, currencyPosition: meta.currencyPosition, currencyDecimalPlaces: meta.currencyDecimalPlaces })); }}>{SUPPORTED_CURRENCIES.map((code) => <option key={code} value={code}>{code}</option>)}</select><p className="text-xs text-muted-foreground">Changing the default does not convert historical invoices or transactions.</p></div>
                     <div className="space-y-1.5"><Label>Business timezone</Label><Input value={form.timezone} onChange={updateAgency('timezone')} placeholder="Asia/Kolkata" /></div>
                     <div className="flex justify-end gap-2 pt-2 sm:col-span-2">
                       <Button variant="outline" onClick={() => setAgencyEditing(false)} disabled={agencySaving}>Cancel</Button>

@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus, Target, Activity, Phone, Mail, ExternalLink, MessageCircle, Bell,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -37,6 +37,7 @@ const fdate = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLo
 const fdt = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return '—'; } };
 const humanize = (k) => String(k).replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
 
+
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'agencies', label: 'Agencies', icon: Building2 },
@@ -49,6 +50,9 @@ const NAV = [
   { id: 'safarcurated', label: 'SafarCurated', icon: Globe },
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'prospecting', label: 'Lead Discovery', icon: Target },
+  { id: 'usage', label: 'Agency Usage & Growth', icon: Activity },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'audit', label: 'Audit Logs', icon: ScrollText },
   { id: 'settings', label: 'Platform Settings', icon: SettingsIcon },
 ];
@@ -577,6 +581,51 @@ function SafarCuratedView({ admin }) {
   </div>);
 }
 
+
+function ProspectingView() {
+  const [query,setQuery]=useState('Tour and travel operators in Srinagar'),[results,setResults]=useState([]),[saved,setSaved]=useState([]),[busy,setBusy]=useState(false),[configured,setConfigured]=useState(true);
+  const loadSaved=()=>api('/prospecting/leads').then(d=>setSaved((d.leads||[]).map(x=>x.sourceId))).catch(e=>toast.error(e.message));
+  useEffect(()=>{loadSaved();},[]);
+  const search=async()=>{setBusy(true);try{const d=await api('/prospecting/search?'+new URLSearchParams({q:query}));setConfigured(d.configured);setResults(d.results||[]);if(!d.configured)toast.error('Google Places API key is not configured on the server.');}catch(e){toast.error(e.message);}finally{setBusy(false);}};
+  const save=async r=>{try{const d=await api('/prospecting/leads',{method:'POST',body:JSON.stringify({...r,city:query.split(/ in /i).pop()||''})});toast.success(d.duplicate?'This business is already saved':'Lead saved');setSaved(x=>[...x,r.sourceId]);}catch(e){toast.error(e.message);}};
+  return <div className="space-y-4">
+    <Card><CardContent className="p-4 space-y-3"><div className="font-semibold">Find travel businesses</div><p className="text-xs text-muted-foreground">Search public business listings by category and location.</p><div className="flex gap-2"><Input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&search()} placeholder="Tour operators in Srinagar"/><Button onClick={search} disabled={busy}>{busy?'Searching…':'Search'}</Button></div>{!configured&&<p className="text-xs text-amber-700">Configure Google Places credentials in Platform API & Integrations.</p>}</CardContent></Card>
+    {results.map((r,i)=><Card key={r.sourceId||i}><CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0 space-y-1"><div className="font-semibold">{r.name}</div><div className="text-xs text-muted-foreground">{r.category} · {r.address}</div><div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">{r.phone&&<a href={'tel:'+r.phone} className="text-violet-700"><Phone className="inline h-3.5 w-3.5 mr-1"/>{r.phone}</a>}{r.website&&<a target="_blank" rel="noreferrer" href={r.website} className="text-violet-700"><ExternalLink className="inline h-3.5 w-3.5 mr-1"/>Website</a>}{r.email&&<a href={'mailto:'+r.email} className="text-violet-700"><Mail className="inline h-3.5 w-3.5 mr-1"/>{r.email}</a>}{r.whatsapp&&<a target="_blank" rel="noreferrer" href={'https://wa.me/'+r.whatsapp} className="text-emerald-700"><MessageCircle className="inline h-3.5 w-3.5 mr-1"/>WhatsApp link</a>}{r.mapUrl&&<a target="_blank" rel="noreferrer" href={r.mapUrl} className="text-violet-700">Maps</a>}</div><p className="text-xs text-muted-foreground">Rating: {r.rating??'—'} {r.reviews?'('+r.reviews+' reviews)':''}. Google Places does not verify email or WhatsApp availability.</p></div><Button size="sm" variant="outline" disabled={saved.includes(r.sourceId)} onClick={()=>save(r)}>{saved.includes(r.sourceId)?'Saved':'Save lead'}</Button></CardContent></Card>)}
+    <p className="text-xs text-muted-foreground">Saved prospects are stored separately from agency CRM. Use public contact details responsibly; no bulk outreach is performed.</p>
+  </div>;
+}
+function UsageGrowthView() {
+  const [data,setData]=useState(null),[q,setQ]=useState(''),[campaigns,setCampaigns]=useState([]);
+  const [selected,setSelected]=useState([]),[title,setTitle]=useState(''),[message,setMessage]=useState(''),[sendEmail,setSendEmail]=useState(true),[kind,setKind]=useState('info'),[sending,setSending]=useState(false);
+  const load=async()=>{try{const [usage,notices]=await Promise.all([api('/usage'),api('/notifications')]);setData(usage);setCampaigns(notices.notifications||[]);}catch(e){toast.error(e.message);}};
+  useEffect(()=>{load();},[]);
+  const rows=(data?.agencies||[]).filter(a=>[a.name,a.city,a.ownerEmail].some(v=>String(v||'').toLowerCase().includes(q.toLowerCase())));
+  const send=async()=>{if(!title.trim()||!message.trim()||!selected.length){toast.error('Choose agencies and enter a title and message.');return;}setSending(true);try{const d=await api('/notifications',{method:'POST',body:JSON.stringify({title,message,agencyIds:selected,sendEmail,kind})});toast.success(`Notification delivered to ${d.campaign.agencyCount} agencies. Emails sent: ${d.campaign.emailSent}; failed: ${d.campaign.emailFailed}.`);setTitle('');setMessage('');setSelected([]);await load();}catch(e){toast.error(e.message);}finally{setSending(false);}};
+  if(!data)return <div className="h-40 animate-pulse rounded-lg border bg-muted/30"/>;
+  return <div className="space-y-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Stat label="Agencies" value={data.summary.total}/><Stat label="Active today" value={data.summary.dailyActive}/>
+      <Stat label="Trial ending in 7 days" value={data.summary.trialEndingSoon}/><Stat label="Inactive 3+ days / no login" value={data.summary.inactive}/>
+      <Stat label="Feature events · 7 days" value={data.summary.events7d||0}/><Stat label="Feature events · 30 days" value={data.summary.events30d||0}/>
+    </div>
+    <Card><CardHeader><CardTitle className="text-base">Most-used SafarOS features · last 30 days</CardTitle></CardHeader><CardContent>
+      {(data.features||[]).length===0?<p className="text-sm text-muted-foreground">No feature activity has been recorded yet. Activity will appear as agency members open workspace modules.</p>:<div className="space-y-3">{data.features.map((f,i)=><div key={f.feature} className="grid grid-cols-[120px_1fr_48px] items-center gap-3 text-sm"><span className="capitalize">{f.feature.replace(/_/g,' ')}</span><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-violet-600" style={{width:`${Math.max(3,Math.round(f.count/Math.max(...data.features.map(x=>x.count))*100))}%`}}/></div><span className="text-right tabular-nums text-muted-foreground">{f.count}</span></div>)}</div>}
+      <p className="mt-3 text-xs text-muted-foreground">Usage events count module visits, not message contents, keystrokes or private customer data.</p>
+    </CardContent></Card>
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">Agency engagement</h3><p className="text-xs text-muted-foreground">Feature adoption, login activity and business-volume indicators</p></div><Input className="w-64" placeholder="Search agency, city or email…" value={q} onChange={e=>setQ(e.target.value)}/></div>
+    <Card><CardContent className="overflow-x-auto p-0"><Table><TableHeader><TableRow><TableHead>Agency</TableHead><TableHead>Plan / trial</TableHead><TableHead>Last login</TableHead><TableHead>Members active (7d)</TableHead><TableHead>Feature visits (7d)</TableHead><TableHead>Adoption</TableHead><TableHead>Most-used features (30d)</TableHead><TableHead>Leads</TableHead><TableHead>Quotes</TableHead><TableHead>Bookings</TableHead><TableHead>Contact</TableHead></TableRow></TableHeader><TableBody>{rows.map(a=><TableRow key={a.id}><TableCell><div className="font-medium">{a.name}</div><div className="text-xs text-muted-foreground">{a.city||'—'}</div></TableCell><TableCell className="capitalize">{a.plan}<div className="text-xs text-muted-foreground">{a.trialDaysRemaining===null?'':a.trialDaysRemaining<0?'Trial expired':a.trialDaysRemaining+' days left'}</div></TableCell><TableCell className="text-xs">{fdt(a.lastActiveAt)}</TableCell><TableCell>{a.activeMembers}/{a.memberCount}</TableCell><TableCell>{a.events7d||0}</TableCell><TableCell><span className="font-semibold">{a.adoptionScore||0}/100</span></TableCell><TableCell className="min-w-48 text-xs">{(a.featureUsage||[]).slice(0,3).map(x=>`${x.feature} (${x.count})`).join(' · ')||'No tracked visits yet'}</TableCell><TableCell>{a.leads}</TableCell><TableCell>{a.quotations}</TableCell><TableCell>{a.bookings}</TableCell><TableCell className="text-xs">{a.ownerEmail&&<a className="text-violet-700" href={'mailto:'+a.ownerEmail}>{a.ownerEmail}</a>}{a.phone&&<div>{a.phone}</div>}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Send agency notification</CardTitle><p className="text-xs text-muted-foreground">Publish an in-app notification to selected agency dashboards and optionally email their active team members.</p></CardHeader><CardContent className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm font-medium">Choose recipients ({selected.length} selected)</span><div className="flex gap-2"><Button size="sm" variant="outline" onClick={()=>setSelected(rows.map(a=>a.id))}>Select filtered</Button><Button size="sm" variant="ghost" onClick={()=>setSelected([])}>Clear</Button></div></div>
+      <div className="max-h-48 overflow-y-auto rounded-lg border p-2 sm:grid sm:grid-cols-2">{rows.map(a=><label key={a.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"><input type="checkbox" checked={selected.includes(a.id)} onChange={e=>setSelected(v=>e.target.checked?[...v,a.id]:v.filter(id=>id!==a.id))}/><span className="min-w-0 truncate">{a.name}</span><span className="ml-auto text-xs text-muted-foreground">{a.plan}</span></label>)}</div>
+      <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1"><Label>Notification title</Label><Input value={title} onChange={e=>setTitle(e.target.value)} maxLength={120} placeholder="e.g. Your trial is ending soon"/></div><div className="space-y-1"><Label>Type</Label><Select value={kind} onValueChange={setKind}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="info">Information</SelectItem><SelectItem value="success">Success</SelectItem><SelectItem value="warning">Important</SelectItem></SelectContent></Select></div></div>
+      <div className="space-y-1"><Label>Message</Label><Textarea value={message} onChange={e=>setMessage(e.target.value)} rows={3} maxLength={2000} placeholder="Write the message that will appear in the agency dashboard and email."/></div>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={sendEmail} onChange={e=>setSendEmail(e.target.checked)}/> Also send an email to active team members</label>
+      <Button onClick={send} disabled={sending||!selected.length||!title.trim()||!message.trim()}>{sending?'Sending…':'Send notification'}</Button>
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Recent notification campaigns</CardTitle></CardHeader><CardContent className="space-y-2">{campaigns.length===0?<p className="text-sm text-muted-foreground">No campaigns sent yet.</p>:campaigns.slice(0,10).map(c=><div key={c.id} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border p-3"><div><div className="font-medium">{c.title}</div><p className="text-xs text-muted-foreground">{c.agencyCount} agencies · {c.sendEmail?'Email requested':'Dashboard only'} · {fdt(c.createdAt)}</p></div><div className="text-xs text-muted-foreground">{c.emailSent||0} emails sent · {c.emailFailed||0} failed</div></div>)}</CardContent></Card>
+  </div>;
+}
+
 // ---------- Analytics ----------
 function AnalyticsView() {
   const [d, setD] = useState(null);
@@ -687,6 +736,26 @@ function EmailSettingsCard({ adminEmail }) {
     </CardContent></Card>);
 }
 
+// ---------- Central platform notification centre ----------
+function PlatformNotificationsView() {
+  const [items,setItems]=useState([]),[title,setTitle]=useState(''),[message,setMessage]=useState(''),[kind,setKind]=useState('info'),[busy,setBusy]=useState(false);
+  const load=async()=>{try{const d=await api('/notifications/inbox');setItems(d.notifications||[]);}catch(e){toast.error(e.message);}};
+  useEffect(()=>{load();},[]);
+  const send=async()=>{if(!title.trim()||!message.trim()){toast.error('Enter a title and message.');return;}setBusy(true);try{await api('/notifications/system',{method:'POST',body:JSON.stringify({title,message,kind})});toast.success('Platform notification published.');setTitle('');setMessage('');await load();}catch(e){toast.error(e.message);}finally{setBusy(false);}};
+  const markRead=async(n)=>{if(n.read)return;try{await api('/notifications/'+n.id+'/read',{method:'PUT',body:JSON.stringify({})});setItems(rows=>rows.map(x=>x.id===n.id?{...x,read:true}:x));}catch(e){toast.error(e.message);}};
+  return <div className="space-y-5">
+    <div><h2 className="text-xl font-semibold">Central Notification Centre</h2><p className="text-sm text-muted-foreground">Publish platform-wide announcements to Super Admin accounts and review notification history.</p></div>
+    <Card><CardHeader><CardTitle>New platform announcement</CardTitle></CardHeader><CardContent className="space-y-3">
+      <Input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Notification title"/>
+      <Textarea value={message} onChange={e=>setMessage(e.target.value)} placeholder="Write your announcement..." rows={4}/>
+      <div className="flex flex-wrap items-center gap-3"><Select value={kind} onValueChange={setKind}><SelectTrigger className="w-40"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="info">Information</SelectItem><SelectItem value="success">Success</SelectItem><SelectItem value="warning">Important</SelectItem></SelectContent></Select><Button onClick={send} disabled={busy}>{busy?'Publishing…':'Publish announcement'}</Button></div>
+      <p className="text-xs text-muted-foreground">This first release targets platform administrator accounts. Agency announcements remain managed through Agency Usage & Growth.</p>
+    </CardContent></Card>
+    <div className="space-y-2"><div className="flex items-center justify-between"><h3 className="font-semibold">Platform notification history</h3><Button variant="outline" size="sm" onClick={load}>Refresh</Button></div>
+      {items.length===0?<Card><CardContent className="p-6 text-center text-sm text-muted-foreground">No platform notifications yet.</CardContent></Card>:items.map(n=><button key={n.id} onClick={()=>markRead(n)} className={'w-full rounded-lg border p-4 text-left '+(n.read?'bg-white':'border-violet-300 bg-violet-50')}><div className="flex items-center justify-between gap-2"><span className="font-semibold">{n.title}</span><Badge variant="outline">{n.read?'Read':'Unread'}</Badge></div><p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{n.message}</p><div className="mt-2 text-xs text-muted-foreground">{new Date(n.createdAt).toLocaleString()}</div></button>)}
+    </div>
+  </div>;
+}
 // ---------- Forced password change (temporary password) ----------
 function ForcePasswordChange({ admin, onDone, onLogout }) {
   const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
@@ -748,8 +817,10 @@ export default function PlatformAdmin() {
   const [admin, setAdmin] = useState(undefined); // undefined = loading, null = logged out
   const [section, setSection] = useState('dashboard');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const reloadMe = useCallback(async () => { try { const d = await api('/auth/me'); setAdmin(d.admin); } catch { setAdmin(null); } }, []);
   useEffect(() => { reloadMe(); }, [reloadMe]);
+  useEffect(() => { if(!admin || admin.mustChangePassword)return; const load=async()=>{try{const d=await api('/notifications/inbox');setUnreadNotifications((d.notifications||[]).filter(n=>!n.read).length);}catch{}};load();const timer=setInterval(load,60000);return()=>clearInterval(timer);},[admin]);
   const logout = async () => { try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ } setAdmin(null); };
   const go = (id) => { setSection(id); setMenuOpen(false); };
 
@@ -771,9 +842,10 @@ export default function PlatformAdmin() {
         <button onClick={() => setMenuOpen(true)} aria-label="Open menu" className="flex h-9 w-9 items-center justify-center rounded-md text-slate-200 hover:bg-slate-800"><Menu className="h-5 w-5" /></button>
         <div className="flex items-center gap-2"><Shield className="h-5 w-5 text-violet-400" /><div className="leading-tight"><div className="text-sm font-bold">SafarOS</div><div className="text-[10px] uppercase tracking-wider text-violet-300">Platform Admin</div></div></div>
         <span className="ml-auto truncate text-xs text-slate-400">{TITLES[section]}</span>
+        <Button variant="ghost" size="icon" className="relative text-white" aria-label="Open notifications" onClick={()=>setSection("notifications")}><Bell className="h-5 w-5"/>{unreadNotifications>0&&<span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-rose-500"/>}</Button>
       </header>
       {/* Desktop header */}
-      <header className="hidden md:flex items-center justify-between border-b bg-white px-6 py-4"><h1 className="text-lg font-semibold text-slate-900">{TITLES[section]}</h1><Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> super_admin</Badge></header>
+      <header className="hidden md:flex items-center justify-between border-b bg-white px-6 py-4"><h1 className="text-lg font-semibold text-slate-900">{TITLES[section]}</h1><div className="flex items-center gap-3"><Button variant="ghost" size="icon" aria-label="Open notifications" className="relative" onClick={()=>setSection("notifications")}><Bell className="h-5 w-5" />{unreadNotifications>0&&<span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-rose-500"/>}</Button><Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> super_admin</Badge></div></header>
       {admin.mustChangePassword && section !== 'settings' && (<div className="mx-4 mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:mx-6">For security, please change your temporary password in <button className="font-medium underline" onClick={() => setSection('settings')}>Platform Settings → Security</button>.</div>)}
       <div className="p-4 sm:p-6">
         {section === 'dashboard' && <DashboardView />}
@@ -787,6 +859,9 @@ export default function PlatformAdmin() {
         {section === 'safarcurated' && <SafarCuratedView admin={admin} />}
         {section === 'integrations' && <IntegrationsView />}
         {section === 'analytics' && <AnalyticsView />}
+        {section === 'prospecting' && <ProspectingView />}
+        {section === 'usage' && <UsageGrowthView />}
+        {section === 'notifications' && <PlatformNotificationsView />}
         {section === 'audit' && <AuditView />}
         {section === 'settings' && <SettingsView admin={admin} onPasswordChanged={reloadMe} />}
       </div>

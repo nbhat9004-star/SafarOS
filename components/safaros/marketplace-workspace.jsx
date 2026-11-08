@@ -163,6 +163,19 @@ const MarketplaceWorkspace = () => {
         </div>
       </div>
 
+      <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-5 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-slate-900">Your public website is SafarCurated</h3>
+            <p className="mt-1 text-sm text-slate-600">Approved listings from participating travel businesses are showcased on SafarCurated.com. Publish and manage your packages here; once approved, they appear in the public marketplace.</p>
+            <p className="mt-2 break-all text-sm font-medium text-violet-700">https://safarcurated.com</p>
+          </div>
+          <a href="https://safarcurated.com" target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100">
+            <ExternalLink className="h-4 w-4" /> Open SafarCurated
+          </a>
+        </div>
+      </div>
+
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700" data-testid="mp-error">{error}</div>}
       {notice && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</div>}
 
