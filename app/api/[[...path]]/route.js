@@ -2768,6 +2768,7 @@ function platformReadPerm(path) {
   if (path.startsWith('/platform/integrations')) return 'integrations:read';
   if (path.startsWith('/platform/analytics')) return 'analytics:read';
   if (path.startsWith('/platform/prospecting')) return 'agencies:read';
+  if (path.startsWith('/platform/notifications')) return 'agencies:read';
   if (path.startsWith('/platform/usage')) return 'analytics:read';
   if (path.startsWith('/platform/audit')) return 'audit:read';
   if (path.startsWith('/platform/settings')) return 'settings:read';
@@ -3086,6 +3087,10 @@ async function scPlatformAction(db, session, path, request) {
 async function platformGet(db, session, path, sp) {
   if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
   if (path === '/platform/safarcurated') return json(await scPlatformSummary(db));
+  if (path === '/platform/notifications') {
+    const items = await db.collection('platformAgencyNotifications').find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(100).toArray();
+    return json({notifications:items});
+  }
 
   if (path === '/platform/themes') {
     for (const theme of PLATFORM_WEBSITE_THEME_DEFAULTS) {
@@ -3260,10 +3265,11 @@ async function platformGet(db, session, path, sp) {
     return json({ leads, total: leads.length });
   }
   if (path === '/platform/usage') {
-    const [agencies, users, subs] = await Promise.all([
+    const [agencies, users, subs, usageEvents] = await Promise.all([
       db.collection('agencies').find({}, { projection: { _id: 0, id: 1, name: 1, city: 1, plan: 1, status: 1, trialEndsAt: 1, email: 1, phone: 1 } }).toArray(),
       db.collection('users').find({}, { projection: { _id: 0, agencyId: 1, email: 1, role: 1, lastLoginAt: 1 } }).toArray(),
       db.collection('agencySubscriptions').find({}, { projection: { _id: 0, agencyId: 1, planId: 1, status: 1, trialEndsAt: 1 } }).toArray(),
+      db.collection('agencyUsageEvents').find({ occurredAt: { $gte: new Date(Date.now()-30*86400000).toISOString() } }, { projection: { _id: 0, agencyId: 1, userId: 1, feature: 1, action: 1, occurredAt: 1 } }).toArray(),
     ]);
     const now = Date.now(), subMap = Object.fromEntries(subs.map(x => [x.agencyId,x]));
     const rows = await Promise.all(agencies.map(async agency => {
@@ -3274,9 +3280,15 @@ async function platformGet(db, session, path, sp) {
       const [leads, quotations, bookings] = await Promise.all([
         db.collection('leads').countDocuments({agencyId:agency.id}), db.collection('quotations').countDocuments({agencyId:agency.id}), db.collection('bookings').countDocuments({agencyId:agency.id}),
       ]);
-      return {id:agency.id,name:agency.name,city:agency.city||'',plan:sub.planId||agency.plan||'trial',memberCount:members.length,activeMembers:members.filter(u=>u.lastLoginAt&&now-new Date(u.lastLoginAt).getTime()<=604800000).length,lastActiveAt,dailyActive:!!lastActiveAt&&now-new Date(lastActiveAt).getTime()<=86400000,trialEndsAt,trialDaysRemaining,ownerEmail:agency.email||members.find(u=>u.role==='owner')?.email||'',phone:agency.phone||'',leads,quotations,bookings};
+      const events = usageEvents.filter(e=>e.agencyId===agency.id);
+      const featureUsage = Object.entries(events.reduce((m,e)=>{m[e.feature]=(m[e.feature]||0)+1;return m;},{})).map(([feature,count])=>({feature,count})).sort((a,b)=>b.count-a.count);
+      const featureUsers = new Set(events.map(e=>e.userId).filter(Boolean)).size;
+      const recentEvents = events.filter(e=>now-new Date(e.occurredAt).getTime()<=7*86400000).length;
+      const adoptionScore = Math.min(100, Math.round(featureUsage.length/10*55 + Math.min(recentEvents,40)/40*45));
+      return {id:agency.id,name:agency.name,city:agency.city||'',plan:sub.planId||agency.plan||'trial',memberCount:members.length,activeMembers:members.filter(u=>u.lastLoginAt&&now-new Date(u.lastLoginAt).getTime()<=604800000).length,lastActiveAt,dailyActive:!!lastActiveAt&&now-new Date(lastActiveAt).getTime()<=86400000,trialEndsAt,trialDaysRemaining,ownerEmail:agency.email||members.find(u=>u.role==='owner')?.email||'',phone:agency.phone||'',leads,quotations,bookings,featureUsage,featureUsers,events7d:recentEvents,events30d:events.length,adoptionScore};
     }));
-    return json({agencies:rows,summary:{total:rows.length,dailyActive:rows.filter(x=>x.dailyActive).length,trialEndingSoon:rows.filter(x=>x.trialDaysRemaining!==null&&x.trialDaysRemaining>=0&&x.trialDaysRemaining<=7).length,inactive:rows.filter(x=>!x.lastActiveAt||now-new Date(x.lastActiveAt).getTime()>259200000).length}});
+    const featureTotals = {}; for (const event of usageEvents) featureTotals[event.feature] = (featureTotals[event.feature] || 0) + 1;
+    return json({agencies:rows,features:Object.entries(featureTotals).map(([feature,count])=>({feature,count})).sort((a,b)=>b.count-a.count),summary:{total:rows.length,dailyActive:rows.filter(x=>x.dailyActive).length,trialEndingSoon:rows.filter(x=>x.trialDaysRemaining!==null&&x.trialDaysRemaining>=0&&x.trialDaysRemaining<=7).length,inactive:rows.filter(x=>!x.lastActiveAt||now-new Date(x.lastActiveAt).getTime()>259200000).length,events7d:usageEvents.filter(e=>now-new Date(e.occurredAt).getTime()<=7*86400000).length,events30d:usageEvents.length}});
   }
   if (path === '/platform/audit-logs') {
     const search = (sp.get('search') || '').toLowerCase(); const action = sp.get('action') || '';
@@ -3313,6 +3325,23 @@ async function platformGet(db, session, path, sp) {
 async function platformPost(db, session, path, body, request) {
   const now = new Date().toISOString();
   if (path.startsWith('/platform/safarcurated/')) return scPlatformAction(db, session, path, request);
+  if (path === '/platform/notifications') {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const title=str(body.title,120).trim(), message=str(body.message,2000).trim();
+    const agencyIds=Array.isArray(body.agencyIds)?[...new Set(body.agencyIds.map(x=>str(x,100)).filter(Boolean))].slice(0,200):[];
+    if(!title||!message||!agencyIds.length)return err('Choose at least one agency and enter a title and message.');
+    const agencies=await db.collection('agencies').find({id:{$in:agencyIds}},{projection:{_id:0,id:1,name:1}}).toArray();
+    if(!agencies.length)return err('No matching agencies were found.');
+    const users=await db.collection('users').find({agencyId:{$in:agencies.map(a=>a.id)},status:{$ne:'suspended'}},{projection:{_id:0,email:1}}).toArray();
+    const now=new Date().toISOString(),campaignId=uuidv4(),kind=['info','success','warning'].includes(body.kind)?body.kind:'info';
+    await db.collection('agencyNotifications').insertMany(agencies.map(a=>({id:uuidv4(),campaignId,agencyId:a.id,title,message,kind,createdAt:now,createdBy:session.adminId,readBy:[]})));
+    let emailSent=0,emailFailed=0;
+    if(body.sendEmail===true){const recipients=[...new Set(users.map(u=>String(u.email||'').trim().toLowerCase()).filter(e=>EMAIL_ADDR_RE.test(e)))];for(const to of recipients){const result=await sendEmail(db,{to,subject:`SafarOS: ${title}`,html:emailLayout(title,`<p>${message.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\n/g,'<br/>')}</p>`),text:message});if(result.ok)emailSent++;else emailFailed++;}}
+    const campaign={id:campaignId,title,message,kind,agencyIds:agencies.map(a=>a.id),agencyCount:agencies.length,sendEmail:body.sendEmail===true,emailSent,emailFailed,createdAt:now,createdBy:session.adminId};
+    await db.collection('platformAgencyNotifications').insertOne(campaign);
+    await platformAudit(db,session,request,{action:'agency_notification.sent',targetType:'notification',targetId:campaignId,metadata:{agencyCount:agencies.length,sendEmail:body.sendEmail===true,emailSent,emailFailed}});
+    return json({ok:true,campaign},201);
+  }
   if (path === '/platform/prospecting/leads') {
     if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
     const name = str(body.name,180).trim(); if (!name) return err('Business name is required');
