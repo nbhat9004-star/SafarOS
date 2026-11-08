@@ -3738,6 +3738,12 @@ export async function GET(request, context) {
       if (ps.mcp) return err('password change required', 403);
       return platformGet(pdb, ps, path, new URL(request.url).searchParams);
     }
+    if (path === '/notifications') {
+      const session=getSession(request); if(!session)return err('unauthenticated',401);
+      const db=await getDb();
+      const items=await db.collection('agencyNotifications').find({agencyId:session.agencyId},{projection:{_id:0}}).sort({createdAt:-1}).limit(50).toArray();
+      return json({notifications:items.map(n=>({...n,read:Array.isArray(n.readBy)&&n.readBy.includes(session.userId)}))});
+    }
     if (path === '/' || path === '') {
       return json({ app: 'SafarOS', status: 'ok', message: 'SafarOS API — B2B multi-tenant foundation' });
     }
@@ -4609,6 +4615,13 @@ export async function POST(request, context) {
       return platformPost(db, ps, path, await readBody(request), request);
     }
 
+    if (path === '/usage/event') {
+      const session=getSession(request); if(!session)return err('unauthenticated',401);
+      const body=await readBody(request), allowed=['overview','crm','leads','clients','contacts','followups','tasks','activities','quotations','packages','itineraries','suppliers','discover','bookings','fleet','inventory','marketplace','finance','communications','analytics','billing','integrations','portal','documents','customfields'];
+      const feature=String(body.feature||'').toLowerCase(); if(!allowed.includes(feature))return err('Unknown usage feature');
+      await db.collection('agencyUsageEvents').insertOne({id:uuidv4(),agencyId:session.agencyId,userId:session.userId,feature,action:'view',occurredAt:new Date().toISOString()});
+      return json({ok:true});
+    }
     // ---- Landing page early-access / contact form (public, no auth) ----
     if (path === '/early-access') return earlyAccessSubmit(db, await readBody(request));
 
@@ -5523,6 +5536,12 @@ export async function PUT(request, context) {
   const params = await context.params;
   const path = pathOf(params);
   try {
+    if (path === '/notifications/read') {
+      const session=getSession(request); if(!session)return err('unauthenticated',401);
+      const body=await readBody(request), ids=Array.isArray(body.ids)?body.ids.slice(0,100):[];
+      if(ids.length)await (await getDb()).collection('agencyNotifications').updateMany({agencyId:session.agencyId,id:{$in:ids}},{ $addToSet:{readBy:session.userId} });
+      return json({ok:true});
+    }
     // Customer Portal profile update (portal session; isolated from staff auth) — intercept first.
     if (path.startsWith('/portal/')) {
       const ps = getPortalSession(request);
