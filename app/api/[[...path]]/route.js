@@ -3330,13 +3330,13 @@ async function platformPost(db, session, path, body, request) {
     const title=str(body.title,120).trim(), message=str(body.message,2000).trim();
     const agencyIds=Array.isArray(body.agencyIds)?[...new Set(body.agencyIds.map(x=>str(x,100)).filter(Boolean))].slice(0,200):[];
     if(!title||!message||!agencyIds.length)return err('Choose at least one agency and enter a title and message.');
-    const agencies=await db.collection('agencies').find({id:{$in:agencyIds}},{projection:{_id:0,id:1,name:1}}).toArray();
+    const agencies=await db.collection('agencies').find({id:{$in:agencyIds},status:{$nin:['suspended','deleted']}},{projection:{_id:0,id:1,name:1}}).toArray();
     if(!agencies.length)return err('No matching agencies were found.');
-    const users=await db.collection('users').find({agencyId:{$in:agencies.map(a=>a.id)},status:{$ne:'suspended'}},{projection:{_id:0,email:1}}).toArray();
+    const users=await db.collection('users').find({agencyId:{$in:agencies.map(a=>a.id)},status:{$ne:'suspended'}},{projection:{_id:0,agencyId:1,email:1}}).toArray();
     const now=new Date().toISOString(),campaignId=uuidv4(),kind=['info','success','warning'].includes(body.kind)?body.kind:'info';
     await db.collection('agencyNotifications').insertMany(agencies.map(a=>({id:uuidv4(),campaignId,agencyId:a.id,title,message,kind,createdAt:now,createdBy:session.adminId,readBy:[]})));
     let emailSent=0,emailFailed=0;
-    if(body.sendEmail===true){const recipients=[...new Set(users.map(u=>String(u.email||'').trim().toLowerCase()).filter(e=>EMAIL_ADDR_RE.test(e)))];for(const to of recipients){const result=await sendEmail(db,{to,subject:`SafarOS: ${title}`,html:emailLayout(title,`<p>${message.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\n/g,'<br/>')}</p>`),text:message});if(result.ok)emailSent++;else emailFailed++;}}
+    if(body.sendEmail===true){const recipients=[...new Map(users.map(u=>[`${u.agencyId}:${String(u.email||'').trim().toLowerCase()}`,{agencyId:u.agencyId,to:String(u.email||'').trim().toLowerCase()}]).filter(([,r])=>EMAIL_ADDR_RE.test(r.to))).values()];for(const recipient of recipients){const result=await sendEmail(db,{to:recipient.to,agencyId:recipient.agencyId,subject:`SafarOS: ${title}`,html:emailLayout(title,`<p>${message.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\n/g,'<br/>')}</p>`),text:message});if(result.ok)emailSent++;else emailFailed++;}}
     const campaign={id:campaignId,title,message,kind,agencyIds:agencies.map(a=>a.id),agencyCount:agencies.length,sendEmail:body.sendEmail===true,emailSent,emailFailed,createdAt:now,createdBy:session.adminId};
     await db.collection('platformAgencyNotifications').insertOne(campaign);
     await platformAudit(db,session,request,{action:'agency_notification.sent',targetType:'notification',targetId:campaignId,metadata:{agencyCount:agencies.length,sendEmail:body.sendEmail===true,emailSent,emailFailed}});
