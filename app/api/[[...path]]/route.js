@@ -1438,8 +1438,8 @@ async function aiPost(db, session, path, body) {
   const userMsg = { role: 'user', text: message, at: now };
   const aiMsg = { role: 'assistant', text: reply, at: new Date().toISOString() };
   try {
-    const { messages: _storedMessages, ...conversationMeta } = conv;
-    await db.collection('aiConversations').updateOne(tenantFilter(session, { id: conv.id }), {
+    const { messages: _storedMessages, updatedAt: _oldUpdatedAt, ...conversationMeta } = conv;
+    await db.collection('aiConversations').updateOne(tenantFilter(session, { id: conv.id, userId: session.userId }), {
       $push: { messages: { $each: [userMsg, aiMsg] } },
       $set: { updatedAt: new Date().toISOString() },
       $setOnInsert: conversationMeta,
