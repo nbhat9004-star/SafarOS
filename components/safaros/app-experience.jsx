@@ -229,6 +229,7 @@ const NAV = [
     items: [
       { id: 'quotations', label: 'Quotations', icon: FileText },
       { id: 'quote-create', label: 'Create Quotation', icon: FilePlus },
+      { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles },
     ],
   },
   {
@@ -237,7 +238,6 @@ const NAV = [
       { id: 'discover', label: 'Discover Suppliers', icon: Compass },
       { id: 'packages', label: 'Packages', icon: Package },
       { id: 'supply-hub', label: 'Supply Hub', icon: Database },
-      { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles },
       { id: 'itineraries', label: 'Itineraries', icon: Map },
       { id: 'suppliers', label: 'Suppliers', icon: Store },
       { id: 'bookings', label: 'Bookings', icon: ClipboardList },
