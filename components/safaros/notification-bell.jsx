@@ -134,7 +134,7 @@ export default function NotificationBell() {
           </div>
           <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-8">
             <div className="flex flex-wrap gap-2">
-              {['all','announcement','system','billing','security','maintenance'].map((c) => <button key={c} onClick={() => setCategoryFilter(c)} className={`rounded-full px-3 py-1.5 text-xs font-medium capitalize ${categoryFilter === c ? 'bg-indigo-600 text-white' : 'border border-border text-muted-foreground hover:bg-accent'}`}>{c === 'all' ? 'All' : c}</button>)}
+              {['all','announcement','system','booking','billing','security','maintenance'].map((c) => <button key={c} onClick={() => setCategoryFilter(c)} className={`rounded-full px-3 py-1.5 text-xs font-medium capitalize ${categoryFilter === c ? 'bg-indigo-600 text-white' : 'border border-border text-muted-foreground hover:bg-accent'}`}>{c === 'all' ? 'All' : c}</button>)}
             </div>
             <button onClick={async () => { try { await request('/api/notifications?all=true', { method: 'DELETE' }); setItems([]); setUnread(0); } catch (e) { setError(e.message); } }} className="text-xs font-medium text-rose-600 hover:underline">Clear history</button>
           </div>
