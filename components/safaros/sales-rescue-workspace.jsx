@@ -73,7 +73,7 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
       const hay = textOf([p.name,p.destination,p.description,p.duration,p.nights].join(' '));
       const isBase = !base || hay.includes(base) || base.includes(textOf(p.name));
       const price = getPrice(p);
-      const within = budget == null || price == null || Number(price) <= budget;
+      const within = budget == null || (price != null && Number(price) <= budget);
       return isBase && within;
     });
     const itemMatches = inventory.filter(item => {
@@ -86,7 +86,7 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
       return { ...item, rate, sellingGuidePrice: rate?.sellingGuidePrice, netCost: rate?.netCost, currency: rate?.currency || 'INR', resultType: 'inventory' };
     }).filter(item => {
       const price = getPrice(item);
-      return budget == null || price == null || Number(price) <= budget;
+      return budget == null || (price != null && Number(price) <= budget);
     });
     const matched = [
       ...pkgMatches.map(p => ({ ...p, resultType: 'package' })),
