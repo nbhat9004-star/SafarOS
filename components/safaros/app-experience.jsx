@@ -30,6 +30,8 @@ import { useLocalization } from '@/components/safaros/localization-provider';
 import { GCC_COUNTRIES, SUPPORTED_CURRENCIES, getCountryDefaults } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
+import SupplyHubWorkspace from '@/components/safaros/supply-hub-workspace';
+import SalesRescueWorkspace from '@/components/safaros/sales-rescue-workspace';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
@@ -234,6 +236,8 @@ const NAV = [
     items: [
       { id: 'discover', label: 'Discover Suppliers', icon: Compass },
       { id: 'packages', label: 'Packages', icon: Package },
+      { id: 'supply-hub', label: 'Supply Hub', icon: Database },
+      { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles },
       { id: 'itineraries', label: 'Itineraries', icon: Map },
       { id: 'suppliers', label: 'Suppliers', icon: Store },
       { id: 'bookings', label: 'Bookings', icon: ClipboardList },
@@ -315,7 +319,7 @@ const SECTION_TITLES = {
   overview: 'Overview', crm: 'CRM Dashboard', leads: 'Leads', clients: 'Clients',
   contacts: 'Contacts', followups: 'Follow-ups', tasks: 'Tasks', activities: 'Activities',
   quotations: 'Quotations', 'quote-create': 'Create Quotation',
-  packages: 'Packages', itineraries: 'Itineraries',
+  packages: 'Packages', 'supply-hub': 'Supply Hub', 'sales-rescue': 'Sales Rescue', itineraries: 'Itineraries',
   suppliers: 'Suppliers',
   discover: 'Discover Suppliers',
   bookings: 'Bookings',
@@ -400,10 +404,10 @@ const MOBILE_NAV = [
     { id: 'contacts', label: 'Contacts' }, { id: 'followups', label: 'Follow-ups' }, { id: 'tasks', label: 'Tasks' }, { id: 'activities', label: 'Activities' },
   ] },
   { id: 'sales', label: 'Sales', icon: FileText, items: [
-    { id: 'quotations', label: 'Quotations' }, { id: 'quote-create', label: 'Create Quotation' }, { id: 'packages', label: 'Packages' },
+    { id: 'quotations', label: 'Quotations' }, { id: 'quote-create', label: 'Create Quotation' }, { id: 'packages', label: 'Packages' }, { id: 'sales-rescue', label: 'Sales Rescue' },
   ] },
   { id: 'operations', label: 'Operations', icon: Truck, items: [
-    { id: 'itineraries', label: 'Itineraries' }, { id: 'bookings', label: 'Bookings' }, { id: 'suppliers', label: 'Suppliers' }, { id: 'fleet', label: 'Fleet' }, { id: 'inventory', label: 'Travel Inventory' },
+    { id: 'itineraries', label: 'Itineraries' }, { id: 'supply-hub', label: 'Supply Hub' }, { id: 'bookings', label: 'Bookings' }, { id: 'suppliers', label: 'Suppliers' }, { id: 'fleet', label: 'Fleet' }, { id: 'inventory', label: 'Travel Inventory' },
   ] },
   { id: 'finance', label: 'Finance', icon: Wallet, items: [
     { id: 'fin_dashboard', label: 'Finance Dashboard' }, { id: 'fin_transactions', label: 'Transactions' }, { id: 'fin_receivables', label: 'Customer Receivables' },
@@ -439,9 +443,11 @@ const DESKTOP_WORKSPACES = [
     { id: 'quotations', label: 'Quotations', desc: 'Create and manage quotes', icon: FileText, tone: 'violet' },
     { id: 'quote-create', label: 'Create Quotation', desc: 'Start a new quotation', icon: FilePlus, tone: 'emerald' },
     { id: 'packages', label: 'Packages', desc: 'Travel packages', icon: Package, tone: 'amber' },
+    { id: 'sales-rescue', label: 'Sales Rescue', desc: 'Find alternatives while the customer is still chatting', icon: Sparkles, tone: 'violet' },
   ] },
   { id: 'operations', label: 'Operations', icon: Truck, subtitle: 'Itineraries, bookings, suppliers & fleet', tiles: [
     { id: 'itineraries', label: 'Itineraries', desc: 'Day-by-day travel plans', icon: Map, tone: 'violet' },
+    { id: 'supply-hub', label: 'Supply Hub', desc: 'Discover and manage your complete travel supply', icon: Database, tone: 'emerald' },
     { id: 'bookings', label: 'Bookings', desc: 'Manage bookings', icon: ClipboardList, tone: 'sky' },
     { id: 'suppliers', label: 'Suppliers', desc: 'Supplier management', icon: Store, tone: 'emerald' },
     { id: 'fleet', label: 'Fleet', desc: 'Vehicles and drivers', icon: Truck, tone: 'amber' },
@@ -1335,6 +1341,8 @@ function Dashboard({ session, onLogout }) {
           {active === 'bookings' && <Bookings key="bk" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'fleet' && <Fleet key="fleet" session={session} />}
           {active === 'inventory' && <InventoryWorkspace key="inventory" />}
+          {active === 'supply-hub' && <SupplyHubWorkspace onNavigate={setActive} />}
+          {active === 'sales-rescue' && <SalesRescueWorkspace onNavigate={setActive} />}
           {active === 'marketplace' && <MarketplaceWorkspace key="marketplace" />}
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
