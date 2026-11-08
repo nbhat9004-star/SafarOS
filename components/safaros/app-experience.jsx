@@ -1266,7 +1266,7 @@ function Dashboard({ session, onLogout }) {
   const { user, agency } = session;
   const loadNotifications = async () => { try { const d=await api('/notifications'); setNotifications(d.notifications||[]); } catch { /* notifications are non-blocking */ } };
   useEffect(() => { loadNotifications(); const timer=setInterval(loadNotifications,60000); return () => clearInterval(timer); }, []);
-  useEffect(() => { const feature=String(active||'overview').replace(/^fin_/,'finance').replace(/^comm_/,'communications').replace(/^an_/,'analytics').replace(/^sub_/,'billing').replace(/^int_/,'integrations').replace(/^ws:/,''); api('/usage/event',{method:'POST',body:JSON.stringify({feature})}).catch(()=>{}); }, [active]);
+  useEffect(() => { const raw=String(active||'overview'); const feature=raw.startsWith('fin_')?'finance':raw.startsWith('comm_')?'communications':raw.startsWith('an_')?'analytics':raw.startsWith('sub_')?'billing':raw.startsWith('int_')?'integrations':raw.startsWith('ws:')?raw.slice(3):raw; api('/usage/event',{method:'POST',body:JSON.stringify({feature})}).catch(()=>{}); }, [active]);
   const markNotificationRead = async (item) => { if(item.read)return; try { await api('/notifications/read',{method:'PUT',body:JSON.stringify({ids:[item.id]})}); setNotifications(rows=>rows.map(n=>n.id===item.id?{...n,read:true}:n)); } catch { /* ignore */ } };
   const go = (id) => { setActive(id); setMenuOpen(false); };
   const navigateTo = (id, payload = null) => { setNavPayload(payload); setActive(id); setMenuOpen(false); };
