@@ -44,7 +44,7 @@ import {
   Banknote, Printer, Undo2,
   MessageSquare, Sparkles, Send, Bot, Megaphone, UserCog, ExternalLink,
   Palette, Gauge, PieChart, Compass, Star, LayoutGrid, ChevronRight,
-  Upload, Download, Database, Loader2, AlertCircle, FileSpreadsheet, Ticket, Plug,
+  Upload, Download, Database, Loader2, AlertCircle, FileSpreadsheet, Ticket, Plug, Bell,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -1261,7 +1261,13 @@ function Dashboard({ session, onLogout }) {
   const [active, setActive] = useState('overview');
   const [menuOpen, setMenuOpen] = useState(false);
   const [navPayload, setNavPayload] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const { user, agency } = session;
+  const loadNotifications = async () => { try { const d=await api('/notifications'); setNotifications(d.notifications||[]); } catch { /* notifications are non-blocking */ } };
+  useEffect(() => { loadNotifications(); const timer=setInterval(loadNotifications,60000); return () => clearInterval(timer); }, []);
+  useEffect(() => { const feature=String(active||'overview').replace(/^fin_/,'finance').replace(/^comm_/,'communications').replace(/^an_/,'analytics').replace(/^sub_/,'billing').replace(/^int_/,'integrations').replace(/^ws:/,''); api('/usage/event',{method:'POST',body:JSON.stringify({feature})}).catch(()=>{}); }, [active]);
+  const markNotificationRead = async (item) => { if(item.read)return; try { await api('/notifications/read',{method:'PUT',body:JSON.stringify({ids:[item.id]})}); setNotifications(rows=>rows.map(n=>n.id===item.id?{...n,read:true}:n)); } catch { /* ignore */ } };
   const go = (id) => { setActive(id); setMenuOpen(false); };
   const navigateTo = (id, payload = null) => { setNavPayload(payload); setActive(id); setMenuOpen(false); };
   const initials = (agency?.name || 'S').trim().charAt(0).toUpperCase();
@@ -1336,6 +1342,17 @@ function Dashboard({ session, onLogout }) {
           <div className="flex items-center gap-2 sm:gap-3">
             <GlobalSearch onNavigate={go} />
             <SyncStatusIndicator />
+            <div className="relative">
+              <Button variant="outline" size="icon" aria-label="Notifications" onClick={()=>setNotificationsOpen(v=>!v)} className="relative">
+                <Bell className="h-4 w-4" />
+                {notifications.some(n=>!n.read) && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-background bg-rose-500" />}
+              </Button>
+              {notificationsOpen && <div className="absolute right-0 top-12 z-50 w-[min(360px,calc(100vw-2rem))] rounded-xl border border-border bg-background p-3 shadow-xl">
+                <div className="mb-2 flex items-center justify-between"><span className="font-semibold">Notifications</span><span className="text-xs text-muted-foreground">{notifications.filter(n=>!n.read).length} unread</span></div>
+                <div className="max-h-80 space-y-2 overflow-y-auto">{notifications.length===0?<p className="py-6 text-center text-sm text-muted-foreground">You're all caught up.</p>:notifications.map(n=><button key={n.id} onClick={()=>markNotificationRead(n)} className={`block w-full rounded-lg border p-3 text-left ${n.read?'border-border bg-background':'border-violet-200 bg-violet-50/70'}`}><div className="text-sm font-semibold">{n.title}</div><p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{n.message}</p><div className="mt-2 text-[10px] text-muted-foreground">{fdt(n.createdAt)}</div></button>)}</div>
+                <button className="mt-2 w-full rounded-md border px-3 py-2 text-xs font-medium hover:bg-accent" onClick={()=>{loadNotifications();setNotificationsOpen(false);}}>Refresh</button>
+              </div>}
+            </div>
             <div className="hidden items-center gap-2.5 rounded-full border border-border bg-background px-2 py-1 pr-3 sm:flex">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-[11px] font-bold text-white">{userInitial}</div>
               <div className="text-right leading-tight">
