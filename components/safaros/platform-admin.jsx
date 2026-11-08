@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus, Target, Activity, Phone, Mail, ExternalLink, MessageCircle,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus, Target, Activity, Phone, Mail, ExternalLink, MessageCircle, Bell,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -52,6 +52,7 @@ const NAV = [
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'prospecting', label: 'Lead Discovery', icon: Target },
   { id: 'usage', label: 'Agency Usage & Growth', icon: Activity },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'audit', label: 'Audit Logs', icon: ScrollText },
   { id: 'settings', label: 'Platform Settings', icon: SettingsIcon },
 ];
@@ -735,6 +736,26 @@ function EmailSettingsCard({ adminEmail }) {
     </CardContent></Card>);
 }
 
+// ---------- Central platform notification centre ----------
+function PlatformNotificationsView() {
+  const [items,setItems]=useState([]),[title,setTitle]=useState(''),[message,setMessage]=useState(''),[kind,setKind]=useState('info'),[busy,setBusy]=useState(false);
+  const load=async()=>{try{const d=await api('/notifications/inbox');setItems(d.notifications||[]);}catch(e){toast.error(e.message);}};
+  useEffect(()=>{load();},[]);
+  const send=async()=>{if(!title.trim()||!message.trim()){toast.error('Enter a title and message.');return;}setBusy(true);try{await api('/notifications/system',{method:'POST',body:JSON.stringify({title,message,kind})});toast.success('Platform notification published.');setTitle('');setMessage('');await load();}catch(e){toast.error(e.message);}finally{setBusy(false);}};
+  const markRead=async(n)=>{if(n.read)return;try{await api('/notifications/'+n.id+'/read',{method:'PUT',body:JSON.stringify({})});setItems(rows=>rows.map(x=>x.id===n.id?{...x,read:true}:x));}catch(e){toast.error(e.message);}};
+  return <div className="space-y-5">
+    <div><h2 className="text-xl font-semibold">Central Notification Centre</h2><p className="text-sm text-muted-foreground">Publish platform-wide announcements to Super Admin accounts and review notification history.</p></div>
+    <Card><CardHeader><CardTitle>New platform announcement</CardTitle></CardHeader><CardContent className="space-y-3">
+      <Input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Notification title"/>
+      <Textarea value={message} onChange={e=>setMessage(e.target.value)} placeholder="Write your announcement..." rows={4}/>
+      <div className="flex flex-wrap items-center gap-3"><Select value={kind} onValueChange={setKind}><SelectTrigger className="w-40"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="info">Information</SelectItem><SelectItem value="success">Success</SelectItem><SelectItem value="warning">Important</SelectItem></SelectContent></Select><Button onClick={send} disabled={busy}>{busy?'Publishing…':'Publish announcement'}</Button></div>
+      <p className="text-xs text-muted-foreground">This first release targets platform administrator accounts. Agency announcements remain managed through Agency Usage & Growth.</p>
+    </CardContent></Card>
+    <div className="space-y-2"><div className="flex items-center justify-between"><h3 className="font-semibold">Platform notification history</h3><Button variant="outline" size="sm" onClick={load}>Refresh</Button></div>
+      {items.length===0?<Card><CardContent className="p-6 text-center text-sm text-muted-foreground">No platform notifications yet.</CardContent></Card>:items.map(n=><button key={n.id} onClick={()=>markRead(n)} className={'w-full rounded-lg border p-4 text-left '+(n.read?'bg-white':'border-violet-300 bg-violet-50')}><div className="flex items-center justify-between gap-2"><span className="font-semibold">{n.title}</span><Badge variant="outline">{n.read?'Read':'Unread'}</Badge></div><p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{n.message}</p><div className="mt-2 text-xs text-muted-foreground">{new Date(n.createdAt).toLocaleString()}</div></button>)}
+    </div>
+  </div>;
+}
 // ---------- Forced password change (temporary password) ----------
 function ForcePasswordChange({ admin, onDone, onLogout }) {
   const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
@@ -821,7 +842,7 @@ export default function PlatformAdmin() {
         <span className="ml-auto truncate text-xs text-slate-400">{TITLES[section]}</span>
       </header>
       {/* Desktop header */}
-      <header className="hidden md:flex items-center justify-between border-b bg-white px-6 py-4"><h1 className="text-lg font-semibold text-slate-900">{TITLES[section]}</h1><Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> super_admin</Badge></header>
+      <header className="hidden md:flex items-center justify-between border-b bg-white px-6 py-4"><h1 className="text-lg font-semibold text-slate-900">{TITLES[section]}</h1><div className="flex items-center gap-3"><Button variant="ghost" size="icon" aria-label="Open notifications" onClick={()=>setSection("notifications")}><Bell className="h-5 w-5" /></Button><Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200"><ShieldCheck className="mr-1 h-3.5 w-3.5" /> super_admin</Badge></div></header>
       {admin.mustChangePassword && section !== 'settings' && (<div className="mx-4 mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:mx-6">For security, please change your temporary password in <button className="font-medium underline" onClick={() => setSection('settings')}>Platform Settings → Security</button>.</div>)}
       <div className="p-4 sm:p-6">
         {section === 'dashboard' && <DashboardView />}
@@ -837,6 +858,7 @@ export default function PlatformAdmin() {
         {section === 'analytics' && <AnalyticsView />}
         {section === 'prospecting' && <ProspectingView />}
         {section === 'usage' && <UsageGrowthView />}
+        {section === 'notifications' && <PlatformNotificationsView />}
         {section === 'audit' && <AuditView />}
         {section === 'settings' && <SettingsView admin={admin} onPasswordChanged={reloadMe} />}
       </div>
