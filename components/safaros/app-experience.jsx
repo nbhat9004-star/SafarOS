@@ -31,6 +31,7 @@ import { GCC_COUNTRIES, SUPPORTED_CURRENCIES, getCountryDefaults } from '@/lib/l
 import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
+import NotificationBell from '@/components/safaros/notification-bell';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
   Trash2, Lock, Globe, Layers, ArrowLeft, Menu, X, Search, Pencil, Eye,
@@ -1293,6 +1294,7 @@ function Dashboard({ session, onLogout }) {
           <div className="flex items-center gap-2 sm:gap-3">
             <GlobalSearch onNavigate={go} />
             <SyncStatusIndicator />
+            <NotificationBell />
             <div className="hidden items-center gap-2.5 rounded-full border border-border bg-background px-2 py-1 pr-3 sm:flex">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-600 text-[11px] font-bold text-white">{userInitial}</div>
               <div className="text-right leading-tight">
