@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ArrowRight, BedDouble, Car, Compass, Database, Package, Plus, Search, Sparkles, Store, Truck, Upload, Users, CalendarClock, RefreshCw, MapPin, Phone, Mail, ShieldCheck } from 'lucide-react';
+import { AlertCircle, ArrowRight, BedDouble, Car, Compass, Database, Plus, Search, Sparkles, Store, Truck, Upload, Users, CalendarClock, RefreshCw, MapPin, Phone, ShieldCheck } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
