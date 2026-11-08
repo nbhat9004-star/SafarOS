@@ -36,7 +36,6 @@ const money = (n, c = 'INR') => `${c} ${Number(n || 0).toLocaleString()}`;
 const fdate = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return '—'; } };
 const fdt = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return '—'; } };
 const humanize = (k) => String(k).replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
-const Stat = ({ label, value }) => <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{label}</div><div className="mt-1 text-2xl font-semibold">{Number(value || 0).toLocaleString()}</div></CardContent></Card>;
 
 
 const NAV = [
