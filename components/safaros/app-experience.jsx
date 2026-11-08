@@ -1338,7 +1338,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'marketplace' && <MarketplaceWorkspace key="marketplace" />}
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
-          {active === 'copilot' && <Safar IntelligenceWorkspace session={session} />}
+          {active === 'copilot' && <CopilotWorkspace session={session} />}
           {String(active).startsWith('web_') && <Website key="web" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('web_' + t)} />}
           {String(active).startsWith('an_') && <Analytics key="an" session={session} tab={String(active).slice(3)} onNav={(t) => setActive('an_' + t)} />}
           {String(active).startsWith('sub_') && <Billing key="sub" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('sub_' + t)} />}
@@ -1358,7 +1358,7 @@ function Dashboard({ session, onLogout }) {
         </div>
       </main>
 
-      <Safar IntelligenceFab session={session} />
+      <CopilotFab session={session} />
 
       {/* Mobile navigation drawer */}
       <div className={`fixed inset-0 z-50 overflow-hidden md:hidden ${menuOpen ? '' : 'pointer-events-none'}`}>
@@ -6916,7 +6916,7 @@ const COPILOT_SUGGESTIONS = [
   'Draft a friendly payment reminder',
 ];
 
-function Safar IntelligenceChat({ session }) {
+function CopilotChat({ session }) {
   const [status, setStatus] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -6973,17 +6973,17 @@ function Safar IntelligenceChat({ session }) {
   </div>);
 }
 
-function Safar IntelligenceWorkspace({ session }) {
-  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Safar Intelligence</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><Safar IntelligenceChat session={session} /></CardContent></Card>);
+function CopilotWorkspace({ session }) {
+  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Safar Intelligence</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
 }
 
-function Safar IntelligenceFab({ session }) {
+function CopilotFab({ session }) {
   const [open, setOpen] = useState(false);
   const role = session && session.user && session.user.role;
   if (role && !can(role, 'ai:use')) return null;
   return (<>
     <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Safar Intelligence">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
-    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Safar Intelligence</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><Safar IntelligenceChat session={session} /></div></div>}
+    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Safar Intelligence</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
   </>);
 }
 
