@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ArrowRight, BedDouble, Car, CheckCircle2, Clipboard, FilePlus2, Loader2, Package, Search, Sparkles, Wallet, X, Plus, Minus, TrendingUp } from 'lucide-react';
+import { AlertCircle, ArrowRight, BedDouble, Car, CheckCircle2, Clipboard, FilePlus2, Loader2, Package, Search, Sparkles, X, Plus, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
