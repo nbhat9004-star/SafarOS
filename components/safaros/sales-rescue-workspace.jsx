@@ -34,7 +34,7 @@ const getCost = (p) => [p.netCost, p.unitCost, p.costPrice, p.cost]
   .find(v => v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v)));
 const textOf = (v) => String(v || '').toLowerCase();
 const cleanWords = (v) => textOf(v).split(/[^a-z0-9]+/)
-  .filter(w => w.length > 2 && !['under','below','less','than','maximum','within','budget','upto','the','and','for','with','same','keep','want','need','include','including','please','package','hotel','hotels','option','options'].includes(w));
+  .filter(w => /^[a-z]{3,}$/.test(w) && !['under','below','less','than','maximum','within','budget','upto','the','and','for','with','same','keep','want','need','include','including','please','package','hotel','hotels','option','options'].includes(w));
 
 function parseBudget(text) {
   const s = String(text || '').replace(/,/g, '');
@@ -169,9 +169,13 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
   };
 
   const updateLine = (sourceId, field, value) => {
-    setSelected(cur => cur.map(line => line.sourceId === sourceId
-      ? { ...line, [field]: field === 'quantity' ? Math.max(1, number(value, 1)) : Math.max(0, number(value, 0)) }
-      : line));
+    setSelected(cur => cur.map(line => {
+      if (line.sourceId !== sourceId) return line;
+      const next = { ...line, [field]: field === 'quantity' ? Math.max(1, number(value, 1)) : Math.max(0, number(value, 0)) };
+      if (field === 'sellingPrice') next.priceKnown = value !== '';
+      if (field === 'unitCost') next.costKnown = value !== '';
+      return next;
+    }));
   };
   const removeLine = (sourceId) => setSelected(cur => cur.filter(x => x.sourceId !== sourceId));
 
