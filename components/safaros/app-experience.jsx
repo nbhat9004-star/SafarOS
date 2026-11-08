@@ -460,7 +460,7 @@ const DESKTOP_WORKSPACES = [
   { id: 'discover', label: 'Discover', icon: Compass, direct: 'discover' },
   { id: 'more', label: 'More', icon: LayoutGrid, subtitle: 'Communications, tools & settings', tiles: [
     { id: 'comm_inbox', label: 'Communications', desc: 'Inbox, templates & logs', icon: MessageSquare, tone: 'sky' },
-    { id: 'copilot', label: 'AI Copilot', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
+    { id: 'copilot', label: 'AI Copilot', desc: 'Your agency intelligence assistant', icon: Sparkles, tone: 'violet' },
     { id: 'an_overview', label: 'Analytics', desc: 'Business insights & reports', icon: Gauge, tone: 'emerald' },
     { id: 'travelrules', label: 'Travel Intelligence', desc: 'Rules & surcharges', icon: MapPin, tone: 'violet' },
     { id: 'documents', label: 'Document Vault', desc: 'Secure document storage', icon: FileText, tone: 'sky' },
@@ -6906,7 +6906,7 @@ function ChannelIntegrations({ session }) {
   </div>;
 }
 
-// ======================= AI COPILOT UI (Phase 5.4) =======================
+// ======================= SAFAR INTELLIGENCE UI =======================
 const COPILOT_SUGGESTIONS = [
   "Give me today's business priorities",
   'Which follow-ups are due?',
@@ -6921,25 +6921,60 @@ function CopilotChat({ session }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [diagnostic, setDiagnostic] = useState(null);
   const [conv, setConv] = useState(null);
   useEffect(() => { (async () => { try { const s = await api('/ai/status'); setStatus(s); } catch { setStatus({ configured: false }); } })(); }, []);
-  const send = async (text) => { const msg = (text || input).trim(); if (!msg || busy) return; setInput(''); setMessages((m) => [...m, { role: 'user', text: msg }]); setBusy(true); try { const d = await api('/ai/chat', { method: 'POST', body: JSON.stringify({ conversationId: conv, message: msg }) }); setConv(d.conversationId); setMessages((m) => [...m, { role: 'assistant', text: d.reply }]); } catch (e) { setMessages((m) => [...m, { role: 'assistant', text: friendlyError(e), error: true }]); } finally { setBusy(false); } };
+  const testConnection = async () => {
+    if (testing) return;
+    setTesting(true); setDiagnostic(null);
+    try { setDiagnostic(await api('/ai/diagnostics', { method: 'POST', body: JSON.stringify({}) })); }
+    catch (e) { setDiagnostic({ ok: false, checks: { error: e.message } }); }
+    finally { setTesting(false); }
+  };
+  const send = async (text) => {
+    const msg = (text || input).trim();
+    if (!msg || busy) return;
+    setInput('');
+    setMessages((m) => [...m, { role: 'user', text: msg }]);
+    setBusy(true);
+    try {
+      const d = await api('/ai/chat', { method: 'POST', body: JSON.stringify({ conversationId: conv, message: msg }) });
+      setConv(d.conversationId);
+      setMessages((m) => [...m, { role: 'assistant', text: d.reply }]);
+    } catch (e) {
+      setMessages((m) => [...m, { role: 'assistant', text: e.message || 'Safar Intelligence could not complete the request.', error: true }]);
+    } finally { setBusy(false); }
+  };
   return (<div className="flex flex-col h-full min-h-0">
-    {status && !status.configured && <div className="m-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">AI Copilot is not configured. Set <code>ANTHROPIC_API_KEY</code> on the server to enable it — the rest of SafarOS keeps working normally.</div>}
+    {status && !status.configured && <div className="m-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">No active AI provider is configured. Check Super Admin → AI Platforms.</div>}
+    <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+      <div className="text-xs text-muted-foreground">{status?.configured ? 'Connected · ' + (status.provider || 'AI provider') + ' · ' + (status.model || 'model') : 'Checking AI configuration…'}</div>
+      <Button type="button" size="sm" variant="outline" onClick={testConnection} disabled={testing || !status?.configured}>{testing ? 'Testing…' : 'Test connection'}</Button>
+    </div>
+    {diagnostic && <div className={'mx-3 mt-2 rounded-lg border p-3 text-xs ' + (diagnostic.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900')}>
+      <div className="font-semibold">{diagnostic.ok ? 'Connection and agency context are working' : 'Connection test needs attention'}</div>
+      {diagnostic.checks?.provider && <div className="mt-1">Provider: {diagnostic.checks.provider} · Model: {diagnostic.checks.model}</div>}
+      {diagnostic.checks?.context && <div>Agency context: {diagnostic.checks.context}</div>}
+      {diagnostic.checks?.providerTest && <div>AI response: {diagnostic.checks.providerTest}</div>}
+      {diagnostic.checks?.contextError && <div>{diagnostic.checks.contextError}</div>}
+      {diagnostic.checks?.providerError && <div>{diagnostic.checks.providerError}</div>}
+      {diagnostic.checks?.error && <div>{diagnostic.checks.error}</div>}
+    </div>}
     <div className="flex-1 min-h-0 overflow-auto space-y-3 p-3">
-      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
-      {messages.map((m, i) => (<div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.role === 'user' ? 'bg-primary text-primary-foreground' : m.error ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-muted'}`}>{m.text}</div></div>))}
+      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask Safar Intelligence about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
+      {messages.map((m, i) => (<div key={i} className={'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start')}><div className={'max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ' + (m.role === 'user' ? 'bg-primary text-primary-foreground' : m.error ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-muted')}>{m.text}</div></div>))}
       {busy && <div className="flex justify-start"><div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Thinking…</div></div>}
     </div>
     <div className="border-t p-2 flex gap-2">
-      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask the Copilot…" disabled={busy} />
+      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask Safar Intelligence…" disabled={busy} />
       <Button size="icon" onClick={() => send()} disabled={busy || !input.trim()}><Send className="h-4 w-4" /></Button>
     </div>
   </div>);
 }
 
 function CopilotWorkspace({ session }) {
-  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> AI Copilot</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
+  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Safar Intelligence</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
 }
 
 function CopilotFab({ session }) {
@@ -6947,8 +6982,8 @@ function CopilotFab({ session }) {
   const role = session && session.user && session.user.role;
   if (role && !can(role, 'ai:use')) return null;
   return (<>
-    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Copilot">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
-    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Copilot</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
+    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Safar Intelligence">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
+    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Safar Intelligence</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
   </>);
 }
 
