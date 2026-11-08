@@ -5231,7 +5231,7 @@ export async function POST(request, context) {
       return commPost(db, session, path, await readBody(request));
     }
 
-    if (path === '/ai/chat') {
+    if (path === '/ai/chat' || path === '/ai/diagnostics') {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'ai:use')) return err('forbidden', 403);
