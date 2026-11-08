@@ -182,7 +182,8 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
   const totals = useMemo(() => {
     const selling = selected.reduce((sum, x) => sum + x.quantity * x.sellingPrice, 0);
     const cost = selected.reduce((sum, x) => sum + x.quantity * x.unitCost, 0);
-    return { selling, cost, profit: selling - cost, margin: selling > 0 ? ((selling - cost) / selling) * 100 : 0 };
+    const costComplete = selected.every(x => x.costKnown);
+    return { selling, cost, profit: costComplete ? selling - cost : null, margin: costComplete && selling > 0 ? ((selling - cost) / selling) * 100 : null, costComplete };
   }, [selected]);
 
   const message = useMemo(() => {
@@ -213,8 +214,8 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
       toast.error('Add at least one alternative service');
       return;
     }
-    if (selected.some(x => !x.priceKnown)) {
-      toast.error('Enter a selling price for every selected service before saving');
+    if (selected.some(x => !x.priceKnown || !x.costKnown)) {
+      toast.error('Enter both supplier cost and selling price for every selected service before saving');
       return;
     }
     setSaving(true);
@@ -320,18 +321,18 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
             <label className="space-y-1 text-xs font-medium text-muted-foreground">Supplier cost / unit<input type="number" min="0" step="0.01" value={line.unitCost} onChange={e => updateLine(line.sourceId, 'unitCost', e.target.value)} className="h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground" /></label>
             <label className="space-y-1 text-xs font-medium text-muted-foreground">Selling price / unit<input type="number" min="0" step="0.01" value={line.sellingPrice} onChange={e => updateLine(line.sourceId, 'sellingPrice', e.target.value)} className="h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground" /></label>
           </div>
-          {(!line.costKnown || !line.priceKnown) && <div className="text-xs text-amber-700">{!line.costKnown ? 'Supplier cost is not in the saved rate plan. ' : ''}{!line.priceKnown ? 'Enter a selling price to save this quotation.' : ''}</div>}
+          {(!line.costKnown || !line.priceKnown) && <div className="text-xs text-amber-700">{!line.costKnown ? 'Supplier cost is missing. Enter the confirmed cost to calculate a reliable margin. ' : ''}{!line.priceKnown ? 'Enter a selling price to save this quotation.' : ''}</div>}
           <div className="text-right text-sm font-semibold">{money(line.quantity * line.sellingPrice, line.currency)}</div>
         </div>)}
       </CardContent></Card>
       <div className="grid gap-3 sm:grid-cols-3">
         <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Alternative selling total</div><div className="mt-1 text-xl font-bold">{money(totals.selling, selected[0].currency)}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Estimated supplier cost</div><div className="mt-1 text-xl font-bold">{money(totals.cost, selected[0].currency)}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="flex items-center gap-1 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" /> Estimated gross profit</div><div className={'mt-1 text-xl font-bold ' + (totals.profit < 0 ? 'text-rose-600' : 'text-emerald-700')}>{money(totals.profit, selected[0].currency)}</div><div className="text-xs text-muted-foreground">{totals.margin.toFixed(1)}% margin before tax</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Estimated supplier cost</div><div className="mt-1 text-xl font-bold">{totals.costComplete ? money(totals.cost, selected[0].currency) : 'Cost incomplete'}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="flex items-center gap-1 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" /> Estimated gross profit</div><div className={'mt-1 text-xl font-bold ' + (totals.costComplete && totals.profit < 0 ? 'text-rose-600' : 'text-emerald-700')}>{totals.costComplete ? money(totals.profit, selected[0].currency) : 'Add supplier costs'}</div><div className="text-xs text-muted-foreground">{totals.margin == null ? 'Margin unavailable until all costs are entered' : totals.margin.toFixed(1) + '% margin before tax'}</div></CardContent></Card>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-violet-50/40 p-4">
         <div><div className="font-semibold">Save a separate draft quotation</div><p className="text-sm text-muted-foreground">The original quote remains unchanged. Review the new draft before sending it to the customer.</p></div>
-        <Button onClick={createAlternative} disabled={saving || !original || selected.some(x => !x.priceKnown)}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="mr-2 h-4 w-4" />}{saving ? 'Saving…' : 'Create alternative draft'}</Button>
+        <Button onClick={createAlternative} disabled={saving || !original || selected.some(x => !x.priceKnown || !x.costKnown)}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="mr-2 h-4 w-4" />}{saving ? 'Saving…' : 'Create alternative draft'}</Button>
       </div>
       <Card><CardContent className="space-y-3 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">Customer message preview</div><p className="text-xs text-muted-foreground">Indicative wording — confirm availability before sending.</p></div><Button size="sm" variant="outline" onClick={copyMessage}><Clipboard className="mr-2 h-4 w-4" />{copied ? 'Copy again' : 'Copy message'}</Button></div><pre className="whitespace-pre-wrap rounded-lg bg-muted/50 p-3 text-sm">{message}</pre></CardContent></Card>
     </div>}
