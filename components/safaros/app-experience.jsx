@@ -3631,7 +3631,7 @@ function PackageDetail({ session, packageId, onBack, onEdit, onNavigate }) {
   const [editingItin, setEditingItin] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishSaving, setPublishSaving] = useState(false);
-  const [publishForm, setPublishForm] = useState({ price: '', currency: 'INR', seats: '', images: '', inclusions: '', exclusions: '', cancellationPolicy: '' });
+  const [publishForm, setPublishForm] = useState({ title: '', description: '', price: '', currency: 'INR', seats: '', images: '', inclusions: '', exclusions: '', cancellationPolicy: '' });
 
   const load = async () => { setLoading(true); try { const d = await api(`/packages/${packageId}`); setP(d.package); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
   useEffect(() => { load(); }, [packageId]);
@@ -3649,18 +3649,18 @@ function PackageDetail({ session, packageId, onBack, onEdit, onNavigate }) {
     const images = String(publishForm.images || '').split('\\n').map(x => x.trim()).filter(Boolean);
     const inclusions = String(publishForm.inclusions || '').split('\\n').map(x => x.trim()).filter(Boolean);
     const exclusions = String(publishForm.exclusions || '').split('\\n').map(x => x.trim()).filter(Boolean);
-    if (!(Number(publishForm.price) > 0) || !(Number(publishForm.seats) > 0) || !images.length || String(publishForm.cancellationPolicy).trim().length < 5) {
-      toast.error('Add a public price, available seats, at least one image URL and a cancellation policy'); return;
+    if (String(publishForm.title).trim().length < 3 || String(publishForm.description).trim().length < 10 || !(Number(publishForm.price) > 0) || !(Number(publishForm.seats) > 0) || !images.length || String(publishForm.cancellationPolicy).trim().length < 5) {
+      toast.error('Add a public title and description, price, available seats, at least one image URL and a cancellation policy'); return;
     }
     setPublishSaving(true);
     try {
       const payload = {
-        kind: 'marketplace', name: p.name, destination: p.destination, startDate: p.startDate || '', endDate: p.endDate || '',
-        nights: Number(p.nights) || 0, description: p.description || '',
+        kind: 'marketplace', name: publishForm.title.trim(), destination: p.destination, startDate: p.startDate || '', endDate: p.endDate || '',
+        nights: Number(p.nights) || 0, description: publishForm.description.trim(),
         marketplace: {
           price: Number(publishForm.price), currency: publishForm.currency || 'INR', seats: Number(publishForm.seats),
           images, inclusions, exclusions, cancellationPolicy: publishForm.cancellationPolicy,
-          itinerary: (itin?.days || []).map((d, i) => ({ day: i + 1, title: d.title || '', description: d.description || d.notes || '' })),
+          itinerary: [],
         },
       };
       const created = await api('/packages', { method: 'POST', body: JSON.stringify(payload) });
@@ -3689,7 +3689,7 @@ function PackageDetail({ session, packageId, onBack, onEdit, onNavigate }) {
         </div>
         <div className="flex flex-wrap gap-2">
           {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(p.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
-          {canPublish && p.kind !== 'marketplace' && <Button size="sm" onClick={() => { setPublishForm({ price: '', currency: 'INR', seats: String(Number(p.adults || 0) + Number(p.children || 0) || ''), images: '', inclusions: '', exclusions: '', cancellationPolicy: '' }); setPublishOpen(true); }}><Store className="h-4 w-4 mr-1" /> Publish on SafarCurated</Button>}
+          {canPublish && p.kind !== 'marketplace' && <Button size="sm" onClick={() => { setPublishForm({ title: p.name || '', description: '', price: '', currency: 'INR', seats: '', images: '', inclusions: '', exclusions: '', cancellationPolicy: '' }); setPublishOpen(true); }}><Store className="h-4 w-4 mr-1" /> Publish on SafarCurated</Button>}
           {canDelete && p.status === 'draft' && <Button variant="outline" size="sm" onClick={remove}><Trash2 className="h-4 w-4 mr-1 text-destructive" /> Delete</Button>}
         </div>
       </div>
@@ -3745,6 +3745,8 @@ function PackageDetail({ session, packageId, onBack, onEdit, onNavigate }) {
           <DialogHeader><DialogTitle>Prepare SafarCurated listing</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">This creates a separate public listing draft. Customer name, contact details, quotation data and private supplier costs are not copied.</p>
           <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1 sm:col-span-2"><Label>Public listing title *</Label><Input value={publishForm.title} onChange={e=>setPublishForm({...publishForm,title:e.target.value})}/></div>
+            <div className="space-y-1 sm:col-span-2"><Label>Public description *</Label><Textarea rows={4} value={publishForm.description} onChange={e=>setPublishForm({...publishForm,description:e.target.value})} placeholder="Write a customer-facing description. Do not include private customer details."/></div>
             <div className="space-y-1"><Label>Public price per traveller (₹) *</Label><Input type="number" min="1" value={publishForm.price} onChange={e=>setPublishForm({...publishForm,price:e.target.value})}/></div>
             <div className="space-y-1"><Label>Available seats *</Label><Input type="number" min="1" value={publishForm.seats} onChange={e=>setPublishForm({...publishForm,seats:e.target.value})}/></div>
             <div className="space-y-1 sm:col-span-2"><Label>Public image URLs (one HTTPS URL per line) *</Label><Textarea rows={3} value={publishForm.images} onChange={e=>setPublishForm({...publishForm,images:e.target.value})} placeholder="https://…"/></div>
