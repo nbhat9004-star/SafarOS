@@ -3381,6 +3381,32 @@ async function platformPost(db, session, path, body, request) {
     const { _id, ...safe } = doc; return json({ plan: safe }, 201);
   }
 
+  if (path === '/platform/ai-platforms/gemini/test') {
+    if (!canPlatform(session.role, 'ai:manage')) return err('forbidden', 403);
+    const config = await aiRuntimeConfig(db);
+    if (!config.configured) return err('Gemini is not configured. Save a Google AI Studio API key first.', 503);
+    if (config.provider !== 'gemini') return err('Gemini is not the active AI provider. Make Google Gemini active before testing it.', 409);
+    const startedAt = Date.now();
+    try {
+      const reply = await aiComplete({
+        db,
+        system: 'You are testing the SafarOS Gemini connection. Reply with exactly: SAFAROS_GEMINI_OK',
+        messages: [{ role: 'user', text: 'Reply with the required test phrase.' }],
+        maxTokens: 40,
+        temperature: 0,
+      });
+      const durationMs = Date.now() - startedAt;
+      const ok = !!reply && /SAFAROS_GEMINI_OK/.test(reply);
+      await platformAudit(db, session, request, { action: 'ai.gemini_connection_test', targetType: 'ai_provider', targetId: 'gemini', metadata: { ok, model: config.model, durationMs } });
+      return json({ ok, provider: 'gemini', model: config.model, durationMs, message: ok ? 'Gemini generated a test response successfully.' : 'Gemini responded, but the response did not contain the expected test phrase.' });
+    } catch (e) {
+      const durationMs = Date.now() - startedAt;
+      const safeReason = String(e.providerMessage || e.message || 'Gemini request failed').replace(/AIza[0-9A-Za-z_-]{20,}/g, '[redacted]').replace(/(key=)[^&\\s]+/gi, '$1[redacted]').slice(0, 500);
+      await platformAudit(db, session, request, { action: 'ai.gemini_connection_test', targetType: 'ai_provider', targetId: 'gemini', metadata: { ok: false, model: config.model, durationMs, status: e.providerStatus || 0, code: e.providerCode || e.code || 'unknown' } });
+      return json({ ok: false, provider: 'gemini', model: config.model, durationMs, providerStatus: e.providerStatus || null, providerCode: e.providerCode || e.code || null, message: safeReason }, e.providerStatus || 502);
+    }
+  }
+
   const aiCfg = path.match(/^\/platform\/ai-platforms\/([^/]+)\/configure$/);
   if (aiCfg) {
     if (!canPlatform(session.role, 'ai:manage')) return err('forbidden', 403);
