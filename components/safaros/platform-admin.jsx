@@ -268,7 +268,20 @@ function AiView() {
   const [data, setData] = useState(null);
   const [sel, setSel] = useState(null);
   const [form, setForm] = useState({ model: '', enabled: true, apiKey: '' });
+  const [geminiTest, setGeminiTest] = useState({ loading: false, result: null, error: '' });
   const load = useCallback(async () => { try { const d = await api('/ai-platforms'); setData(d); } catch (e) { toast.error(e.message); } }, []);
+  const testGemini = async () => {
+    setGeminiTest({ loading: true, result: null, error: '' });
+    try {
+      const result = await api('/ai-platforms/gemini/test', { method: 'POST', body: JSON.stringify({}) });
+      setGeminiTest({ loading: false, result, error: '' });
+      if (result.ok) toast.success('Gemini connection successful');
+      else toast.error('Gemini test did not pass');
+    } catch (e) {
+      setGeminiTest({ loading: false, result: null, error: e.message || 'Gemini connection test failed' });
+      toast.error(e.message || 'Gemini connection test failed');
+    }
+  };
   useEffect(() => { load(); }, [load]);
   const openCfg = (p) => { setForm({ model: p.model || (p.provider === 'gemini' ? 'gemini-2.5-flash' : ''), enabled: true, apiKey: '' }); setSel(p); };
   const save = async () => { try { const body = { model: form.model, enabled: true, makeActive: sel.provider === 'gemini' }; if (form.apiKey) body.apiKey = form.apiKey; await api(`/ai-platforms/${sel.provider}/configure`, { method: 'POST', body: JSON.stringify(body) }); toast.success('AI provider saved'); setSel(null); load(); } catch (e) { toast.error(e.message); } };
@@ -279,6 +292,18 @@ function AiView() {
       <div className="flex items-center justify-between"><div className="font-semibold text-slate-900">{p.name}</div><StatusBadge status={p.status} /></div>
       <div className="mt-2 space-y-1 text-sm"><div className="flex justify-between"><span className="text-muted-foreground">Model</span><span className="font-medium">{p.model || '—'}</span></div><div className="flex justify-between"><span className="text-muted-foreground">Key</span><code className="text-xs">{p.keyMask || '—'}</code></div><div className="flex justify-between"><span className="text-muted-foreground">Source</span><span className="text-xs capitalize">{p.source}</span></div></div>
       {p.active && <Badge variant="outline" className="mt-2 bg-violet-50 text-violet-700 border-violet-200">Active provider</Badge>}
+      {p.provider === 'gemini' && <div className="mt-3 space-y-2">
+        <Button size="sm" variant="default" className="w-full" onClick={testGemini} disabled={geminiTest.loading || p.status !== 'connected'}>
+          {geminiTest.loading ? 'Testing Gemini…' : 'Test connection'}
+        </Button>
+        {geminiTest.result && <div className={`rounded-md border p-2 text-xs ${geminiTest.result.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+          <div className="font-semibold">{geminiTest.result.ok ? 'Gemini connection successful' : 'Gemini test needs attention'}</div>
+          <div>Model: {geminiTest.result.model || p.model || '—'} · {geminiTest.result.durationMs != null ? `${geminiTest.result.durationMs} ms` : 'Response test completed'}</div>
+          {geminiTest.result.message && <div className="mt-1 break-words">{geminiTest.result.message}</div>}
+          {geminiTest.result.providerStatus && <div>HTTP {geminiTest.result.providerStatus}{geminiTest.result.providerCode ? ` · ${geminiTest.result.providerCode}` : ''}</div>}
+        </div>}
+        {geminiTest.error && <div className="rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-800">{geminiTest.error}</div>}
+      </div>}
       <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => openCfg(p)}>Configure</Button>
     </CardContent></Card>))}</div>
     <Dialog open={!!sel} onOpenChange={(o) => !o && setSel(null)}><DialogContent><DialogHeader><DialogTitle>Configure {sel ? sel.name : ''}</DialogTitle></DialogHeader><div className="space-y-3">
