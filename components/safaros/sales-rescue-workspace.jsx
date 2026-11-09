@@ -82,6 +82,10 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
   const [saving, setSaving] = useState(false);
   const [createdQuotation, setCreatedQuotation] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [onlineQuery, setOnlineQuery] = useState('');
+  const [onlineLoading, setOnlineLoading] = useState(false);
+  const [onlineResults, setOnlineResults] = useState(null);
+  const [onlineError, setOnlineError] = useState('');
 
   const original = quotations.find(q => q.id === originalId) || null;
 
@@ -145,6 +149,32 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
     setResults({ items: found, budget, query: requirements });
     setSelected([]);
     setCreatedQuotation(null);
+  };
+
+  const findOnline = async () => {
+    const q = (onlineQuery || [requirements.replace(/(?:under|below|budget|₹)[^,]*/gi, '').trim(), original?.destination].filter(Boolean).join(' ')).trim();
+    if (!q) { setOnlineError('Enter a destination and what kind of provider you need.'); return; }
+    setOnlineLoading(true); setOnlineError(''); setOnlineResults(null);
+    try {
+      const response = await api('/discovery/search?q=' + encodeURIComponent(q) + '&limit=12');
+      if (!response.configured) setOnlineError('Online supplier discovery is not configured. Connect Google Places in Super Admin → Provider Credentials.');
+      setOnlineResults(response.results || []);
+    } catch (e) { setOnlineError(e.message); }
+    finally { setOnlineLoading(false); }
+  };
+
+  const addOnline = (place) => {
+    const id = 'online:' + (place.sourceId || place.name);
+    if (selected.some(x => x.sourceId === id)) return;
+    const kind = place.supplierType || '';
+    const category = /hotel|houseboat|accommodation/.test(kind) ? 'Accommodation' : /transport|taxi|car/.test(kind) ? 'Transport' : 'Activity';
+    setSelected(cur => [...cur, {
+      sourceId: id, name: place.name, category,
+      description: [place.name, place.address, place.phone].filter(Boolean).join(' · ').slice(0, 300),
+      quantity: 1, unitCost: 0, sellingPrice: 0, costKnown: false, priceKnown: false,
+      currency: original?.currency || 'INR', sourceType: 'online',
+    }]);
+    toast.info('Online provider added. Confirm availability and enter actual supplier cost and selling price before creating a quotation.');
   };
 
   const addItem = (item) => {
@@ -287,9 +317,23 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
       <div className="flex flex-wrap gap-2">{['Under ₹50,000','Lower-cost hotel','Houseboat option','Private SUV','Family friendly','Include Gulmarg'].map(v => <button key={v} type="button" onClick={() => setRequirements(cur => cur ? cur + ', ' + v : v)} className="rounded-full border px-3 py-1.5 text-xs text-muted-foreground transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700">{v}</button>)}</div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs text-muted-foreground">{loadingData ? 'Loading your agency catalogue…' : loadingError ? 'Catalogue could not be loaded' : quotations.length + ' quotations · ' + packages.length + ' packages · ' + activeCount + ' active supply items'}</div>
-        <Button onClick={runSearch} disabled={loadingData || !!loadingError}><Search className="mr-2 h-4 w-4" />Find alternatives</Button>
+        <Button onClick={runSearch} disabled={loadingData || !!loadingError}><Search className="mr-2 h-4 w-4" />Search agency catalogue</Button>
       </div>
       {loadingError && <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{loadingError}</div>}
+    </CardContent></Card>
+
+    <Card><CardContent className="space-y-4 p-4 sm:p-6">
+      <div><h3 className="font-semibold">Find online alternatives</h3><p className="mt-1 text-sm text-muted-foreground">Discover real hotels, houseboats, transport operators and activities through the existing Google Places integration. These are business listings, not bookable inventory or confirmed rates.</p></div>
+      <div className="flex flex-col gap-2 sm:flex-row"><Input value={onlineQuery} onChange={e => setOnlineQuery(e.target.value)} placeholder="e.g. family hotels in Gulmarg, Kashmir" onKeyDown={e => { if (e.key === 'Enter') findOnline(); }} /><Button onClick={findOnline} disabled={onlineLoading}>{onlineLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}{onlineLoading ? 'Searching…' : 'Search online'}</Button></div>
+      {onlineError && <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{onlineError}</div>}
+      {onlineResults && <div className="space-y-2"><div className="text-xs text-muted-foreground">{onlineResults.length} online businesses found · Prices and availability must be confirmed directly.</div>
+        {onlineResults.length === 0 && <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">No online matches found. Try a different category or destination.</div>}
+        <div className="grid gap-3 lg:grid-cols-2">{onlineResults.map((place, index) => {
+          const id = 'online:' + (place.sourceId || place.name);
+          const chosen = selected.some(x => x.sourceId === id);
+          return <div key={id + index} className="rounded-xl border p-4"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{place.name}</div><div className="mt-1 text-xs text-muted-foreground">{place.address || place.category || 'Online business listing'}</div>{place.phone && <div className="mt-1 text-xs text-muted-foreground">Contact: {place.phone}</div>}</div><Badge variant="outline">{place.supplierType || 'Provider'}</Badge></div><div className="mt-3 flex items-center justify-between gap-2"><span className="text-xs text-amber-700">Rate not verified</span><Button size="sm" variant="outline" disabled={chosen} onClick={() => addOnline(place)}>{chosen ? 'Added' : 'Add to quotation'}</Button></div></div>;
+        })}</div>
+      </div>}
     </CardContent></Card>
 
     {results && <div className="space-y-4">
@@ -315,7 +359,7 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
       <div><h3 className="text-lg font-semibold">3. Build and price the alternative</h3><p className="text-sm text-muted-foreground">Review each quantity, supplier cost and selling price before creating the draft.</p></div>
       <Card><CardContent className="divide-y p-0">
         {selected.map((line, i) => <div key={line.sourceId} className="space-y-3 p-4">
-          <div className="flex items-center justify-between gap-3"><div><div className="font-semibold">{line.name}</div><div className="text-xs text-muted-foreground">{line.category} · {line.sourceType === 'package' ? 'Saved package' : 'Agency inventory'}</div></div><button onClick={() => removeLine(line.sourceId)} className="rounded-lg p-2 text-muted-foreground hover:bg-rose-50 hover:text-rose-600" aria-label="Remove line"><X className="h-4 w-4" /></button></div>
+          <div className="flex items-center justify-between gap-3"><div><div className="font-semibold">{line.name}</div><div className="text-xs text-muted-foreground">{line.category} · {line.sourceType === 'package' ? 'Saved package' : line.sourceType === 'online' ? 'Online listing · unverified' : 'Agency inventory'}</div></div><button onClick={() => removeLine(line.sourceId)} className="rounded-lg p-2 text-muted-foreground hover:bg-rose-50 hover:text-rose-600" aria-label="Remove line"><X className="h-4 w-4" /></button></div>
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="space-y-1 text-xs font-medium text-muted-foreground">Quantity<input type="number" min="1" value={line.quantity} onChange={e => updateLine(line.sourceId, 'quantity', e.target.value)} className="h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground" /></label>
             <label className="space-y-1 text-xs font-medium text-muted-foreground">Supplier cost / unit<input type="number" min="0" step="0.01" value={line.unitCost} onChange={e => updateLine(line.sourceId, 'unitCost', e.target.value)} className="h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground" /></label>
@@ -331,14 +375,14 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
         <Card><CardContent className="p-4"><div className="flex items-center gap-1 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" /> Estimated gross profit</div><div className={'mt-1 text-xl font-bold ' + (totals.costComplete && totals.profit < 0 ? 'text-rose-600' : 'text-emerald-700')}>{totals.costComplete ? money(totals.profit, selected[0].currency) : 'Add supplier costs'}</div><div className="text-xs text-muted-foreground">{totals.margin == null ? 'Margin unavailable until all costs are entered' : totals.margin.toFixed(1) + '% margin before tax'}</div></CardContent></Card>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-violet-50/40 p-4">
-        <div><div className="font-semibold">Save a separate draft quotation</div><p className="text-sm text-muted-foreground">The original quote remains unchanged. Review the new draft before sending it to the customer.</p></div>
-        <Button onClick={createAlternative} disabled={saving || !original || selected.some(x => !x.priceKnown || !x.costKnown)}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="mr-2 h-4 w-4" />}{saving ? 'Saving…' : 'Create alternative draft'}</Button>
+        <div><div className="font-semibold">Generate a draft quotation</div><p className="text-sm text-muted-foreground">The original quote remains unchanged. Review the new draft before sending it to the customer.</p></div>
+        <Button onClick={createAlternative} disabled={saving || !original || selected.some(x => !x.priceKnown || !x.costKnown)}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="mr-2 h-4 w-4" />}{saving ? 'Saving…' : 'Generate quotation'}</Button>
       </div>
       <Card><CardContent className="space-y-3 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-semibold">Customer message preview</div><p className="text-xs text-muted-foreground">Indicative wording — confirm availability before sending.</p></div><Button size="sm" variant="outline" onClick={copyMessage}><Clipboard className="mr-2 h-4 w-4" />{copied ? 'Copy again' : 'Copy message'}</Button></div><pre className="whitespace-pre-wrap rounded-lg bg-muted/50 p-3 text-sm">{message}</pre></CardContent></Card>
     </div>}
 
     {createdQuotation && <Card className="border-emerald-200 bg-emerald-50/50"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-700" /><div><div className="font-semibold text-emerald-900">Alternative draft created: {createdQuotation.quotationNumber}</div><p className="text-sm text-emerald-800">New total: {money(createdQuotation.grandTotal, original && original.currency || 'INR')}. Your original quotation has not been changed.</p></div></div><Button onClick={() => onNavigate('quotations')} variant="outline">Open quotations <ArrowRight className="ml-2 h-4 w-4" /></Button></CardContent></Card>}
 
-    <div className="flex items-start gap-2 rounded-xl border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />This version searches only your agency's saved packages, inventory and rate plans. It does not claim live supplier availability or automatically book services. Check date validity, supplier cost and availability before sending a firm offer. Sales Rescue creates a separate draft quotation and never edits the original.</div>
+    <div className="flex items-start gap-2 rounded-xl border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />Search your agency catalogue or discover online providers through Google Places. Online listings do not provide live room availability, bookable inventory or verified prices. Check date validity, supplier cost and availability before sending a firm offer. Sales Rescue creates a separate draft quotation and never edits the original.</div>
   </div>;
 }
