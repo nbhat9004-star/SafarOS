@@ -5661,6 +5661,9 @@ export async function PUT(request, context) {
       const id = path.split('/')[2];
       const existing = await db.collection('quotations').findOne(tenantFilter(session, { id }));
       if (!existing) return err('Quotation not found', 404);
+      if (existing.convertedBookingId) return err('This quotation is already converted to a booking and cannot be replaced.', 409);
+      const linkedBooking = await db.collection('bookings').findOne(tenantFilter(session, { quotationId: id, status: { $ne: 'cancelled' } }), { projection: { _id: 1 } });
+      if (linkedBooking) return err('This quotation is already linked to a booking and cannot be replaced.', 409);
       const body = await readBody(request);
       const { value, error } = validateQuotationInput(body);
       if (error) return err(error);
@@ -5674,6 +5677,7 @@ export async function PUT(request, context) {
         grandTotal: calc.grandTotal, internalCost: calc.internalCost, expectedProfit: calc.expectedProfit,
         internalNotes: String(body.internalNotes || '').slice(0, 2000),
         customerNotes: String(body.customerNotes || '').slice(0, 2000),
+        status: body.resetStatusToDraft === true ? 'draft' : existing.status,
         updatedAt: new Date().toISOString(),
       };
       await db.collection('quotations').updateOne(tenantFilter(session, { id }), { $set: update });
