@@ -1376,7 +1376,7 @@ async function aiPost(db, session, path, body) {
   if (path === '/ai/diagnostics') {
     const config = await aiRuntimeConfig(db);
     if (!config.configured) return err('No active AI provider is configured. Check Super Admin → AI Platforms.', 503);
-    const checks = { provider: config.provider, model: config.model, configured: true, context: 'not_tested', providerTest: 'not_tested' };
+    const checks = { provider: config.provider, model: config.model, configured: true, keyResolved: !!config.keyResolved, keySource: config.source || 'unknown', context: 'not_tested', providerTest: 'not_tested' };
     try {
       await aiBuildContext(db, session);
       checks.context = 'ok';
@@ -1392,10 +1392,11 @@ async function aiPost(db, session, path, body) {
     } catch (e) {
       console.warn('[safaros] AI provider diagnostic failed:', e.code || '', e.detail || e.message);
       checks.providerTest = 'failed';
-      checks.providerError = e.code === 'AI_PROVIDER_ERROR' ? 'The selected AI provider rejected the request. Check the provider status and reason below.' : 'The selected AI provider could not complete a test request.';
+      checks.providerError = e.code === 'AI_PROVIDER_ERROR' ? 'The selected AI provider rejected the request.' : e.code === 'AI_PROVIDER_EMPTY_RESPONSE' ? 'The provider responded but returned no usable text.' : 'The selected AI provider could not complete a test request.';
       if (e.providerStatus) checks.providerStatus = e.providerStatus;
       if (e.providerCode) checks.providerCode = e.providerCode;
       if (e.providerMessage) checks.providerReason = e.providerMessage;
+      if (e.code === 'AI_PROVIDER_EMPTY_RESPONSE') checks.providerReason = e.providerMessage || 'The provider returned an empty response.';
     }
     return json({ ok: checks.context === 'ok' && checks.providerTest === 'ok', checks });
   }
