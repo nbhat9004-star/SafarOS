@@ -256,7 +256,7 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
     } finally { setSaving(false); }
   };
 
-  const activeCount = inventory.filter(x => x.status !== 'archived').length;
+  const activeCount = inventory.filter(x => x.status !== 'archived').length + suppliers.filter(x => x.status !== 'archived').length;
   const pricedCount = catalogue.filter(x => getPrice(x) != null).length;
 
   return <div className="space-y-5">
@@ -309,7 +309,7 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
           const type = categoryFor(item);
           const Icon = type === 'Transport' ? Car : type === 'Package' ? Package : BedDouble;
           return <Card key={item.id || idx} className={chosen ? 'border-violet-400 ring-1 ring-violet-200' : ''}><CardContent className="space-y-3 p-4">
-            <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><div className="rounded-xl bg-violet-50 p-2 text-violet-700"><Icon className="h-5 w-5" /></div><div className="min-w-0"><div className="font-semibold">{item.name || item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.destination || item.description || type}</div></div></div><div className="flex flex-wrap gap-1"><Badge variant="secondary">{item.matchSource==='online'?'Online listing':item.resultType==='supplier'?'Verified agency supplier':'Agency inventory'}</Badge><Badge variant="outline">{type}</Badge></div></div>
+            <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><div className="rounded-xl bg-violet-50 p-2 text-violet-700"><Icon className="h-5 w-5" /></div><div className="min-w-0"><div className="font-semibold">{item.name || item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.destination || item.description || type}</div></div></div><div className="flex flex-wrap gap-1"><Badge variant="secondary">{item.matchSource==='online'?'Online listing':item.resultType==='supplier'?'Saved agency supplier':'Agency inventory'}</Badge><Badge variant="outline">{type}</Badge></div></div>
             <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-xs text-muted-foreground">Selling guide price</div><div className="text-xl font-bold">{price == null ? 'Not set' : money(price, item.currency || 'INR')}</div>{cost != null && <div className="text-xs text-muted-foreground">Supplier cost: {money(cost, item.currency || 'INR')}</div>}</div>
               <div className="flex flex-wrap gap-2">{item.matchSource==='online'&&<Button size="sm" variant="outline" onClick={()=>saveOnlineSupplier(item)} disabled={!!supplierSaving[item.sourceId||item.name]||item.supplierSaved}>{supplierSaving[item.sourceId||item.name]?'Saving…':item.supplierSaved?'In supplier list':'Add to supplier list'}</Button>}<Button size="sm" variant={chosen?'secondary':'outline'} onClick={()=>chosen?removeLine(item.id):item.matchSource==='online'||item.resultType==='supplier'?addOnline(item):addItem(item)} disabled={chosen||!item.id}>{chosen?'Added':'Select'}</Button></div>
             </div>
