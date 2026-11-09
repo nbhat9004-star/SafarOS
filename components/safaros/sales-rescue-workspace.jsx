@@ -245,6 +245,7 @@ export default function SalesRescueWorkspace({ onNavigate = () => {} }) {
         })),
         discount: { type: 'fixed', value: 0 },
         tax: { percent: number(original.tax && original.tax.percent) },
+        resetStatusToDraft: true,
         internalNotes: 'Updated through Sales Rescue after agent review. Confirm supplier availability before sending.',
         customerNotes: original.customerNotes || '',
       };
