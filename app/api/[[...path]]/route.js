@@ -1392,7 +1392,10 @@ async function aiPost(db, session, path, body) {
     } catch (e) {
       console.warn('[safaros] AI provider diagnostic failed:', e.code || '', e.detail || e.message);
       checks.providerTest = 'failed';
-      checks.providerError = e.code === 'AI_PROVIDER_ERROR' ? 'The selected AI provider rejected the request. Check model access, quota and API key permissions.' : 'The selected AI provider could not complete a test request.';
+      checks.providerError = e.code === 'AI_PROVIDER_ERROR' ? 'The selected AI provider rejected the request. Check the provider status and reason below.' : 'The selected AI provider could not complete a test request.';
+      if (e.providerStatus) checks.providerStatus = e.providerStatus;
+      if (e.providerCode) checks.providerCode = e.providerCode;
+      if (e.providerMessage) checks.providerReason = e.providerMessage;
     }
     return json({ ok: checks.context === 'ok' && checks.providerTest === 'ok', checks });
   }
