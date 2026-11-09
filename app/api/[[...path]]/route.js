@@ -1373,32 +1373,82 @@ async function aiGet(db, session, path) {
 }
 
 async function aiPost(db, session, path, body) {
+  if (path === '/ai/diagnostics') {
+    const config = await aiRuntimeConfig(db);
+    if (!config.configured) return err('No active AI provider is configured. Check Super Admin → AI Platforms.', 503);
+    const checks = { provider: config.provider, model: config.model, configured: true, context: 'not_tested', providerTest: 'not_tested' };
+    try {
+      await aiBuildContext(db, session);
+      checks.context = 'ok';
+    } catch (e) {
+      console.warn('[safaros] AI context diagnostic failed:', e.code || '', e.message);
+      checks.context = 'failed';
+      checks.contextError = 'Agency data context could not be prepared. Check server logs.';
+      return json({ ok: false, checks }, 200);
+    }
+    try {
+      const reply = await aiComplete({ db, system: 'You are testing the SafarOS AI connection. Reply with exactly: CONNECTION_OK', messages: [{ role: 'user', text: 'Reply with the required test phrase.' }], maxTokens: 40, temperature: 0 });
+      checks.providerTest = reply && /CONNECTION_OK/.test(reply) ? 'ok' : 'unexpected_response';
+    } catch (e) {
+      console.warn('[safaros] AI provider diagnostic failed:', e.code || '', e.detail || e.message);
+      checks.providerTest = 'failed';
+      checks.providerError = e.code === 'AI_PROVIDER_ERROR' ? 'The selected AI provider rejected the request. Check model access, quota and API key permissions.' : 'The selected AI provider could not complete a test request.';
+    }
+    return json({ ok: checks.context === 'ok' && checks.providerTest === 'ok', checks });
+  }
   if (path !== '/ai/chat') return err('not found', 404);
   const message = str(body.message, 4000);
   if (!message) return err('Message is required');
-  if (!(await aiRuntimeConfig(db)).configured) return err('The Copilot is not configured yet. Configure an active AI provider in Super Admin → AI Platforms.', 503);
+  const config = await aiRuntimeConfig(db);
+  if (!config.configured) return err('No active AI provider is configured. Check Super Admin → AI Platforms.', 503);
   const now = new Date().toISOString();
   let conv = null;
-  if (body.conversationId) conv = await db.collection('aiConversations').findOne(tenantFilter(session, { id: String(body.conversationId), userId: session.userId }));
-  if (!conv) {
+  let history = [];
+  let conversationSaved = true;
+  try {
+    if (body.conversationId) conv = await db.collection('aiConversations').findOne(tenantFilter(session, { id: String(body.conversationId), userId: session.userId }));
+    if (!conv) {
+      conv = withAgency(session, { id: uuidv4(), userId: session.userId, title: message.slice(0, 60), messages: [], createdAt: now, updatedAt: now });
+    } else {
+      history = clip(conv.messages || [], 16).map((m) => ({ role: m.role, text: m.text }));
+    }
+  } catch (e) {
+    conversationSaved = false;
+    console.warn('[safaros] AI conversation read failed:', e.code || '', e.message);
     conv = withAgency(session, { id: uuidv4(), userId: session.userId, title: message.slice(0, 60), messages: [], createdAt: now, updatedAt: now });
-    await db.collection('aiConversations').insertOne(conv);
   }
-  const history = clip(conv.messages || [], 16).map((m) => ({ role: m.role, text: m.text }));
+  let ctx;
+  try {
+    ctx = await aiBuildContext(db, session);
+  } catch (e) {
+    console.warn('[safaros] AI agency context failed:', e.code || '', e.message);
+    return err('Safar Intelligence could not load your agency context. Please retry; if it continues, contact support.', 500);
+  }
   let reply;
   try {
-    const ctx = await aiBuildContext(db, session);
     reply = await aiComplete({ db, system: aiSystemPrompt(ctx), messages: [...history, { role: 'user', text: message }] });
   } catch (e) {
-    if (e.code === 'AI_UNCONFIGURED') return err('The Copilot is not configured.', 503);
-    console.warn('[safaros] ai error:', e.code || '', e.detail || e.message);
-    return err('The Copilot is temporarily unavailable. Please try again shortly.', 502);
+    if (e.code === 'AI_UNCONFIGURED') return err('No active AI provider is configured. Check Super Admin → AI Platforms.', 503);
+    console.warn('[safaros] AI provider request failed:', e.code || '', e.detail || e.message);
+    return err(e.code === 'AI_PROVIDER_ERROR'
+      ? 'Safar Intelligence could not get a response from the selected AI provider. Check the provider model, quota and API key permissions.'
+      : 'Safar Intelligence is temporarily unavailable. Please try again shortly.', 502);
   }
-  if (!reply) return err('The Copilot returned an empty response. Please try again.', 502);
+  if (!reply) return err('Safar Intelligence received an empty response. Please try again.', 502);
   const userMsg = { role: 'user', text: message, at: now };
   const aiMsg = { role: 'assistant', text: reply, at: new Date().toISOString() };
-  await db.collection('aiConversations').updateOne(tenantFilter(session, { id: conv.id }), { $push: { messages: { $each: [userMsg, aiMsg] } }, $set: { updatedAt: new Date().toISOString() } });
-  return json({ conversationId: conv.id, reply });
+  try {
+    const { messages: _storedMessages, updatedAt: _oldUpdatedAt, ...conversationMeta } = conv;
+    await db.collection('aiConversations').updateOne(tenantFilter(session, { id: conv.id, userId: session.userId }), {
+      $push: { messages: { $each: [userMsg, aiMsg] } },
+      $set: { updatedAt: new Date().toISOString() },
+      $setOnInsert: conversationMeta,
+    }, { upsert: true });
+  } catch (e) {
+    conversationSaved = false;
+    console.warn('[safaros] AI conversation save failed:', e.code || '', e.message);
+  }
+  return json({ conversationId: conv.id, reply, conversationSaved });
 }
 
 // ======================= CUSTOMER PORTAL (Phase 5.5) =======================
@@ -5181,7 +5231,7 @@ export async function POST(request, context) {
       return commPost(db, session, path, await readBody(request));
     }
 
-    if (path === '/ai/chat') {
+    if (path === '/ai/chat' || path === '/ai/diagnostics') {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'ai:use')) return err('forbidden', 403);
