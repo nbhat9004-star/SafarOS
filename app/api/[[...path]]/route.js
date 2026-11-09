@@ -3403,7 +3403,7 @@ async function platformPost(db, session, path, body, request) {
       const durationMs = Date.now() - startedAt;
       const safeReason = String(e.providerMessage || e.message || 'Gemini request failed').replace(/AIza[0-9A-Za-z_-]{20,}/g, '[redacted]').replace(/(key=)[^&\\s]+/gi, '$1[redacted]').slice(0, 500);
       await platformAudit(db, session, request, { action: 'ai.gemini_connection_test', targetType: 'ai_provider', targetId: 'gemini', metadata: { ok: false, model: config.model, durationMs, status: e.providerStatus || 0, code: e.providerCode || e.code || 'unknown' } });
-      return json({ ok: false, provider: 'gemini', model: config.model, durationMs, providerStatus: e.providerStatus || null, providerCode: e.providerCode || e.code || null, message: safeReason }, e.providerStatus || 502);
+      return json({ ok: false, provider: 'gemini', model: config.model, durationMs, providerStatus: e.providerStatus || null, providerCode: e.providerCode || e.code || null, message: safeReason });
     }
   }
 
