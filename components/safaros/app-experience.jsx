@@ -6969,6 +6969,8 @@ function CopilotChat({ session }) {
       {diagnostic.checks?.providerTest && <div>AI response: {diagnostic.checks.providerTest}</div>}
       {diagnostic.checks?.contextError && <div>{diagnostic.checks.contextError}</div>}
       {diagnostic.checks?.providerError && <div>{diagnostic.checks.providerError}</div>}
+      {diagnostic.checks?.providerStatus && <div>Provider HTTP status: {diagnostic.checks.providerStatus}{diagnostic.checks.providerCode ? ' · ' + diagnostic.checks.providerCode : ''}</div>}
+      {diagnostic.checks?.providerReason && <div className="mt-1 break-words">Provider detail: {diagnostic.checks.providerReason}</div>}
       {diagnostic.checks?.error && <div>{diagnostic.checks.error}</div>}
     </div>}
     <div className="flex-1 min-h-0 overflow-auto space-y-3 p-3">
