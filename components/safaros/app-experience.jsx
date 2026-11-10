@@ -7037,7 +7037,8 @@ function ChannelIntegrations({ session }) {
       setWaForm({ wabaId: '', phoneNumberId: '', accessToken: '' });
       toast.success('WhatsApp Business connected to this agency.');
     } catch (e) {
-      toast.error(friendlyError(e));
+      // Show the safe, server-authored connection error so setup failures can be diagnosed.
+      toast.error(String(e?.message || 'Unable to connect WhatsApp. Please try again.'));
     } finally {
       setWaSaving(false);
     }
