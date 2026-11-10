@@ -42,8 +42,10 @@ export async function POST(request) {
 
   let db;
   let outgoingId;
+  let stage = 'database';
   try {
     db = await getDb();
+    stage = 'conversation_lookup';
     const conversation = await db.collection('whatsappConversations').findOne(
       tenantFilter(session, { id: conversationId }),
       { projection: { _id: 0, id: 1, waId: 1, connectionId: 1, serviceWindowExpiresAt: 1, lastInboundAt: 1 } }
@@ -60,6 +62,7 @@ export async function POST(request) {
       }, 409);
     }
 
+    stage = 'connection_lookup';
     const connection = await db.collection('whatsappConnections').findOne(
       tenantFilter(session, { id: conversation.connectionId, status: 'connected' }),
       { projection: { _id: 0, id: 1, agencyId: 1, phoneNumberId: 1, encryptedAccessToken: 1 } }
@@ -71,7 +74,17 @@ export async function POST(request) {
       return json({ error: 'The customer WhatsApp number is invalid' }, 422);
     }
 
-    const accessToken = decryptAgencyWhatsAppToken(connection.encryptedAccessToken, String(session.agencyId));
+    stage = 'token_decryption';
+    let accessToken;
+    try {
+      accessToken = decryptAgencyWhatsAppToken(connection.encryptedAccessToken, String(session.agencyId));
+    } catch (error) {
+      console.warn('[whatsapp-send] agency token decryption failed');
+      return json({
+        error: 'SafarOS could not unlock this agency WhatsApp token. The encryption key may have changed since the connection was saved. Reconnect the WhatsApp account after an administrator verifies the key.',
+        code: 'WHATSAPP_TOKEN_DECRYPTION_FAILED',
+      }, 503);
+    }
     const now = new Date().toISOString();
     outgoingId = randomUUID();
     const messageDoc = withAgency(session, {
@@ -89,10 +102,12 @@ export async function POST(request) {
       createdAt: now,
       updatedAt: now,
     });
+    stage = 'message_persistence';
     await db.collection('whatsappMessages').insertOne(messageDoc);
 
     let response;
     try {
+      stage = 'meta_request';
       const graphResponse = await fetch(
         `${graphBase()}/${encodeURIComponent(connection.phoneNumberId)}/messages`,
         {
@@ -151,6 +166,7 @@ export async function POST(request) {
       }, 502);
     }
 
+    stage = 'message_status_update';
     const metaMessageId = String(response?.messages?.[0]?.id || '');
     const sentAt = new Date().toISOString();
     await db.collection('whatsappMessages').updateOne(
@@ -191,9 +207,28 @@ export async function POST(request) {
     }
     const message = String(error?.message || '');
     if (message.includes('CREDENTIALS_ENCRYPTION_KEY') || message.includes('WhatsApp credential')) {
-      return json({ error: 'WhatsApp credential encryption is not configured correctly. Ask an administrator to check the deployment settings.' }, 503);
+      return json({
+        error: 'WhatsApp credential encryption is not configured correctly. Ask an administrator to check CREDENTIALS_ENCRYPTION_KEY in the deployment settings.',
+        code: 'WHATSAPP_ENCRYPTION_CONFIGURATION_ERROR',
+      }, 503);
     }
-    console.error('[whatsapp-send] failed:', message.slice(0, 160));
-    return json({ error: 'Unable to send this WhatsApp message right now' }, 500);
+    console.error('[whatsapp-send] internal failure:', JSON.stringify({
+      stage,
+      name: String(error?.name || 'Error').slice(0, 60),
+      message: message.slice(0, 160),
+    }));
+    const stageMessages = {
+      database: 'SafarOS could not connect to its database while preparing the WhatsApp reply.',
+      conversation_lookup: 'SafarOS could not load this WhatsApp conversation.',
+      connection_lookup: 'SafarOS could not load the agency WhatsApp connection.',
+      message_persistence: 'SafarOS could not save the outgoing message before sending.',
+      meta_request: 'SafarOS could not complete the request to Meta.',
+      message_status_update: 'Meta may have accepted the message, but SafarOS could not update its message status. Refresh the inbox before retrying.',
+    };
+    return json({
+      error: stageMessages[stage] || 'SafarOS could not complete this WhatsApp reply.',
+      code: 'WHATSAPP_SEND_INTERNAL_ERROR',
+      stage,
+    }, 500);
   }
 }
