@@ -117,6 +117,10 @@ export async function POST(request) {
         const failure = response?.error || {};
         const error = new Error('Meta could not send this WhatsApp message');
         error.metaCode = Number(failure.code || 0);
+        error.metaSubcode = Number(failure.error_subcode || 0);
+        error.metaType = String(failure.type || '').slice(0, 80);
+        error.metaMessage = String(failure.message || '').slice(0, 240);
+        error.fbTraceId = String(failure.fbtrace_id || '').slice(0, 100);
         throw error;
       }
     } catch (error) {
@@ -129,7 +133,22 @@ export async function POST(request) {
           updatedAt: new Date().toISOString(),
         } }
       );
-      return json({ error: 'Meta could not send this WhatsApp message. Check the connection and try again.' }, 502);
+      const details = error?.metaCode
+        ? `Meta rejected the message (code ${error.metaCode}${error.metaSubcode ? `, subcode ${error.metaSubcode}` : ''})${error.metaMessage ? `: ${error.metaMessage}` : '.'}`
+        : 'The request to Meta failed. Check the connection and try again.';
+      console.warn('[whatsapp-send] Meta send rejected:', JSON.stringify({
+        code: error?.metaCode || null,
+        subcode: error?.metaSubcode || null,
+        type: error?.metaType || null,
+        fbTraceId: error?.fbTraceId || null,
+      }));
+      return json({
+        error: details,
+        code: 'WHATSAPP_META_SEND_FAILED',
+        metaCode: error?.metaCode || null,
+        metaSubcode: error?.metaSubcode || null,
+        fbTraceId: error?.fbTraceId || null,
+      }, 502);
     }
 
     const metaMessageId = String(response?.messages?.[0]?.id || '');
