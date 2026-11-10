@@ -62,7 +62,7 @@ function previewFor(message) {
   return message?.type ? '[' + String(message.type).slice(0, 30) + ']' : '[Message]';
 }
 
-async function persistMessage(db, connection, message, receivedAt) {
+async function persistMessage(db, connection, message, receivedAt, contacts = []) {
   const agencyId = connection.agencyId;
   const connectionId = connection.id;
   const waId = String(message.from || '');
@@ -85,7 +85,12 @@ async function persistMessage(db, connection, message, receivedAt) {
   const contactCollection = db.collection('whatsappContacts');
   await contactCollection.updateOne(
     { agencyId, waId },
-    { $set: { phone: waId, lastInboundAt: receivedAt, updatedAt: receivedAt }, $setOnInsert: {
+    { $set: {
+      phone: waId, lastInboundAt: receivedAt, updatedAt: receivedAt,
+      ...(String(contacts.find((item) => String(item.wa_id || '') === waId)?.profile?.name || '').trim()
+        ? { displayName: String(contacts.find((item) => String(item.wa_id || '') === waId).profile.name).trim().slice(0, 120) }
+        : {}),
+    }, $setOnInsert: {
       id: uuidv4(), agencyId, waId, displayName: '', consentStatus: 'unknown', createdAt: receivedAt,
     } },
     { upsert: true }
@@ -243,7 +248,7 @@ export async function POST(request) {
           continue;
         }
 
-        for (const message of messages) await persistMessage(db, connection, message, receivedAt);
+        for (const message of messages) await persistMessage(db, connection, message, receivedAt, Array.isArray(value.contacts) ? value.contacts : []);
         for (const status of statuses) await persistStatus(db, connection, status, receivedAt);
       }
     }
