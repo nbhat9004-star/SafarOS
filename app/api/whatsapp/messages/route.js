@@ -15,7 +15,7 @@ function json(data, status = 200) {
 
 function graphBase() {
   const version = String(process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
-  if (!/^v\\d+\\.\\d+$/.test(version)) throw new Error('Invalid WhatsApp Graph API version');
+  if (!/^v\d+\.\d+$/.test(version)) throw new Error('Invalid WhatsApp Graph API version');
   return `https://graph.facebook.com/${version}`;
 }
 
@@ -67,7 +67,7 @@ export async function POST(request) {
     if (!connection?.encryptedAccessToken || !connection.phoneNumberId) {
       return json({ error: 'This agency WhatsApp connection is unavailable. Reconnect it in Channel Integrations.' }, 409);
     }
-    if (!/^\\d{5,30}$/.test(String(conversation.waId || ''))) {
+    if (!/^\d{5,30}$/.test(String(conversation.waId || ''))) {
       return json({ error: 'The customer WhatsApp number is invalid' }, 422);
     }
 
