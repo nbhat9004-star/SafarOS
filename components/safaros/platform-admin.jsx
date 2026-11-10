@@ -283,7 +283,7 @@ function AiView() {
     }
   };
   useEffect(() => { load(); }, [load]);
-  const openCfg = (p) => { setForm({ model: p.model || (p.provider === 'gemini' ? 'gemini-2.5-flash' : ''), enabled: true, apiKey: '' }); setSel(p); };
+  const openCfg = (p) => { setForm({ model: p.model || (p.provider === 'gemini' ? 'gemini-3.8-flash' : ''), enabled: true, apiKey: '' }); setSel(p); };
   const save = async () => { try { const body = { model: form.model, enabled: true, makeActive: sel.provider === 'gemini' }; if (form.apiKey) body.apiKey = form.apiKey; await api(`/ai-platforms/${sel.provider}/configure`, { method: 'POST', body: JSON.stringify(body) }); toast.success('AI provider saved'); setSel(null); load(); } catch (e) { toast.error(e.message); } };
   if (!data) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
   return (<div className="space-y-4">
@@ -307,7 +307,7 @@ function AiView() {
       <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => openCfg(p)}>Configure</Button>
     </CardContent></Card>))}</div>
     <Dialog open={!!sel} onOpenChange={(o) => !o && setSel(null)}><DialogContent><DialogHeader><DialogTitle>Configure {sel ? sel.name : ''}</DialogTitle></DialogHeader><div className="space-y-3">
-      <div className="space-y-1.5"><Label>Model</Label><Input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={sel?.provider === 'gemini' ? 'gemini-2.5-flash' : 'Enter model name'} /></div>
+      <div className="space-y-1.5"><Label>Model</Label><Input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={sel?.provider === 'gemini' ? 'gemini-3.8-flash' : 'Enter model name'} /></div>
       <div className="space-y-1.5"><Label>API Key</Label><Input type="password" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={sel && sel.keyMask ? `${sel.keyMask} (leave blank to keep)` : 'Stored masked — never shown again'} /><p className="text-xs text-muted-foreground">Encrypted at rest. Never returned to the browser.</p></div>
       {sel?.provider === 'gemini' && <p className="text-xs text-muted-foreground">Saving Gemini will make it the only active AI provider across SafarOS. Other providers will no longer be selected.</p>}
     </div><DialogFooter><Button variant="outline" onClick={() => setSel(null)}>Cancel</Button><Button onClick={save}>Save</Button></DialogFooter></DialogContent></Dialog>
