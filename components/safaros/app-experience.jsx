@@ -6900,7 +6900,7 @@ function WhatsAppInboxPanel() {
         ...item, lastMessageAt: result.message.createdAt, lastMessagePreview: text.slice(0, 240),
       } : item));
       toast.success('WhatsApp message sent');
-    } catch (e) { toast.error(friendlyError(e)); }
+    } catch (e) { toast.error(e?.message || 'WhatsApp reply failed. Please try again.'); }
     finally { setSending(false); }
   };
   return <Card><CardContent className="space-y-3 p-4">
