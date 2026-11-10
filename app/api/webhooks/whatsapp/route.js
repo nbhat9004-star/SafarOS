@@ -77,8 +77,9 @@ async function persistMessage(db, connection, message, receivedAt) {
       processingStatus: 'processing',
     });
   } catch (error) {
-    if (error?.code === 11000) return;
-    throw error;
+    if (error?.code !== 11000) throw error;
+    const prior = await db.collection('whatsappWebhookEvents').findOne({ eventKey }, { projection: { processingStatus: 1 } });
+    if (prior?.processingStatus === 'processed') return;
   }
 
   const contactCollection = db.collection('whatsappContacts');
@@ -95,21 +96,34 @@ async function persistMessage(db, connection, message, receivedAt) {
   const conversationCollection = db.collection('whatsappConversations');
   await conversationCollection.updateOne(
     { agencyId, connectionId, waId },
-    { $set: { contactId: contact.id, lastMessageAt: receivedAt, lastMessagePreview: previewFor(message), lastInboundAt: receivedAt, serviceWindowExpiresAt: new Date(new Date(receivedAt).getTime() + 24 * 60 * 60 * 1000).toISOString(), updatedAt: receivedAt, status: 'open' },
-      $setOnInsert: { id: uuidv4(), agencyId, connectionId, waId, unreadCount: 0, assignedUserId: '', assignedUserName: '', createdAt: receivedAt },
-      $inc: { unreadCount: 1 } },
+    { $set: { contactId: contact.id, updatedAt: receivedAt },
+      $setOnInsert: { id: uuidv4(), agencyId, connectionId, waId, unreadCount: 0, assignedUserId: '', assignedUserName: '', createdAt: receivedAt } },
     { upsert: true }
   );
   const conversation = await conversationCollection.findOne({ agencyId, connectionId, waId }, { projection: { _id: 0 } });
   if (!conversation) throw new Error('WhatsApp conversation could not be persisted');
 
   const text = message.type === 'text' ? String(message.text?.body || '').slice(0, 10000) : '';
-  await db.collection('whatsappMessages').insertOne({
-    id: uuidv4(), agencyId, connectionId, conversationId: conversation.id, contactId: contact.id,
-    metaMessageId: String(message.id), direction: 'inbound', type: messageKind(message),
-    text, safeMediaMetadata: message.type === 'text' ? null : { type: message.type || 'unknown' },
-    status: 'received', source: 'customer', createdAt: receivedAt, updatedAt: receivedAt,
-  });
+  let inserted = false;
+  try {
+    await db.collection('whatsappMessages').insertOne({
+      id: uuidv4(), agencyId, connectionId, conversationId: conversation.id, contactId: contact.id,
+      metaMessageId: String(message.id), direction: 'inbound', type: messageKind(message),
+      text, safeMediaMetadata: message.type === 'text' ? null : { type: message.type || 'unknown' },
+      status: 'received', source: 'customer', createdAt: receivedAt, updatedAt: receivedAt,
+    });
+    inserted = true;
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+  }
+  if (inserted) {
+    await conversationCollection.updateOne(
+      { agencyId, connectionId, waId },
+      { $set: { lastMessageAt: receivedAt, lastMessagePreview: previewFor(message), lastInboundAt: receivedAt,
+        serviceWindowExpiresAt: new Date(new Date(receivedAt).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+        updatedAt: receivedAt, status: 'open' }, $inc: { unreadCount: 1 } }
+    );
+  }
   await db.collection('whatsappWebhookEvents').updateOne(
     { eventKey }, { $set: { processedAt: new Date().toISOString(), processingStatus: 'processed' } }
   );
@@ -126,8 +140,9 @@ async function persistStatus(db, connection, status, receivedAt) {
       receivedAt, processedAt: null, processingStatus: 'processing',
     });
   } catch (error) {
-    if (error?.code === 11000) return;
-    throw error;
+    if (error?.code !== 11000) throw error;
+    const prior = await db.collection('whatsappWebhookEvents').findOne({ eventKey }, { projection: { processingStatus: 1 } });
+    if (prior?.processingStatus === 'processed') return;
   }
 
   const allowed = ['sent', 'delivered', 'read', 'failed'];
@@ -204,7 +219,7 @@ export async function POST(request) {
           // Keep an auditable, content-minimized event so an operator can diagnose
           // a missing agency-to-number mapping without leaking message bodies.
           for (const message of messages) {
-            const eventKey = eventKeyFor('message', message);
+            const eventKey = 'unmapped:' + eventKeyFor('message', message);
             try {
               await db.collection('whatsappWebhookEvents').insertOne({
                 id: uuidv4(), eventKey, agencyId: null, connectionId: null, phoneNumberId,
@@ -215,7 +230,7 @@ export async function POST(request) {
             } catch (error) { if (error?.code !== 11000) throw error; }
           }
           for (const status of statuses) {
-            const eventKey = eventKeyFor('status', status);
+            const eventKey = 'unmapped:' + eventKeyFor('status', status);
             try {
               await db.collection('whatsappWebhookEvents').insertOne({
                 id: uuidv4(), eventKey, agencyId: null, connectionId: null, phoneNumberId,
