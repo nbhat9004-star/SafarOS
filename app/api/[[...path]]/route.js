@@ -14,7 +14,7 @@ import {
 import { can, isValidRole } from '@/lib/rbac';
 import { canPlatform, isValidPlatformRole, PLATFORM_ROLES } from '@/lib/platform-rbac';
 import { tenantFilter, withAgency } from '@/lib/tenancy';
-import { aiConfig, aiRuntimeConfig, aiComplete } from '@/lib/ai';
+import { aiConfig, aiRuntimeConfig, aiComplete, normalizeAiModel } from '@/lib/ai';
 import {
   listPlans, getPlan, isValidPlan, priceFor, checkLimit,
   BILLING_INTERVALS, SUBSCRIPTION_STATUSES,
@@ -3258,7 +3258,7 @@ async function platformGet(db, session, path, sp) {
       const configured = envConfigured || !!d.keyLast4;
       const active = d.isActive === true || (!docs.some((x) => x.isActive === true) && aiConfig().provider === p);
       return {
-        provider: p, name: names[p], model: d.model || (active ? aiConfig().model : ''),
+        provider: p, name: names[p], model: d.model ? normalizeAiModel(p, d.model) : (active ? normalizeAiModel(p, aiConfig().model) : ''),
         enabled: d.enabled !== undefined ? d.enabled : active,
         status: configured ? (d.enabled === false ? 'disabled' : 'connected') : 'not_connected',
         keyMask: d.keyLast4 ? `••••••••••••${d.keyLast4}` : (envConfigured ? 'Set via server environment' : ''),
