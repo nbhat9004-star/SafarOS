@@ -169,8 +169,15 @@ export async function POST(request) {
     await graphRequest(`${encodeURIComponent(wabaId)}/subscribed_apps`, accessToken, 'POST');
 
     const now = new Date().toISOString();
+    // Keep the agency's connection ID stable when refreshing its token.
+    // Existing conversations reference this ID; replacing it would make
+    // those conversations appear disconnected even though the agency is connected.
+    const existingConnection = await connections.findOne(
+      { agencyId: String(session.agencyId) },
+      { projection: { _id: 0, id: 1 } }
+    );
     const connection = {
-      id: randomUUID(),
+      id: existingConnection?.id || randomUUID(),
       agencyId: String(session.agencyId),
       provider: 'meta_whatsapp_cloud_api',
       wabaId,
