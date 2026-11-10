@@ -7015,7 +7015,7 @@ function ChannelIntegrations({ session }) {
   };
 
   const connectWhatsApp = async () => {
-    if (!/^\\d{5,30}$/.test(waForm.wabaId.trim()) || !/^\\d{5,30}$/.test(waForm.phoneNumberId.trim())) {
+    if (!/^\d{5,30}$/.test(waForm.wabaId.trim()) || !/^\d{5,30}$/.test(waForm.phoneNumberId.trim())) {
       toast.error('Enter the numeric WABA ID and Phone Number ID from Meta.');
       return;
     }
