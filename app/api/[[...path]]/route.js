@@ -5800,7 +5800,12 @@ export async function PUT(request, context) {
     }
 
     if (path.startsWith('/communications')) {
-      if (!can(session.role, 'communications:update')) return err('forbidden', 403);
+      const isReadReceipt = /^\/communications\/whatsapp\/conversations\/[^/]+\/read$/.test(path);
+      if (isReadReceipt) {
+        if (!can(session.role, 'communications:read')) return err('forbidden', 403);
+      } else if (!can(session.role, 'communications:update')) {
+        return err('forbidden', 403);
+      }
       return commPut(db, session, path, await readBody(request));
     }
 
