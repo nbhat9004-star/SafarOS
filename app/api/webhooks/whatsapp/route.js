@@ -83,11 +83,17 @@ async function persistMessage(db, connection, message, receivedAt) {
   }
 
   const contactCollection = db.collection('whatsappContacts');
+  // Keep insert-only fields separate from fields that may be updated on every
+  // inbound message. In particular, never write displayName in both $set and
+  // $setOnInsert: MongoDB rejects overlapping update paths.
   await contactCollection.updateOne(
     { agencyId, waId },
-    { $set: { phone: waId, lastInboundAt: receivedAt, updatedAt: receivedAt }, $setOnInsert: {
-      id: uuidv4(), agencyId, waId, displayName: '', consentStatus: 'unknown', createdAt: receivedAt,
-    } },
+    {
+      $set: { phone: waId, lastInboundAt: receivedAt, updatedAt: receivedAt },
+      $setOnInsert: {
+        id: uuidv4(), agencyId, waId, consentStatus: 'unknown', createdAt: receivedAt,
+      },
+    },
     { upsert: true }
   );
   const contact = await contactCollection.findOne({ agencyId, waId }, { projection: { _id: 0 } });
