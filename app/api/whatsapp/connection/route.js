@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '@/lib/db';
 import { getSession } from '@/lib/auth';
 import { can } from '@/lib/rbac';
+import { tenantFilter } from '@/lib/tenancy';
 import { encryptAgencyWhatsAppToken } from '@/lib/whatsapp-credentials';
 
 export const runtime = 'nodejs';
@@ -10,6 +11,29 @@ export const dynamic = 'force-dynamic';
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
+}
+
+function safeConnectionView(connection) {
+  if (!connection) return {
+    connected: false,
+    status: 'not_connected',
+    displayPhoneNumber: '',
+    verifiedName: '',
+    qualityRating: '',
+    lastHealthCheckAt: null,
+    connectedAt: null,
+  };
+
+  return {
+    connected: connection.status === 'connected',
+    status: String(connection.status || 'error'),
+    displayPhoneNumber: String(connection.displayPhoneNumber || ''),
+    verifiedName: String(connection.verifiedName || ''),
+    qualityRating: String(connection.qualityRating || ''),
+    lastHealthCheckAt: connection.lastHealthCheckAt || null,
+    connectedAt: connection.connectedAt || null,
+    lastErrorCode: String(connection.lastErrorCode || ''),
+  };
 }
 
 function graphBase() {
@@ -40,6 +64,54 @@ async function graphRequest(path, token, method = 'GET') {
     throw failure;
   }
   return payload || {};
+}
+
+export async function GET(request) {
+  const session = getSession(request);
+  if (!session?.agencyId) return json({ error: 'Authentication required' }, 401);
+  if (!can(session.role, 'communications:read')) {
+    return json({ error: 'You do not have permission to view WhatsApp connection status' }, 403);
+  }
+
+  try {
+    const db = await getDb();
+    const connection = await db.collection('whatsappConnections').findOne(
+      tenantFilter(session),
+      { projection: { _id: 0, encryptedAccessToken: 0, accessToken: 0, token: 0 } }
+    );
+    return json({ connection: safeConnectionView(connection) });
+  } catch {
+    return json({ error: 'Unable to load WhatsApp connection status' }, 500);
+  }
+}
+
+export async function DELETE(request) {
+  const session = getSession(request);
+  if (!session?.agencyId) return json({ error: 'Authentication required' }, 401);
+  if (!can(session.role, 'communications:manage')) {
+    return json({ error: 'Only an agency owner or manager can disconnect WhatsApp' }, 403);
+  }
+
+  try {
+    const db = await getDb();
+    const now = new Date().toISOString();
+    const result = await db.collection('whatsappConnections').updateOne(
+      tenantFilter(session, { status: { $ne: 'disconnected' } }),
+      {
+        $set: {
+          status: 'disconnected',
+          encryptedAccessToken: null,
+          tokenKeyVersion: null,
+          disconnectedAt: now,
+          updatedAt: now,
+          updatedBy: String(session.userId || ''),
+        },
+      }
+    );
+    return json({ success: true, disconnected: result.modifiedCount > 0 });
+  } catch {
+    return json({ error: 'Unable to disconnect WhatsApp right now' }, 500);
+  }
 }
 
 export async function POST(request) {
@@ -74,7 +146,6 @@ export async function POST(request) {
     const db = await getDb();
     const connections = db.collection('whatsappConnections');
 
-    // A phone number can belong to only one SafarOS agency.
     const phoneOwner = await connections.findOne(
       { phoneNumberId, status: 'connected' },
       { projection: { _id: 0, agencyId: 1 } }
@@ -83,7 +154,6 @@ export async function POST(request) {
       return json({ error: 'This WhatsApp number is already connected to another SafarOS agency' }, 409);
     }
 
-    // Confirm the phone number is actually registered under the supplied WABA.
     const phoneList = await graphRequest(
       `${encodeURIComponent(wabaId)}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating&limit=100`,
       accessToken
@@ -95,10 +165,7 @@ export async function POST(request) {
       return json({ error: 'Meta did not find this Phone Number ID inside the supplied WhatsApp Business Account' }, 422);
     }
 
-    // Validate encryption configuration before changing the WABA subscription.
     const encryptedAccessToken = encryptAgencyWhatsAppToken(accessToken, String(session.agencyId));
-
-    // Subscribe the SafarOS Meta app to WABA webhook events.
     await graphRequest(`${encodeURIComponent(wabaId)}/subscribed_apps`, accessToken, 'POST');
 
     const now = new Date().toISOString();
@@ -140,7 +207,6 @@ export async function POST(request) {
       },
     }, 201);
   } catch (error) {
-    // Never log or return the submitted access token or raw Graph API response.
     const message = String(error?.message || '');
     if (message.includes('CREDENTIALS_ENCRYPTION_KEY')) {
       return json({ error: 'WhatsApp credential encryption is not configured correctly on this deployment' }, 503);
