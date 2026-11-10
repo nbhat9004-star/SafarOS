@@ -1387,7 +1387,7 @@ async function aiPost(db, session, path, body) {
       return json({ ok: false, checks }, 200);
     }
     try {
-      const reply = await aiComplete({ db, system: 'You are testing the SafarOS AI connection. Reply with exactly: CONNECTION_OK', messages: [{ role: 'user', text: 'Reply with the required test phrase.' }], maxTokens: 40, temperature: 0 });
+      const reply = await aiComplete({ db, system: 'You are testing the SafarOS AI connection. Reply with exactly: CONNECTION_OK', messages: [{ role: 'user', text: 'Reply with the required test phrase.' }], maxTokens: 40, temperature: 0, allowFailover: false });
       checks.providerTest = reply && /CONNECTION_OK/.test(reply) ? 'ok' : 'unexpected_response';
     } catch (e) {
       console.warn('[safaros] AI provider diagnostic failed:', e.code || '', e.detail || e.message);
@@ -3394,6 +3394,7 @@ async function platformPost(db, session, path, body, request) {
         messages: [{ role: 'user', text: 'Reply with the required test phrase.' }],
         maxTokens: 40,
         temperature: 0,
+        allowFailover: false,
       });
       const durationMs = Date.now() - startedAt;
       const ok = !!reply && /SAFAROS_GEMINI_OK/.test(reply);
