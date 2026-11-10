@@ -87,12 +87,22 @@ export async function POST(request) {
     }
     const now = new Date().toISOString();
     outgoingId = randomUUID();
+    // Older outbound records stored an empty string for metaMessageId.
+    // The webhook's unique (agencyId, metaMessageId) index treats every string,
+    // including "", as an indexed value, so a second send for the same agency
+    // collides with the first. Remove legacy placeholders before inserting and
+    // leave the field absent until Meta returns a real wamid.
+    stage = 'message_persistence';
+    await db.collection('whatsappMessages').updateMany(
+      { agencyId: String(session.agencyId), metaMessageId: '' },
+      { $unset: { metaMessageId: '' } }
+    );
+
     const messageDoc = withAgency(session, {
       id: outgoingId,
       connectionId: connection.id,
       conversationId: conversation.id,
       contactId: '',
-      metaMessageId: '',
       direction: 'outbound',
       type: 'text',
       text,
@@ -102,7 +112,6 @@ export async function POST(request) {
       createdAt: now,
       updatedAt: now,
     });
-    stage = 'message_persistence';
     await db.collection('whatsappMessages').insertOne(messageDoc);
 
     let response;
