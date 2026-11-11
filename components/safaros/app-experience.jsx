@@ -6849,6 +6849,93 @@ function CommRow({ r }) {
   </CardContent></Card>);
 }
 
+function WhatsAppInboxPanel() {
+  const [rows, setRows] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [messageLoading, setMessageLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [query, setQuery] = useState('');
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await api('/communications/whatsapp/conversations');
+      const conversations = data.conversations || [];
+      setRows(conversations);
+      setSelected((current) => current && conversations.some((item) => item.id === current) ? current : (conversations[0]?.id || null));
+    } catch (e) { toast.error(friendlyError(e)); }
+    finally { setLoading(false); }
+  };
+  const openConversation = async (id) => {
+    setMessageLoading(true);
+    try {
+      const data = await api('/communications/whatsapp/conversations/' + encodeURIComponent(id) + '/messages');
+      setMessages(data.messages || []);
+      await api('/communications/whatsapp/conversations/' + encodeURIComponent(id) + '/read', { method: 'PUT', body: JSON.stringify({}) });
+      setRows((old) => old.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
+    } catch (e) { toast.error(friendlyError(e)); }
+    finally { setMessageLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+  useEffect(() => { if (selected) { setDraft(''); openConversation(selected); } else { setMessages([]); } }, [selected]);
+  const filtered = rows.filter((item) => [item.contactName, item.phone, item.lastMessagePreview].some((value) => String(value || '').toLowerCase().includes(query.trim().toLowerCase())));
+  const active = rows.find((item) => item.id === selected);
+  const serviceWindowOpen = active && (active.serviceWindowExpiresAt
+    ? new Date(active.serviceWindowExpiresAt).getTime() > Date.now()
+    : active.lastInboundAt && new Date(active.lastInboundAt).getTime() + 24 * 60 * 60 * 1000 > Date.now());
+  const sendMessage = async () => {
+    const text = draft.trim();
+    if (!active || !text || sending) return;
+    setSending(true);
+    try {
+      const result = await api('/whatsapp/messages', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId: active.id, text }),
+      });
+      setMessages((old) => [...old, result.message]);
+      setDraft('');
+      setRows((old) => old.map((item) => item.id === active.id ? {
+        ...item, lastMessageAt: result.message.createdAt, lastMessagePreview: text.slice(0, 240),
+      } : item));
+      toast.success('WhatsApp message sent');
+    } catch (e) { toast.error(e?.message || 'WhatsApp reply failed. Please try again.'); }
+    finally { setSending(false); }
+  };
+  return <Card><CardContent className="space-y-3 p-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><div className="font-semibold flex items-center gap-2"><MessageSquare className="h-4 w-4" /> WhatsApp Inbox</div><p className="text-xs text-muted-foreground">Live WhatsApp conversations through Meta</p></div>
+      <div className="flex items-center gap-2"><Badge variant="outline">{rows.reduce((total, item) => total + Number(item.unreadCount || 0), 0)} unread</Badge><Button size="sm" variant="outline" onClick={load} disabled={loading}><RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh</Button></div>
+    </div>
+    {loading ? <div className="h-24 rounded-lg bg-muted/40 animate-pulse" /> : rows.length === 0 ? (
+      <div className="rounded-lg border border-dashed p-6 text-center"><div className="text-sm font-medium">No WhatsApp messages received yet</div><p className="mt-1 text-xs text-muted-foreground">New messages sent to your connected WhatsApp number will appear here.</p></div>
+    ) : <div className="grid gap-3 md:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.4fr)]">
+      <div className="space-y-2"><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search WhatsApp chats" /><div className="max-h-[460px] overflow-y-auto divide-y rounded-lg border">
+        {filtered.map((item) => <button key={item.id} onClick={() => setSelected(item.id)} className={`block w-full p-3 text-left hover:bg-muted/50 ${selected === item.id ? 'bg-muted' : ''}`}>
+          <div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-medium">{item.contactName || item.phone || 'WhatsApp contact'}</span>{Number(item.unreadCount || 0) > 0 && <Badge>{item.unreadCount}</Badge>}</div>
+          <div className="text-xs text-muted-foreground">{item.phone}</div><div className="mt-1 truncate text-xs text-muted-foreground">{item.lastMessagePreview || 'WhatsApp conversation'}</div>
+          <div className="mt-1 text-[10px] text-muted-foreground">{item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleString() : ''}</div>
+        </button>)}
+        {filtered.length === 0 && <div className="p-4 text-xs text-muted-foreground">No matching chats.</div>}
+      </div></div>
+      <div className="flex min-h-[360px] flex-col rounded-lg border p-3">{active ? <>
+        <div className="border-b pb-2"><div className="font-medium">{active.contactName || active.phone || 'WhatsApp contact'}</div><div className="text-xs text-muted-foreground">{active.phone}</div></div>
+        <div className="max-h-[340px] min-h-[180px] flex-1 space-y-2 overflow-y-auto py-3">{messageLoading ? <div className="h-20 rounded bg-muted/40 animate-pulse" /> : messages.length === 0 ? <div className="py-8 text-center text-xs text-muted-foreground">No messages in this conversation yet.</div> : messages.map((message) => <div key={message.id} className={`flex ${message.direction === 'inbound' ? 'justify-start' : 'justify-end'}`}>
+          <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${message.direction === 'inbound' ? 'bg-muted' : 'bg-primary text-primary-foreground'}`}>
+            <div className="whitespace-pre-wrap break-words">{message.text || (message.type ? '[' + message.type + ' message]' : '[Message]')}</div>
+            <div className={`mt-1 text-[10px] ${message.direction === 'inbound' ? 'text-muted-foreground' : 'text-primary-foreground/70'}`}>{message.createdAt ? new Date(message.createdAt).toLocaleString() : ''}{message.status ? ' · ' + message.status : ''}{message.failureReason ? ' · ' + message.failureReason : ''}</div>
+          </div>
+        </div>)}</div>
+        {serviceWindowOpen ? <div className="space-y-2 border-t pt-3">
+          <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Write a WhatsApp reply..." rows={3} maxLength={4096} disabled={sending} />
+          <div className="flex items-center justify-between gap-2"><span className="text-[11px] text-muted-foreground">{draft.length}/4096 · Replies allowed within 24 hours of the customer's last message</span><Button size="sm" onClick={sendMessage} disabled={sending || !draft.trim()}>{sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}{sending ? 'Sending...' : 'Send reply'}</Button></div>
+        </div> : <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">The 24-hour customer service window has expired. Use an approved WhatsApp template to message this customer.</div>}
+      </> : <div className="flex h-full min-h-[220px] items-center justify-center text-sm text-muted-foreground">Select a WhatsApp conversation</div>}</div>
+    </div>}
+  </CardContent></Card>;
+}
+
 function CommInbox({ activity, canCreate }) {
   const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [q, setQ] = useState(''); const [chan, setChan] = useState('all'); const [show, setShow] = useState(false);
   const load = async () => { setLoading(true); try { const d = await api('/communications'); setRows(d.communications || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
@@ -6862,6 +6949,7 @@ function CommInbox({ activity, canCreate }) {
       {canCreate && !activity && <Button size="sm" onClick={() => setShow((v) => !v)}><Plus className="h-4 w-4 mr-1" /> Log</Button>}
     </div>
     {show && <CommForm onSaved={() => { setShow(false); load(); }} onCancel={() => setShow(false)} />}
+    {!activity && <WhatsAppInboxPanel />}
     {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
     {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No communications yet.{canCreate && !activity ? ' Log your first message above.' : ''}</CardContent></Card>}
     {!loading && rr.length > 0 && <div className="space-y-2">{rr.map((r) => <CommRow key={r.id} r={r} />)}</div>}
