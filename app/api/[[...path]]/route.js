@@ -2863,13 +2863,25 @@ async function testProviderConnection(provider, values = {}) {
       return { ok: false, message: m };
     }
     if (provider === 'whatsapp_cloud') {
-      const token = values.accessToken || ''; const phoneId = values.phoneNumberId || '';
-      if (!token || !phoneId) return { ok: false, message: 'Access token and Phone Number ID are required.' };
-      const r = await fetch(`https://graph.facebook.com/v19.0/${encodeURIComponent(phoneId)}?fields=id,display_phone_number`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const appId = String(values.appId || '').trim();
+      const appSecret = String(values.appSecret || '');
+      const version = String(values.graphApiVersion || process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
+      if (!appId || !appSecret) return { ok: false, message: 'Meta App ID and App Secret are required.' };
+      if (!/^\d{5,30}$/.test(appId)) return { ok: false, message: 'Enter a valid numeric Meta App ID.' };
+      if (!/^v\d+\.\d+$/.test(version)) return { ok: false, message: 'Graph API version must look like v23.0.' };
+      const appAccessToken = appId + '|' + appSecret;
+      const r = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(appId)}?fields=id,name`, {
+        headers: { Authorization: `Bearer ${appAccessToken}` },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15000),
       });
-      if (r.ok) return { ok: true, message: 'WhatsApp Cloud API responded successfully.' };
-      return { ok: false, message: `WhatsApp API returned HTTP ${r.status}.` };
+      if (r.ok) {
+        const data = await r.json().catch(() => ({}));
+        return { ok: String(data.id || '') === appId, message: String(data.id || '') === appId
+          ? 'SafarOS Meta app credentials are valid. Agency WhatsApp numbers and tokens remain separately managed.'
+          : 'Meta responded, but the returned App ID did not match.' };
+      }
+      return { ok: false, message: `Meta app credential check failed (HTTP ${r.status}). Verify the App ID and App Secret.` };
     }
     if (provider === 'openweather') {
       const key = values.apiKey || '';

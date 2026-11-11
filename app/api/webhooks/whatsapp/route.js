@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
+import { resolveProviderConfig } from '@/lib/secrets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -178,16 +179,29 @@ export async function GET(request) {
   const mode = url.searchParams.get('hub.mode');
   const token = url.searchParams.get('hub.verify_token');
   const challenge = url.searchParams.get('hub.challenge');
-  const expectedToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '';
-
-  if (mode !== 'subscribe' || !expectedToken || !safeEqual(token, expectedToken) || !challenge) {
-    return new Response('Forbidden', { status: 403 });
+  try {
+    const db = await getDb();
+    const { values } = await resolveProviderConfig(db, 'whatsapp_cloud');
+    const expectedToken = String(values.webhookVerifyToken || '');
+    if (mode !== 'subscribe' || !expectedToken || !safeEqual(token, expectedToken) || !challenge) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+  } catch {
+    return new Response('WhatsApp webhook is not configured', { status: 503 });
   }
-  return new Response(challenge, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 }
 
 export async function POST(request) {
-  const appSecret = process.env.WHATSAPP_APP_SECRET || '';
+  let db;
+  let appSecret = '';
+  try {
+    db = await getDb();
+    const { values } = await resolveProviderConfig(db, 'whatsapp_cloud');
+    appSecret = String(values.appSecret || '');
+  } catch {
+    return Response.json({ error: 'WhatsApp webhook is not configured' }, { status: 503 });
+  }
   if (!appSecret) return Response.json({ error: 'WhatsApp webhook is not configured' }, { status: 503 });
 
   const rawBody = await request.text();
@@ -203,7 +217,6 @@ export async function POST(request) {
   }
 
   try {
-    const db = await getDb();
     await ensureIndexes(db);
     const receivedAt = new Date().toISOString();
 
