@@ -2867,8 +2867,8 @@ async function testProviderConnection(provider, values = {}) {
       const appSecret = String(values.appSecret || '');
       const version = String(values.graphApiVersion || process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
       if (!appId || !appSecret) return { ok: false, message: 'Meta App ID and App Secret are required.' };
-      if (!/^\\d{5,30}$/.test(appId)) return { ok: false, message: 'Enter a valid numeric Meta App ID.' };
-      if (!/^v\\d+\\.\\d+$/.test(version)) return { ok: false, message: 'Graph API version must look like v23.0.' };
+      if (!/^\d{5,30}$/.test(appId)) return { ok: false, message: 'Enter a valid numeric Meta App ID.' };
+      if (!/^v\d+\.\d+$/.test(version)) return { ok: false, message: 'Graph API version must look like v23.0.' };
       const appAccessToken = appId + '|' + appSecret;
       const r = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(appId)}?fields=id,name`, {
         headers: { Authorization: `Bearer ${appAccessToken}` },
