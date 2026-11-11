@@ -63,10 +63,30 @@ export async function POST(request) {
     }
 
     stage = 'connection_lookup';
-    const connection = await db.collection('whatsappConnections').findOne(
-      tenantFilter(session, { id: conversation.connectionId, status: 'connected' }),
-      { projection: { _id: 0, id: 1, agencyId: 1, phoneNumberId: 1, encryptedAccessToken: 1 } }
-    );
+    const connectionCollection = db.collection('whatsappConnections');
+    let connection = conversation.connectionId
+      ? await connectionCollection.findOne(
+          tenantFilter(session, { id: conversation.connectionId, status: 'connected' }),
+          { projection: { _id: 0, id: 1, agencyId: 1, phoneNumberId: 1, encryptedAccessToken: 1 } }
+        )
+      : null;
+
+    // A token refresh used to replace the connection ID. Older conversations
+    // still reference the previous ID, even though the agency has one active
+    // WhatsApp connection. Recover only within this authenticated agency.
+    if (!connection) {
+      connection = await connectionCollection.findOne(
+        tenantFilter(session, { status: 'connected' }),
+        { projection: { _id: 0, id: 1, agencyId: 1, phoneNumberId: 1, encryptedAccessToken: 1 } }
+      );
+      if (connection) {
+        await db.collection('whatsappConversations').updateOne(
+          tenantFilter(session, { id: conversation.id }),
+          { $set: { connectionId: connection.id, updatedAt: new Date().toISOString() } }
+        );
+      }
+    }
+
     if (!connection?.encryptedAccessToken || !connection.phoneNumberId) {
       return json({ error: 'This agency WhatsApp connection is unavailable. Reconnect it in Channel Integrations.' }, 409);
     }
