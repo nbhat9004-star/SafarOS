@@ -6880,6 +6880,38 @@ function WhatsAppInboxPanel() {
   };
   useEffect(() => { load(); }, []);
   useEffect(() => { if (selected) { setDraft(''); openConversation(selected); } else { setMessages([]); } }, [selected]);
+
+  // Keep the open WhatsApp inbox synchronised with webhook updates and Meta
+  // delivery/read receipts. The webhook persists events server-side; this
+  // lightweight polling makes those changes visible without a manual refresh.
+  useEffect(() => {
+    const refreshLiveInbox = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const data = await api('/communications/whatsapp/conversations');
+        const conversations = data.conversations || [];
+        setRows(conversations);
+
+        if (selected && conversations.some((item) => item.id === selected)) {
+          const detail = await api('/communications/whatsapp/conversations/' + encodeURIComponent(selected) + '/messages');
+          setMessages(detail.messages || []);
+          await api('/communications/whatsapp/conversations/' + encodeURIComponent(selected) + '/read', {
+            method: 'PUT',
+            body: JSON.stringify({}),
+          });
+          setRows((current) => current.map((item) => item.id === selected
+            ? { ...item, unreadCount: 0 }
+            : item));
+        }
+      } catch {
+        // A transient polling failure must not interrupt the inbox or spam
+        // agents with repeated toast notifications. Manual Refresh remains available.
+      }
+    };
+
+    const timer = setInterval(refreshLiveInbox, 5000);
+    return () => clearInterval(timer);
+  }, [selected]);
   const filtered = rows.filter((item) => [item.contactName, item.phone, item.lastMessagePreview].some((value) => String(value || '').toLowerCase().includes(query.trim().toLowerCase())));
   const active = rows.find((item) => item.id === selected);
   const serviceWindowOpen = active && (active.serviceWindowExpiresAt
