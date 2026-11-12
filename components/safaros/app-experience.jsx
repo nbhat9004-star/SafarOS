@@ -7011,14 +7011,39 @@ function ChannelIntegrations({ session }) {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState({});
+  const [waConnection, setWaConnection] = useState(null);
+  const [waForm, setWaForm] = useState({ wabaId: '', phoneNumberId: '', accessToken: '' });
+  const [waSaving, setWaSaving] = useState(false);
+  const canManage = can(session.user.role, 'communications:manage');
+
   const definitions = [
     { id: 'website_chat', name: 'Website live chat', detail: 'Register the website where your agency wants the SafarOS chat widget.', fields: [{ key: 'websiteUrl', label: 'Agency website URL', placeholder: 'https://travel.example.com' }] },
-    { id: 'whatsapp', name: 'WhatsApp Business', detail: 'Add the number and WhatsApp Business Account ID. Provider authorization is a separate step.', fields: [{ key: 'phoneNumber', label: 'Business phone number', placeholder: '+919876543210' }, { key: 'businessAccountId', label: 'WhatsApp Business Account ID', placeholder: 'Meta WhatsApp Business Account ID' }] },
     { id: 'email', name: 'Email support', detail: 'Register your agency support address. Mailbox authorization and inbound sync are separate steps.', fields: [{ key: 'supportEmail', label: 'Support email address', placeholder: 'support@youragency.com' }] },
   ];
-  const load = async () => { setLoading(true); try { const d = await api('/communications/integrations'); setItems(d.integrations || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [integrations, connection] = await Promise.all([
+        api('/communications/integrations'),
+        api('/whatsapp/connection'),
+      ]);
+      setItems(integrations.integrations || []);
+      setWaConnection(connection.connection || { connected: false, status: 'not_connected' });
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setLoading(false);
+    }
+  };
   useEffect(() => { load(); }, []);
-  const begin = (d) => { const saved = items.find((x) => x.id === d.id); setConfig(saved?.config || {}); setEditing(d); };
+
+  const begin = (d) => {
+    const saved = items.find((x) => x.id === d.id);
+    setConfig(saved?.config || {});
+    setEditing(d);
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -7026,15 +7051,123 @@ function ChannelIntegrations({ session }) {
       setItems((old) => old.map((x) => x.id === editing.id ? d.integration : x).concat(old.some((x) => x.id === editing.id) ? [] : [d.integration]));
       toast.success('Channel details saved. Provider verification is still required.');
       setEditing(null);
-    } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); }
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const connectWhatsApp = async () => {
+    if (!/^\d{5,30}$/.test(waForm.wabaId.trim()) || !/^\d{5,30}$/.test(waForm.phoneNumberId.trim())) {
+      toast.error('Enter the numeric WABA ID and Phone Number ID from Meta.');
+      return;
+    }
+    if (waForm.accessToken.trim().length < 30) {
+      toast.error('Enter a valid Meta access token.');
+      return;
+    }
+    setWaSaving(true);
+    try {
+      const result = await api('/whatsapp/connection', {
+        method: 'POST',
+        body: JSON.stringify({
+          wabaId: waForm.wabaId.trim(),
+          phoneNumberId: waForm.phoneNumberId.trim(),
+          accessToken: waForm.accessToken.trim(),
+        }),
+      });
+      setWaConnection(result.connection || { connected: true, status: 'connected' });
+      setWaForm({ wabaId: '', phoneNumberId: '', accessToken: '' });
+      toast.success('WhatsApp Business connected to this agency.');
+    } catch (e) {
+      // Show the safe, server-authored connection error so setup failures can be diagnosed.
+      toast.error(String(e?.message || 'Unable to connect WhatsApp. Please try again.'));
+    } finally {
+      setWaSaving(false);
+    }
+  };
+
+  const disconnectWhatsApp = async () => {
+    if (!window.confirm('Disconnect this agency WhatsApp number from SafarOS?')) return;
+    setWaSaving(true);
+    try {
+      await api('/whatsapp/connection', { method: 'DELETE' });
+      setWaConnection({ connected: false, status: 'disconnected' });
+      toast.success('WhatsApp disconnected from this agency.');
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setWaSaving(false);
+    }
+  };
+
+  const connected = Boolean(waConnection?.connected && waConnection?.status === 'connected');
+
   return <div className="space-y-3">
-    <div><h3 className="font-semibold">Agency-owned support channels</h3><p className="text-sm text-muted-foreground">Each agency registers its own website, WhatsApp Business number and support mailbox. Details are tenant-scoped. Saving does not turn on live traffic until provider authorization and webhook verification are implemented.</p></div>
-    {loading ? <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" /> : definitions.map((d) => { const item = items.find((x) => x.id === d.id); const status = item?.status || 'not_connected'; return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="font-medium">{d.name}</div><p className="text-sm text-muted-foreground">{d.detail}</p><div className="mt-2"><Badge variant="outline">{status === 'connected' ? 'Connected' : status === 'pending' ? 'Setup pending' : 'Not connected'}</Badge></div></div><Button variant="outline" onClick={() => begin(d)}>{item?.config ? 'Edit details' : 'Configure'}</Button></CardContent></Card>; })}
-    {editing && <Card><CardContent className="space-y-4 p-4"><div><h4 className="font-semibold">Configure {editing.name}</h4><p className="text-sm text-muted-foreground">These are connection details only; never enter access tokens or passwords here.</p></div>{editing.fields.map((field) => <div key={field.key} className="space-y-1"><Label>{field.label}</Label><Input value={config[field.key] || ''} placeholder={field.placeholder} onChange={(e) => setConfig((v) => ({ ...v, [field.key]: e.target.value }))} /></div>)}<div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</Button><Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button></div></CardContent></Card>}
-    <p className="text-xs text-muted-foreground">Next stages: secure provider authorization, signed webhook verification, message ingestion/replies, and end-to-end tests. No channel is marked connected by saving these fields.</p>
+    <div>
+      <h3 className="font-semibold">Agency-owned support channels</h3>
+      <p className="text-sm text-muted-foreground">Each agency connects and owns its own website, WhatsApp Business number and support mailbox. Credentials and conversations are kept within the agency workspace.</p>
+    </div>
+    {loading ? <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" /> : <>
+      <Card>
+        <CardContent className="flex flex-col gap-3 p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
+            <div className="min-w-0 flex-1">
+              <div className="font-medium">WhatsApp Business</div>
+              <p className="text-sm text-muted-foreground">Connect this agency's own WhatsApp Business Account using its Meta access token and account IDs.</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{connected ? 'Connected' : waConnection?.status === 'disconnected' ? 'Disconnected' : 'Not connected'}</Badge>
+                {connected && waConnection?.displayPhoneNumber && <span className="text-sm text-muted-foreground">{waConnection.displayPhoneNumber}</span>}
+                {connected && waConnection?.verifiedName && <span className="text-sm text-muted-foreground">· {waConnection.verifiedName}</span>}
+              </div>
+            </div>
+          </div>
+          {canManage && !connected && <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
+            <div className="space-y-1">
+              <Label>WhatsApp Business Account ID (WABA ID)</Label>
+              <Input inputMode="numeric" autoComplete="off" value={waForm.wabaId} placeholder="Enter WABA ID from Meta" onChange={(e) => setWaForm((v) => ({ ...v, wabaId: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Phone Number ID</Label>
+              <Input inputMode="numeric" autoComplete="off" value={waForm.phoneNumberId} placeholder="Enter Phone Number ID from Meta" onChange={(e) => setWaForm((v) => ({ ...v, phoneNumberId: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Meta access token</Label>
+              <Input type="password" autoComplete="new-password" value={waForm.accessToken} placeholder="Paste the Meta access token" onChange={(e) => setWaForm((v) => ({ ...v, accessToken: e.target.value }))} />
+              <p className="text-xs text-muted-foreground">Sent directly to SafarOS over HTTPS and encrypted before storage. It is never displayed again or saved in this form.</p>
+            </div>
+            <Button onClick={connectWhatsApp} disabled={waSaving}>{waSaving ? 'Verifying with Meta…' : 'Connect WhatsApp'}</Button>
+          </div>}
+          {canManage && connected && <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={load} disabled={waSaving}>Refresh status</Button>
+            <Button variant="destructive" onClick={disconnectWhatsApp} disabled={waSaving}>{waSaving ? 'Please wait…' : 'Disconnect WhatsApp'}</Button>
+          </div>}
+          {!canManage && <p className="text-xs text-muted-foreground">Only an agency owner or manager can manage WhatsApp connections.</p>}
+        </CardContent>
+      </Card>
+
+      {definitions.map((d) => {
+        const item = items.find((x) => x.id === d.id);
+        const status = item?.status || 'not_connected';
+        return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
+          <div className="min-w-0 flex-1"><div className="font-medium">{d.name}</div><p className="text-sm text-muted-foreground">{d.detail}</p><div className="mt-2"><Badge variant="outline">{status === 'connected' ? 'Connected' : status === 'pending' ? 'Setup pending' : 'Not connected'}</Badge></div></div>
+          <Button variant="outline" onClick={() => begin(d)}>{item?.config ? 'Edit details' : 'Configure'}</Button>
+        </CardContent></Card>;
+      })}
+    </>}
+    {editing && <Card><CardContent className="space-y-4 p-4">
+      <div><h4 className="font-semibold">Configure {editing.name}</h4><p className="text-sm text-muted-foreground">These are connection details only; never enter access tokens or passwords here.</p></div>
+      {editing.fields.map((field) => <div key={field.key} className="space-y-1"><Label>{field.label}</Label><Input value={config[field.key] || ''} placeholder={field.placeholder} onChange={(e) => setConfig((v) => ({ ...v, [field.key]: e.target.value }))} /></div>)}
+      <div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</Button><Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button></div>
+    </CardContent></Card>}
+    <p className="text-xs text-muted-foreground">WhatsApp connection is verified against Meta before it is marked connected. Inbound message handling is provided by the signed Meta webhook. Outbound replies and the unified WhatsApp inbox are the next implementation phase.</p>
   </div>;
 }
+
+// ======================= AI COPILOT UI (Phase 5.4) =======================
 
 // ======================= SAFAR INTELLIGENCE UI =======================
 const COPILOT_SUGGESTIONS = [
