@@ -1167,6 +1167,33 @@ async function resolveCommRefs(db, session, body) {
 }
 
 async function commGet(db, session, path, sp) {
+  if (path === '/communications/whatsapp/conversations') {
+    const conversations = await db.collection('whatsappConversations')
+      .find(tenantFilter(session), { projection: { _id: 0 } })
+      .sort({ lastMessageAt: -1, updatedAt: -1 }).limit(100).toArray();
+    if (!conversations.length) return json({ conversations: [] });
+    const waIds = [...new Set(conversations.map((item) => String(item.waId || '')).filter(Boolean))];
+    const contacts = await db.collection('whatsappContacts')
+      .find(tenantFilter(session, { waId: { $in: waIds } }), { projection: { _id: 0, waId: 1, displayName: 1, phone: 1 } }).toArray();
+    const contactByWaId = new Map(contacts.map((contact) => [String(contact.waId), contact]));
+    return json({ conversations: conversations.map((item) => {
+      const contact = contactByWaId.get(String(item.waId)) || {};
+      return { ...item, contactName: String(contact.displayName || item.contactName || ''), phone: String(contact.phone || item.waId || '') };
+    }) });
+  }
+  if (path.startsWith('/communications/whatsapp/conversations/')) {
+    const parts = path.split('/');
+    const conversationId = parts[4];
+    if (!conversationId || parts[5] !== 'messages' || parts.length !== 6) return err('not found', 404);
+    const conversation = await db.collection('whatsappConversations').findOne(
+      tenantFilter(session, { id: conversationId }), { projection: { _id: 0, id: 1 } }
+    );
+    if (!conversation) return err('WhatsApp conversation not found', 404);
+    const messages = await db.collection('whatsappMessages')
+      .find(tenantFilter(session, { conversationId }), { projection: { _id: 0, id: 1, direction: 1, type: 1, text: 1, status: 1, createdAt: 1, failureReason: 1 } })
+      .sort({ createdAt: 1 }).limit(250).toArray();
+    return json({ messages });
+  }
   if (path === '/communications/integrations') {
     const rows = await db.collection('communicationIntegrations').find(tenantFilter(session), { projection: { _id: 0, id: 1, status: 1, updatedAt: 1, config: 1 } }).toArray();
     const defaults = [
@@ -1240,6 +1267,15 @@ async function commPost(db, session, path, body) {
 async function commPut(db, session, path, body) {
   const now = new Date().toISOString();
   const parts = path.split('/');
+  if (parts[2] === 'whatsapp' && parts[3] === 'conversations' && parts[4] && parts[5] === 'read' && parts.length === 6) {
+    const conversationId = parts[4];
+    const result = await db.collection('whatsappConversations').updateOne(
+      tenantFilter(session, { id: conversationId }),
+      { $set: { unreadCount: 0, lastReadAt: now, updatedAt: now } }
+    );
+    if (!result.matchedCount) return err('WhatsApp conversation not found', 404);
+    return json({ success: true, conversationId, unreadCount: 0 });
+  }
   if (parts[2] === 'integrations' && parts[3]) {
     const id = parts[3];
     const allowed = { website_chat: ['websiteUrl'], whatsapp: ['phoneNumber', 'businessAccountId'], email: ['supportEmail'] };
@@ -2917,13 +2953,25 @@ async function testProviderConnection(provider, values = {}) {
       return { ok: false, message: m };
     }
     if (provider === 'whatsapp_cloud') {
-      const token = values.accessToken || ''; const phoneId = values.phoneNumberId || '';
-      if (!token || !phoneId) return { ok: false, message: 'Access token and Phone Number ID are required.' };
-      const r = await fetch(`https://graph.facebook.com/v19.0/${encodeURIComponent(phoneId)}?fields=id,display_phone_number`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const appId = String(values.appId || '').trim();
+      const appSecret = String(values.appSecret || '');
+      const version = String(values.graphApiVersion || process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
+      if (!appId || !appSecret) return { ok: false, message: 'Meta App ID and App Secret are required.' };
+      if (!/^\d{5,30}$/.test(appId)) return { ok: false, message: 'Enter a valid numeric Meta App ID.' };
+      if (!/^v\d+\.\d+$/.test(version)) return { ok: false, message: 'Graph API version must look like v23.0.' };
+      const appAccessToken = appId + '|' + appSecret;
+      const r = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(appId)}?fields=id,name`, {
+        headers: { Authorization: `Bearer ${appAccessToken}` },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15000),
       });
-      if (r.ok) return { ok: true, message: 'WhatsApp Cloud API responded successfully.' };
-      return { ok: false, message: `WhatsApp API returned HTTP ${r.status}.` };
+      if (r.ok) {
+        const data = await r.json().catch(() => ({}));
+        return { ok: String(data.id || '') === appId, message: String(data.id || '') === appId
+          ? 'SafarOS Meta app credentials are valid. Agency WhatsApp numbers and tokens remain separately managed.'
+          : 'Meta responded, but the returned App ID did not match.' };
+      }
+      return { ok: false, message: `Meta app credential check failed (HTTP ${r.status}). Verify the App ID and App Secret.` };
     }
     if (provider === 'openweather') {
       const key = values.apiKey || '';
@@ -5849,7 +5897,12 @@ export async function PUT(request, context) {
     }
 
     if (path.startsWith('/communications')) {
-      if (!can(session.role, 'communications:update')) return err('forbidden', 403);
+      const isReadReceipt = /^\/communications\/whatsapp\/conversations\/[^/]+\/read$/.test(path);
+      if (isReadReceipt) {
+        if (!can(session.role, 'communications:read')) return err('forbidden', 403);
+      } else if (!can(session.role, 'communications:update')) {
+        return err('forbidden', 403);
+      }
       return commPut(db, session, path, await readBody(request));
     }
 
