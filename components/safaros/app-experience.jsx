@@ -30,6 +30,8 @@ import { useLocalization } from '@/components/safaros/localization-provider';
 import { GCC_COUNTRIES, SUPPORTED_CURRENCIES, getCountryDefaults } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
+import SupplyHubWorkspace from '@/components/safaros/supply-hub-workspace';
+import SalesRescueWorkspace from '@/components/safaros/sales-rescue-workspace';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
@@ -222,6 +224,8 @@ const NAV = [
       { id: 'activities', label: 'Activities', icon: Activity },
     ],
   },
+  { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles },
+  { id: 'supply-hub', label: 'Supply Hub', icon: Database },
   {
     group: 'Quotations',
     items: [
@@ -298,7 +302,7 @@ const NAV = [
       { id: 'int_api', label: 'Developer API', icon: ShieldCheck },
     ],
   },
-  { id: 'copilot', label: 'Copilot', icon: Sparkles },
+  { id: 'copilot', label: 'Safar Intelligence', icon: Sparkles },
   { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck },
   {
     group: 'Data Tools',
@@ -315,7 +319,7 @@ const SECTION_TITLES = {
   overview: 'Overview', crm: 'CRM Dashboard', leads: 'Leads', clients: 'Clients',
   contacts: 'Contacts', followups: 'Follow-ups', tasks: 'Tasks', activities: 'Activities',
   quotations: 'Quotations', 'quote-create': 'Create Quotation',
-  packages: 'Packages', itineraries: 'Itineraries',
+  packages: 'Packages', 'supply-hub': 'Supply Hub', 'sales-rescue': 'Sales Rescue', itineraries: 'Itineraries',
   suppliers: 'Suppliers',
   discover: 'Discover Suppliers',
   bookings: 'Bookings',
@@ -326,7 +330,7 @@ const SECTION_TITLES = {
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
   fin_payments: 'Payments',
   comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
-  copilot: 'AI Copilot', portal_admin: 'Customer Portal Access',
+  copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access',
   marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
@@ -399,6 +403,8 @@ const MOBILE_NAV = [
     { id: 'crm', label: 'Dashboard' }, { id: 'leads', label: 'Leads' }, { id: 'clients', label: 'Clients' },
     { id: 'contacts', label: 'Contacts' }, { id: 'followups', label: 'Follow-ups' }, { id: 'tasks', label: 'Tasks' }, { id: 'activities', label: 'Activities' },
   ] },
+  { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles, leaf: true },
+  { id: 'supply-hub', label: 'Supply Hub', icon: Database, leaf: true },
   { id: 'sales', label: 'Sales', icon: FileText, items: [
     { id: 'quotations', label: 'Quotations' }, { id: 'quote-create', label: 'Create Quotation' }, { id: 'packages', label: 'Packages' },
   ] },
@@ -416,7 +422,7 @@ const MOBILE_NAV = [
     { id: 'discover', label: 'Supplier Discovery' }, { id: 'suppliers', label: 'Saved Suppliers' },
   ] },
   { id: 'aitools', label: 'AI & Tools', icon: Sparkles, items: [
-    { id: 'copilot', label: 'AI Copilot' }, { id: 'an_overview', label: 'Analytics' },
+    { id: 'copilot', label: 'Safar Intelligence' }, { id: 'an_overview', label: 'Analytics' },
   ] },
   { id: 'more', label: 'More', icon: LayoutGrid, items: [
     { id: 'marketplace', label: 'SafarCurated Marketplace' }, { id: 'int_overview', label: 'Integrations' }, { id: 'data_import', label: 'Import Data' }, { id: 'data_export', label: 'Export Data' }, { id: 'sub_overview', label: 'Subscription' }, { id: 'team', label: 'Team' }, { id: 'settings', label: 'Settings' },
@@ -435,6 +441,8 @@ const DESKTOP_WORKSPACES = [
     { id: 'tasks', label: 'Tasks', desc: 'Team tasks', icon: ListTodo, tone: 'rose' },
     { id: 'activities', label: 'Activities', desc: 'CRM activity timeline', icon: Activity, tone: 'sky' },
   ] },
+  { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles, direct: 'sales-rescue' },
+  { id: 'supply-hub', label: 'Supply Hub', icon: Database, direct: 'supply-hub' },
   { id: 'sales', label: 'Sales', icon: FileText, subtitle: 'Quotations & travel packages', tiles: [
     { id: 'quotations', label: 'Quotations', desc: 'Create and manage quotes', icon: FileText, tone: 'violet' },
     { id: 'quote-create', label: 'Create Quotation', desc: 'Start a new quotation', icon: FilePlus, tone: 'emerald' },
@@ -460,7 +468,7 @@ const DESKTOP_WORKSPACES = [
   { id: 'discover', label: 'Discover', icon: Compass, direct: 'discover' },
   { id: 'more', label: 'More', icon: LayoutGrid, subtitle: 'Communications, tools & settings', tiles: [
     { id: 'comm_inbox', label: 'Communications', desc: 'Inbox, templates & logs', icon: MessageSquare, tone: 'sky' },
-    { id: 'copilot', label: 'AI Copilot', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
+    { id: 'copilot', label: 'Safar Intelligence', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
     { id: 'an_overview', label: 'Analytics', desc: 'Business insights & reports', icon: Gauge, tone: 'emerald' },
     { id: 'travelrules', label: 'Travel Intelligence', desc: 'Rules & surcharges', icon: MapPin, tone: 'violet' },
     { id: 'documents', label: 'Document Vault', desc: 'Secure document storage', icon: FileText, tone: 'sky' },
@@ -1335,6 +1343,8 @@ function Dashboard({ session, onLogout }) {
           {active === 'bookings' && <Bookings key="bk" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'fleet' && <Fleet key="fleet" session={session} />}
           {active === 'inventory' && <InventoryWorkspace key="inventory" />}
+          {active === 'supply-hub' && <SupplyHubWorkspace onNavigate={setActive} />}
+          {active === 'sales-rescue' && <SalesRescueWorkspace onNavigate={setActive} />}
           {active === 'marketplace' && <MarketplaceWorkspace key="marketplace" />}
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
@@ -1496,7 +1506,7 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
             { label: 'Operations', desc: 'Trips & suppliers', icon: Truck, tone: 'emerald', go: 'ws:operations' },
             { label: 'Finance', desc: 'Money & invoices', icon: Wallet, tone: 'amber', go: 'ws:finance' },
             { label: 'Discover', desc: 'Find suppliers', icon: Compass, tone: 'rose', go: 'discover' },
-            { label: 'AI Copilot', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
+            { label: 'Safar Intelligence', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
           ].map((w) => {
             const Icon = w.icon;
             return (
@@ -1589,7 +1599,7 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
                     { label: 'Bookings', icon: ClipboardList, go: 'bookings' },
                     { label: 'Packages', icon: Package, go: 'packages' },
                     { label: 'Payments', icon: Banknote, go: 'fin_payments' },
-                    { label: 'Copilot', icon: Sparkles, go: 'copilot' },
+                    { label: 'Safar Intelligence', icon: Sparkles, go: 'copilot' },
                   ].map((q) => {
                     const Icon = q.icon;
                     return (
@@ -6763,6 +6773,125 @@ function CommRow({ r }) {
   </CardContent></Card>);
 }
 
+function WhatsAppInboxPanel() {
+  const [rows, setRows] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [messageLoading, setMessageLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [query, setQuery] = useState('');
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await api('/communications/whatsapp/conversations');
+      const conversations = data.conversations || [];
+      setRows(conversations);
+      setSelected((current) => current && conversations.some((item) => item.id === current) ? current : (conversations[0]?.id || null));
+    } catch (e) { toast.error(friendlyError(e)); }
+    finally { setLoading(false); }
+  };
+  const openConversation = async (id) => {
+    setMessageLoading(true);
+    try {
+      const data = await api('/communications/whatsapp/conversations/' + encodeURIComponent(id) + '/messages');
+      setMessages(data.messages || []);
+      await api('/communications/whatsapp/conversations/' + encodeURIComponent(id) + '/read', { method: 'PUT', body: JSON.stringify({}) });
+      setRows((old) => old.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
+    } catch (e) { toast.error(friendlyError(e)); }
+    finally { setMessageLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+  useEffect(() => { if (selected) { setDraft(''); openConversation(selected); } else { setMessages([]); } }, [selected]);
+
+  // Keep the open WhatsApp inbox synchronised with webhook updates and Meta
+  // delivery/read receipts. The webhook persists events server-side; this
+  // lightweight polling makes those changes visible without a manual refresh.
+  useEffect(() => {
+    const refreshLiveInbox = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const data = await api('/communications/whatsapp/conversations');
+        const conversations = data.conversations || [];
+        setRows(conversations);
+
+        if (selected && conversations.some((item) => item.id === selected)) {
+          const detail = await api('/communications/whatsapp/conversations/' + encodeURIComponent(selected) + '/messages');
+          setMessages(detail.messages || []);
+          await api('/communications/whatsapp/conversations/' + encodeURIComponent(selected) + '/read', {
+            method: 'PUT',
+            body: JSON.stringify({}),
+          });
+          setRows((current) => current.map((item) => item.id === selected
+            ? { ...item, unreadCount: 0 }
+            : item));
+        }
+      } catch {
+        // A transient polling failure must not interrupt the inbox or spam
+        // agents with repeated toast notifications. Manual Refresh remains available.
+      }
+    };
+
+    const timer = setInterval(refreshLiveInbox, 5000);
+    return () => clearInterval(timer);
+  }, [selected]);
+  const filtered = rows.filter((item) => [item.contactName, item.phone, item.lastMessagePreview].some((value) => String(value || '').toLowerCase().includes(query.trim().toLowerCase())));
+  const active = rows.find((item) => item.id === selected);
+  const serviceWindowOpen = active && (active.serviceWindowExpiresAt
+    ? new Date(active.serviceWindowExpiresAt).getTime() > Date.now()
+    : active.lastInboundAt && new Date(active.lastInboundAt).getTime() + 24 * 60 * 60 * 1000 > Date.now());
+  const sendMessage = async () => {
+    const text = draft.trim();
+    if (!active || !text || sending) return;
+    setSending(true);
+    try {
+      const result = await api('/whatsapp/messages', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId: active.id, text }),
+      });
+      setMessages((old) => [...old, result.message]);
+      setDraft('');
+      setRows((old) => old.map((item) => item.id === active.id ? {
+        ...item, lastMessageAt: result.message.createdAt, lastMessagePreview: text.slice(0, 240),
+      } : item));
+      toast.success('WhatsApp message sent');
+    } catch (e) { toast.error(e?.message || 'WhatsApp reply failed. Please try again.'); }
+    finally { setSending(false); }
+  };
+  return <Card><CardContent className="space-y-3 p-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><div className="font-semibold flex items-center gap-2"><MessageSquare className="h-4 w-4" /> WhatsApp Inbox</div><p className="text-xs text-muted-foreground">Live WhatsApp conversations through Meta</p></div>
+      <div className="flex items-center gap-2"><Badge variant="outline">{rows.reduce((total, item) => total + Number(item.unreadCount || 0), 0)} unread</Badge><Button size="sm" variant="outline" onClick={load} disabled={loading}><RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh</Button></div>
+    </div>
+    {loading ? <div className="h-24 rounded-lg bg-muted/40 animate-pulse" /> : rows.length === 0 ? (
+      <div className="rounded-lg border border-dashed p-6 text-center"><div className="text-sm font-medium">No WhatsApp messages received yet</div><p className="mt-1 text-xs text-muted-foreground">New messages sent to your connected WhatsApp number will appear here.</p></div>
+    ) : <div className="grid gap-3 md:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.4fr)]">
+      <div className="space-y-2"><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search WhatsApp chats" /><div className="max-h-[460px] overflow-y-auto divide-y rounded-lg border">
+        {filtered.map((item) => <button key={item.id} onClick={() => setSelected(item.id)} className={`block w-full p-3 text-left hover:bg-muted/50 ${selected === item.id ? 'bg-muted' : ''}`}>
+          <div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-medium">{item.contactName || item.phone || 'WhatsApp contact'}</span>{Number(item.unreadCount || 0) > 0 && <Badge>{item.unreadCount}</Badge>}</div>
+          <div className="text-xs text-muted-foreground">{item.phone}</div><div className="mt-1 truncate text-xs text-muted-foreground">{item.lastMessagePreview || 'WhatsApp conversation'}</div>
+          <div className="mt-1 text-[10px] text-muted-foreground">{item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleString() : ''}</div>
+        </button>)}
+        {filtered.length === 0 && <div className="p-4 text-xs text-muted-foreground">No matching chats.</div>}
+      </div></div>
+      <div className="flex min-h-[360px] flex-col rounded-lg border p-3">{active ? <>
+        <div className="border-b pb-2"><div className="font-medium">{active.contactName || active.phone || 'WhatsApp contact'}</div><div className="text-xs text-muted-foreground">{active.phone}</div></div>
+        <div className="max-h-[340px] min-h-[180px] flex-1 space-y-2 overflow-y-auto py-3">{messageLoading ? <div className="h-20 rounded bg-muted/40 animate-pulse" /> : messages.length === 0 ? <div className="py-8 text-center text-xs text-muted-foreground">No messages in this conversation yet.</div> : messages.map((message) => <div key={message.id} className={`flex ${message.direction === 'inbound' ? 'justify-start' : 'justify-end'}`}>
+          <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${message.direction === 'inbound' ? 'bg-muted' : 'bg-primary text-primary-foreground'}`}>
+            <div className="whitespace-pre-wrap break-words">{message.text || (message.type ? '[' + message.type + ' message]' : '[Message]')}</div>
+            <div className={`mt-1 text-[10px] ${message.direction === 'inbound' ? 'text-muted-foreground' : 'text-primary-foreground/70'}`}>{message.createdAt ? new Date(message.createdAt).toLocaleString() : ''}{message.status ? ' · ' + message.status : ''}{message.failureReason ? ' · ' + message.failureReason : ''}</div>
+          </div>
+        </div>)}</div>
+        {serviceWindowOpen ? <div className="space-y-2 border-t pt-3">
+          <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Write a WhatsApp reply..." rows={3} maxLength={4096} disabled={sending} />
+          <div className="flex items-center justify-between gap-2"><span className="text-[11px] text-muted-foreground">{draft.length}/4096 · Replies allowed within 24 hours of the customer's last message</span><Button size="sm" onClick={sendMessage} disabled={sending || !draft.trim()}>{sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}{sending ? 'Sending...' : 'Send reply'}</Button></div>
+        </div> : <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">The 24-hour customer service window has expired. Use an approved WhatsApp template to message this customer.</div>}
+      </> : <div className="flex h-full min-h-[220px] items-center justify-center text-sm text-muted-foreground">Select a WhatsApp conversation</div>}</div>
+    </div>}
+  </CardContent></Card>;
+}
+
 function CommInbox({ activity, canCreate }) {
   const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [q, setQ] = useState(''); const [chan, setChan] = useState('all'); const [show, setShow] = useState(false);
   const load = async () => { setLoading(true); try { const d = await api('/communications'); setRows(d.communications || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
@@ -6776,6 +6905,7 @@ function CommInbox({ activity, canCreate }) {
       {canCreate && !activity && <Button size="sm" onClick={() => setShow((v) => !v)}><Plus className="h-4 w-4 mr-1" /> Log</Button>}
     </div>
     {show && <CommForm onSaved={() => { setShow(false); load(); }} onCancel={() => setShow(false)} />}
+    {!activity && <WhatsAppInboxPanel />}
     {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
     {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No communications yet.{canCreate && !activity ? ' Log your first message above.' : ''}</CardContent></Card>}
     {!loading && rr.length > 0 && <div className="space-y-2">{rr.map((r) => <CommRow key={r.id} r={r} />)}</div>}
@@ -6881,14 +7011,39 @@ function ChannelIntegrations({ session }) {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState({});
+  const [waConnection, setWaConnection] = useState(null);
+  const [waForm, setWaForm] = useState({ wabaId: '', phoneNumberId: '', accessToken: '' });
+  const [waSaving, setWaSaving] = useState(false);
+  const canManage = can(session.user.role, 'communications:manage');
+
   const definitions = [
     { id: 'website_chat', name: 'Website live chat', detail: 'Register the website where your agency wants the SafarOS chat widget.', fields: [{ key: 'websiteUrl', label: 'Agency website URL', placeholder: 'https://travel.example.com' }] },
-    { id: 'whatsapp', name: 'WhatsApp Business', detail: 'Add the number and WhatsApp Business Account ID. Provider authorization is a separate step.', fields: [{ key: 'phoneNumber', label: 'Business phone number', placeholder: '+919876543210' }, { key: 'businessAccountId', label: 'WhatsApp Business Account ID', placeholder: 'Meta WhatsApp Business Account ID' }] },
     { id: 'email', name: 'Email support', detail: 'Register your agency support address. Mailbox authorization and inbound sync are separate steps.', fields: [{ key: 'supportEmail', label: 'Support email address', placeholder: 'support@youragency.com' }] },
   ];
-  const load = async () => { setLoading(true); try { const d = await api('/communications/integrations'); setItems(d.integrations || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [integrations, connection] = await Promise.all([
+        api('/communications/integrations'),
+        api('/whatsapp/connection'),
+      ]);
+      setItems(integrations.integrations || []);
+      setWaConnection(connection.connection || { connected: false, status: 'not_connected' });
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setLoading(false);
+    }
+  };
   useEffect(() => { load(); }, []);
-  const begin = (d) => { const saved = items.find((x) => x.id === d.id); setConfig(saved?.config || {}); setEditing(d); };
+
+  const begin = (d) => {
+    const saved = items.find((x) => x.id === d.id);
+    setConfig(saved?.config || {});
+    setEditing(d);
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -6896,17 +7051,125 @@ function ChannelIntegrations({ session }) {
       setItems((old) => old.map((x) => x.id === editing.id ? d.integration : x).concat(old.some((x) => x.id === editing.id) ? [] : [d.integration]));
       toast.success('Channel details saved. Provider verification is still required.');
       setEditing(null);
-    } catch (e) { toast.error(friendlyError(e)); } finally { setSaving(false); }
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const connectWhatsApp = async () => {
+    if (!/^\d{5,30}$/.test(waForm.wabaId.trim()) || !/^\d{5,30}$/.test(waForm.phoneNumberId.trim())) {
+      toast.error('Enter the numeric WABA ID and Phone Number ID from Meta.');
+      return;
+    }
+    if (waForm.accessToken.trim().length < 30) {
+      toast.error('Enter a valid Meta access token.');
+      return;
+    }
+    setWaSaving(true);
+    try {
+      const result = await api('/whatsapp/connection', {
+        method: 'POST',
+        body: JSON.stringify({
+          wabaId: waForm.wabaId.trim(),
+          phoneNumberId: waForm.phoneNumberId.trim(),
+          accessToken: waForm.accessToken.trim(),
+        }),
+      });
+      setWaConnection(result.connection || { connected: true, status: 'connected' });
+      setWaForm({ wabaId: '', phoneNumberId: '', accessToken: '' });
+      toast.success('WhatsApp Business connected to this agency.');
+    } catch (e) {
+      // Show the safe, server-authored connection error so setup failures can be diagnosed.
+      toast.error(String(e?.message || 'Unable to connect WhatsApp. Please try again.'));
+    } finally {
+      setWaSaving(false);
+    }
+  };
+
+  const disconnectWhatsApp = async () => {
+    if (!window.confirm('Disconnect this agency WhatsApp number from SafarOS?')) return;
+    setWaSaving(true);
+    try {
+      await api('/whatsapp/connection', { method: 'DELETE' });
+      setWaConnection({ connected: false, status: 'disconnected' });
+      toast.success('WhatsApp disconnected from this agency.');
+    } catch (e) {
+      toast.error(friendlyError(e));
+    } finally {
+      setWaSaving(false);
+    }
+  };
+
+  const connected = Boolean(waConnection?.connected && waConnection?.status === 'connected');
+
   return <div className="space-y-3">
-    <div><h3 className="font-semibold">Agency-owned support channels</h3><p className="text-sm text-muted-foreground">Each agency registers its own website, WhatsApp Business number and support mailbox. Details are tenant-scoped. Saving does not turn on live traffic until provider authorization and webhook verification are implemented.</p></div>
-    {loading ? <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" /> : definitions.map((d) => { const item = items.find((x) => x.id === d.id); const status = item?.status || 'not_connected'; return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="font-medium">{d.name}</div><p className="text-sm text-muted-foreground">{d.detail}</p><div className="mt-2"><Badge variant="outline">{status === 'connected' ? 'Connected' : status === 'pending' ? 'Setup pending' : 'Not connected'}</Badge></div></div><Button variant="outline" onClick={() => begin(d)}>{item?.config ? 'Edit details' : 'Configure'}</Button></CardContent></Card>; })}
-    {editing && <Card><CardContent className="space-y-4 p-4"><div><h4 className="font-semibold">Configure {editing.name}</h4><p className="text-sm text-muted-foreground">These are connection details only; never enter access tokens or passwords here.</p></div>{editing.fields.map((field) => <div key={field.key} className="space-y-1"><Label>{field.label}</Label><Input value={config[field.key] || ''} placeholder={field.placeholder} onChange={(e) => setConfig((v) => ({ ...v, [field.key]: e.target.value }))} /></div>)}<div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</Button><Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button></div></CardContent></Card>}
-    <p className="text-xs text-muted-foreground">Next stages: secure provider authorization, signed webhook verification, message ingestion/replies, and end-to-end tests. No channel is marked connected by saving these fields.</p>
+    <div>
+      <h3 className="font-semibold">Agency-owned support channels</h3>
+      <p className="text-sm text-muted-foreground">Each agency connects and owns its own website, WhatsApp Business number and support mailbox. Credentials and conversations are kept within the agency workspace.</p>
+    </div>
+    {loading ? <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" /> : <>
+      <Card>
+        <CardContent className="flex flex-col gap-3 p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
+            <div className="min-w-0 flex-1">
+              <div className="font-medium">WhatsApp Business</div>
+              <p className="text-sm text-muted-foreground">Connect this agency's own WhatsApp Business Account using its Meta access token and account IDs.</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{connected ? 'Connected' : waConnection?.status === 'disconnected' ? 'Disconnected' : 'Not connected'}</Badge>
+                {connected && waConnection?.displayPhoneNumber && <span className="text-sm text-muted-foreground">{waConnection.displayPhoneNumber}</span>}
+                {connected && waConnection?.verifiedName && <span className="text-sm text-muted-foreground">· {waConnection.verifiedName}</span>}
+              </div>
+            </div>
+          </div>
+          {canManage && !connected && <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
+            <div className="space-y-1">
+              <Label>WhatsApp Business Account ID (WABA ID)</Label>
+              <Input inputMode="numeric" autoComplete="off" value={waForm.wabaId} placeholder="Enter WABA ID from Meta" onChange={(e) => setWaForm((v) => ({ ...v, wabaId: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Phone Number ID</Label>
+              <Input inputMode="numeric" autoComplete="off" value={waForm.phoneNumberId} placeholder="Enter Phone Number ID from Meta" onChange={(e) => setWaForm((v) => ({ ...v, phoneNumberId: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Meta access token</Label>
+              <Input type="password" autoComplete="new-password" value={waForm.accessToken} placeholder="Paste the Meta access token" onChange={(e) => setWaForm((v) => ({ ...v, accessToken: e.target.value }))} />
+              <p className="text-xs text-muted-foreground">Sent directly to SafarOS over HTTPS and encrypted before storage. It is never displayed again or saved in this form.</p>
+            </div>
+            <Button onClick={connectWhatsApp} disabled={waSaving}>{waSaving ? 'Verifying with Meta…' : 'Connect WhatsApp'}</Button>
+          </div>}
+          {canManage && connected && <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={load} disabled={waSaving}>Refresh status</Button>
+            <Button variant="destructive" onClick={disconnectWhatsApp} disabled={waSaving}>{waSaving ? 'Please wait…' : 'Disconnect WhatsApp'}</Button>
+          </div>}
+          {!canManage && <p className="text-xs text-muted-foreground">Only an agency owner or manager can manage WhatsApp connections.</p>}
+        </CardContent>
+      </Card>
+
+      {definitions.map((d) => {
+        const item = items.find((x) => x.id === d.id);
+        const status = item?.status || 'not_connected';
+        return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
+          <div className="min-w-0 flex-1"><div className="font-medium">{d.name}</div><p className="text-sm text-muted-foreground">{d.detail}</p><div className="mt-2"><Badge variant="outline">{status === 'connected' ? 'Connected' : status === 'pending' ? 'Setup pending' : 'Not connected'}</Badge></div></div>
+          <Button variant="outline" onClick={() => begin(d)}>{item?.config ? 'Edit details' : 'Configure'}</Button>
+        </CardContent></Card>;
+      })}
+    </>}
+    {editing && <Card><CardContent className="space-y-4 p-4">
+      <div><h4 className="font-semibold">Configure {editing.name}</h4><p className="text-sm text-muted-foreground">These are connection details only; never enter access tokens or passwords here.</p></div>
+      {editing.fields.map((field) => <div key={field.key} className="space-y-1"><Label>{field.label}</Label><Input value={config[field.key] || ''} placeholder={field.placeholder} onChange={(e) => setConfig((v) => ({ ...v, [field.key]: e.target.value }))} /></div>)}
+      <div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</Button><Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button></div>
+    </CardContent></Card>}
+    <p className="text-xs text-muted-foreground">WhatsApp connection is verified against Meta before it is marked connected. Inbound message handling is provided by the signed Meta webhook. Outbound replies and the unified WhatsApp inbox are the next implementation phase.</p>
   </div>;
 }
 
 // ======================= AI COPILOT UI (Phase 5.4) =======================
+
+// ======================= SAFAR INTELLIGENCE UI =======================
 const COPILOT_SUGGESTIONS = [
   "Give me today's business priorities",
   'Which follow-ups are due?',
@@ -6921,25 +7184,62 @@ function CopilotChat({ session }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [diagnostic, setDiagnostic] = useState(null);
   const [conv, setConv] = useState(null);
   useEffect(() => { (async () => { try { const s = await api('/ai/status'); setStatus(s); } catch { setStatus({ configured: false }); } })(); }, []);
-  const send = async (text) => { const msg = (text || input).trim(); if (!msg || busy) return; setInput(''); setMessages((m) => [...m, { role: 'user', text: msg }]); setBusy(true); try { const d = await api('/ai/chat', { method: 'POST', body: JSON.stringify({ conversationId: conv, message: msg }) }); setConv(d.conversationId); setMessages((m) => [...m, { role: 'assistant', text: d.reply }]); } catch (e) { setMessages((m) => [...m, { role: 'assistant', text: friendlyError(e), error: true }]); } finally { setBusy(false); } };
+  const testConnection = async () => {
+    if (testing) return;
+    setTesting(true); setDiagnostic(null);
+    try { setDiagnostic(await api('/ai/diagnostics', { method: 'POST', body: JSON.stringify({}) })); }
+    catch (e) { setDiagnostic({ ok: false, checks: { error: e.message } }); }
+    finally { setTesting(false); }
+  };
+  const send = async (text) => {
+    const msg = (text || input).trim();
+    if (!msg || busy) return;
+    setInput('');
+    setMessages((m) => [...m, { role: 'user', text: msg }]);
+    setBusy(true);
+    try {
+      const d = await api('/ai/chat', { method: 'POST', body: JSON.stringify({ conversationId: conv, message: msg }) });
+      setConv(d.conversationId);
+      setMessages((m) => [...m, { role: 'assistant', text: d.reply }]);
+    } catch (e) {
+      setMessages((m) => [...m, { role: 'assistant', text: e.message || 'Safar Intelligence could not complete the request.', error: true }]);
+    } finally { setBusy(false); }
+  };
   return (<div className="flex flex-col h-full min-h-0">
-    {status && !status.configured && <div className="m-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">AI Copilot is not configured. Set <code>ANTHROPIC_API_KEY</code> on the server to enable it — the rest of SafarOS keeps working normally.</div>}
+    {status && !status.configured && <div className="m-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">No active AI provider is configured. Check Super Admin → AI Platforms.</div>}
+    <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+      <div className="text-xs text-muted-foreground">{status?.configured ? 'Connected · ' + (status.provider || 'AI provider') + ' · ' + (status.model || 'model') : 'Checking AI configuration…'}</div>
+      <Button type="button" size="sm" variant="outline" onClick={testConnection} disabled={testing || !status?.configured}>{testing ? 'Testing…' : 'Test connection'}</Button>
+    </div>
+    {diagnostic && <div className={'mx-3 mt-2 rounded-lg border p-3 text-xs ' + (diagnostic.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900')}>
+      <div className="font-semibold">{diagnostic.ok ? 'Connection and agency context are working' : 'Connection test needs attention'}</div>
+      {diagnostic.checks?.provider && <div className="mt-1">Provider: {diagnostic.checks.provider} · Model: {diagnostic.checks.model}</div>}
+      {diagnostic.checks?.context && <div>Agency context: {diagnostic.checks.context}</div>}
+      {diagnostic.checks?.providerTest && <div>AI response: {diagnostic.checks.providerTest}</div>}
+      {diagnostic.checks?.contextError && <div>{diagnostic.checks.contextError}</div>}
+      {diagnostic.checks?.providerError && <div>{diagnostic.checks.providerError}</div>}
+      {diagnostic.checks?.providerStatus && <div>Provider HTTP status: {diagnostic.checks.providerStatus}{diagnostic.checks.providerCode ? ' · ' + diagnostic.checks.providerCode : ''}</div>}
+      {diagnostic.checks?.providerReason && <div className="mt-1 break-words">Provider detail: {diagnostic.checks.providerReason}</div>}
+      {diagnostic.checks?.error && <div>{diagnostic.checks.error}</div>}
+    </div>}
     <div className="flex-1 min-h-0 overflow-auto space-y-3 p-3">
-      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
-      {messages.map((m, i) => (<div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.role === 'user' ? 'bg-primary text-primary-foreground' : m.error ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-muted'}`}>{m.text}</div></div>))}
+      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask Safar Intelligence about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
+      {messages.map((m, i) => (<div key={i} className={'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start')}><div className={'max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ' + (m.role === 'user' ? 'bg-primary text-primary-foreground' : m.error ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-muted')}>{m.text}</div></div>))}
       {busy && <div className="flex justify-start"><div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Thinking…</div></div>}
     </div>
     <div className="border-t p-2 flex gap-2">
-      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask the Copilot…" disabled={busy} />
+      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask Safar Intelligence…" disabled={busy} />
       <Button size="icon" onClick={() => send()} disabled={busy || !input.trim()}><Send className="h-4 w-4" /></Button>
     </div>
   </div>);
 }
 
 function CopilotWorkspace({ session }) {
-  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> AI Copilot</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
+  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Safar Intelligence</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
 }
 
 function CopilotFab({ session }) {
@@ -6947,8 +7247,8 @@ function CopilotFab({ session }) {
   const role = session && session.user && session.user.role;
   if (role && !can(role, 'ai:use')) return null;
   return (<>
-    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Copilot">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
-    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Copilot</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
+    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Safar Intelligence">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
+    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Safar Intelligence</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
   </>);
 }
 
