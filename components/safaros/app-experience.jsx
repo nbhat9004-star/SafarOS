@@ -30,6 +30,8 @@ import { useLocalization } from '@/components/safaros/localization-provider';
 import { GCC_COUNTRIES, SUPPORTED_CURRENCIES, getCountryDefaults } from '@/lib/localization';
 import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
+import SupplyHubWorkspace from '@/components/safaros/supply-hub-workspace';
+import SalesRescueWorkspace from '@/components/safaros/sales-rescue-workspace';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
@@ -222,6 +224,8 @@ const NAV = [
       { id: 'activities', label: 'Activities', icon: Activity },
     ],
   },
+  { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles },
+  { id: 'supply-hub', label: 'Supply Hub', icon: Database },
   {
     group: 'Quotations',
     items: [
@@ -298,7 +302,7 @@ const NAV = [
       { id: 'int_api', label: 'Developer API', icon: ShieldCheck },
     ],
   },
-  { id: 'copilot', label: 'Copilot', icon: Sparkles },
+  { id: 'copilot', label: 'Safar Intelligence', icon: Sparkles },
   { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck },
   {
     group: 'Data Tools',
@@ -315,7 +319,7 @@ const SECTION_TITLES = {
   overview: 'Overview', crm: 'CRM Dashboard', leads: 'Leads', clients: 'Clients',
   contacts: 'Contacts', followups: 'Follow-ups', tasks: 'Tasks', activities: 'Activities',
   quotations: 'Quotations', 'quote-create': 'Create Quotation',
-  packages: 'Packages', itineraries: 'Itineraries',
+  packages: 'Packages', 'supply-hub': 'Supply Hub', 'sales-rescue': 'Sales Rescue', itineraries: 'Itineraries',
   suppliers: 'Suppliers',
   discover: 'Discover Suppliers',
   bookings: 'Bookings',
@@ -326,7 +330,7 @@ const SECTION_TITLES = {
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
   fin_payments: 'Payments',
   comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
-  copilot: 'AI Copilot', portal_admin: 'Customer Portal Access',
+  copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access',
   marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
@@ -399,6 +403,8 @@ const MOBILE_NAV = [
     { id: 'crm', label: 'Dashboard' }, { id: 'leads', label: 'Leads' }, { id: 'clients', label: 'Clients' },
     { id: 'contacts', label: 'Contacts' }, { id: 'followups', label: 'Follow-ups' }, { id: 'tasks', label: 'Tasks' }, { id: 'activities', label: 'Activities' },
   ] },
+  { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles, leaf: true },
+  { id: 'supply-hub', label: 'Supply Hub', icon: Database, leaf: true },
   { id: 'sales', label: 'Sales', icon: FileText, items: [
     { id: 'quotations', label: 'Quotations' }, { id: 'quote-create', label: 'Create Quotation' }, { id: 'packages', label: 'Packages' },
   ] },
@@ -416,7 +422,7 @@ const MOBILE_NAV = [
     { id: 'discover', label: 'Supplier Discovery' }, { id: 'suppliers', label: 'Saved Suppliers' },
   ] },
   { id: 'aitools', label: 'AI & Tools', icon: Sparkles, items: [
-    { id: 'copilot', label: 'AI Copilot' }, { id: 'an_overview', label: 'Analytics' },
+    { id: 'copilot', label: 'Safar Intelligence' }, { id: 'an_overview', label: 'Analytics' },
   ] },
   { id: 'more', label: 'More', icon: LayoutGrid, items: [
     { id: 'marketplace', label: 'SafarCurated Marketplace' }, { id: 'int_overview', label: 'Integrations' }, { id: 'data_import', label: 'Import Data' }, { id: 'data_export', label: 'Export Data' }, { id: 'sub_overview', label: 'Subscription' }, { id: 'team', label: 'Team' }, { id: 'settings', label: 'Settings' },
@@ -435,6 +441,8 @@ const DESKTOP_WORKSPACES = [
     { id: 'tasks', label: 'Tasks', desc: 'Team tasks', icon: ListTodo, tone: 'rose' },
     { id: 'activities', label: 'Activities', desc: 'CRM activity timeline', icon: Activity, tone: 'sky' },
   ] },
+  { id: 'sales-rescue', label: 'Sales Rescue', icon: Sparkles, direct: 'sales-rescue' },
+  { id: 'supply-hub', label: 'Supply Hub', icon: Database, direct: 'supply-hub' },
   { id: 'sales', label: 'Sales', icon: FileText, subtitle: 'Quotations & travel packages', tiles: [
     { id: 'quotations', label: 'Quotations', desc: 'Create and manage quotes', icon: FileText, tone: 'violet' },
     { id: 'quote-create', label: 'Create Quotation', desc: 'Start a new quotation', icon: FilePlus, tone: 'emerald' },
@@ -460,7 +468,7 @@ const DESKTOP_WORKSPACES = [
   { id: 'discover', label: 'Discover', icon: Compass, direct: 'discover' },
   { id: 'more', label: 'More', icon: LayoutGrid, subtitle: 'Communications, tools & settings', tiles: [
     { id: 'comm_inbox', label: 'Communications', desc: 'Inbox, templates & logs', icon: MessageSquare, tone: 'sky' },
-    { id: 'copilot', label: 'AI Copilot', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
+    { id: 'copilot', label: 'Safar Intelligence', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
     { id: 'an_overview', label: 'Analytics', desc: 'Business insights & reports', icon: Gauge, tone: 'emerald' },
     { id: 'travelrules', label: 'Travel Intelligence', desc: 'Rules & surcharges', icon: MapPin, tone: 'violet' },
     { id: 'documents', label: 'Document Vault', desc: 'Secure document storage', icon: FileText, tone: 'sky' },
@@ -1335,6 +1343,8 @@ function Dashboard({ session, onLogout }) {
           {active === 'bookings' && <Bookings key="bk" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
           {active === 'fleet' && <Fleet key="fleet" session={session} />}
           {active === 'inventory' && <InventoryWorkspace key="inventory" />}
+          {active === 'supply-hub' && <SupplyHubWorkspace onNavigate={setActive} />}
+          {active === 'sales-rescue' && <SalesRescueWorkspace onNavigate={setActive} />}
           {active === 'marketplace' && <MarketplaceWorkspace key="marketplace" />}
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
@@ -1496,7 +1506,7 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
             { label: 'Operations', desc: 'Trips & suppliers', icon: Truck, tone: 'emerald', go: 'ws:operations' },
             { label: 'Finance', desc: 'Money & invoices', icon: Wallet, tone: 'amber', go: 'ws:finance' },
             { label: 'Discover', desc: 'Find suppliers', icon: Compass, tone: 'rose', go: 'discover' },
-            { label: 'AI Copilot', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
+            { label: 'Safar Intelligence', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
           ].map((w) => {
             const Icon = w.icon;
             return (
@@ -1589,7 +1599,7 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
                     { label: 'Bookings', icon: ClipboardList, go: 'bookings' },
                     { label: 'Packages', icon: Package, go: 'packages' },
                     { label: 'Payments', icon: Banknote, go: 'fin_payments' },
-                    { label: 'Copilot', icon: Sparkles, go: 'copilot' },
+                    { label: 'Safar Intelligence', icon: Sparkles, go: 'copilot' },
                   ].map((q) => {
                     const Icon = q.icon;
                     return (
@@ -6906,7 +6916,7 @@ function ChannelIntegrations({ session }) {
   </div>;
 }
 
-// ======================= AI COPILOT UI (Phase 5.4) =======================
+// ======================= SAFAR INTELLIGENCE UI =======================
 const COPILOT_SUGGESTIONS = [
   "Give me today's business priorities",
   'Which follow-ups are due?',
@@ -6921,25 +6931,62 @@ function CopilotChat({ session }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [diagnostic, setDiagnostic] = useState(null);
   const [conv, setConv] = useState(null);
   useEffect(() => { (async () => { try { const s = await api('/ai/status'); setStatus(s); } catch { setStatus({ configured: false }); } })(); }, []);
-  const send = async (text) => { const msg = (text || input).trim(); if (!msg || busy) return; setInput(''); setMessages((m) => [...m, { role: 'user', text: msg }]); setBusy(true); try { const d = await api('/ai/chat', { method: 'POST', body: JSON.stringify({ conversationId: conv, message: msg }) }); setConv(d.conversationId); setMessages((m) => [...m, { role: 'assistant', text: d.reply }]); } catch (e) { setMessages((m) => [...m, { role: 'assistant', text: friendlyError(e), error: true }]); } finally { setBusy(false); } };
+  const testConnection = async () => {
+    if (testing) return;
+    setTesting(true); setDiagnostic(null);
+    try { setDiagnostic(await api('/ai/diagnostics', { method: 'POST', body: JSON.stringify({}) })); }
+    catch (e) { setDiagnostic({ ok: false, checks: { error: e.message } }); }
+    finally { setTesting(false); }
+  };
+  const send = async (text) => {
+    const msg = (text || input).trim();
+    if (!msg || busy) return;
+    setInput('');
+    setMessages((m) => [...m, { role: 'user', text: msg }]);
+    setBusy(true);
+    try {
+      const d = await api('/ai/chat', { method: 'POST', body: JSON.stringify({ conversationId: conv, message: msg }) });
+      setConv(d.conversationId);
+      setMessages((m) => [...m, { role: 'assistant', text: d.reply }]);
+    } catch (e) {
+      setMessages((m) => [...m, { role: 'assistant', text: e.message || 'Safar Intelligence could not complete the request.', error: true }]);
+    } finally { setBusy(false); }
+  };
   return (<div className="flex flex-col h-full min-h-0">
-    {status && !status.configured && <div className="m-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">AI Copilot is not configured. Set <code>ANTHROPIC_API_KEY</code> on the server to enable it — the rest of SafarOS keeps working normally.</div>}
+    {status && !status.configured && <div className="m-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">No active AI provider is configured. Check Super Admin → AI Platforms.</div>}
+    <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+      <div className="text-xs text-muted-foreground">{status?.configured ? 'Connected · ' + (status.provider || 'AI provider') + ' · ' + (status.model || 'model') : 'Checking AI configuration…'}</div>
+      <Button type="button" size="sm" variant="outline" onClick={testConnection} disabled={testing || !status?.configured}>{testing ? 'Testing…' : 'Test connection'}</Button>
+    </div>
+    {diagnostic && <div className={'mx-3 mt-2 rounded-lg border p-3 text-xs ' + (diagnostic.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900')}>
+      <div className="font-semibold">{diagnostic.ok ? 'Connection and agency context are working' : 'Connection test needs attention'}</div>
+      {diagnostic.checks?.provider && <div className="mt-1">Provider: {diagnostic.checks.provider} · Model: {diagnostic.checks.model}</div>}
+      {diagnostic.checks?.context && <div>Agency context: {diagnostic.checks.context}</div>}
+      {diagnostic.checks?.providerTest && <div>AI response: {diagnostic.checks.providerTest}</div>}
+      {diagnostic.checks?.contextError && <div>{diagnostic.checks.contextError}</div>}
+      {diagnostic.checks?.providerError && <div>{diagnostic.checks.providerError}</div>}
+      {diagnostic.checks?.providerStatus && <div>Provider HTTP status: {diagnostic.checks.providerStatus}{diagnostic.checks.providerCode ? ' · ' + diagnostic.checks.providerCode : ''}</div>}
+      {diagnostic.checks?.providerReason && <div className="mt-1 break-words">Provider detail: {diagnostic.checks.providerReason}</div>}
+      {diagnostic.checks?.error && <div>{diagnostic.checks.error}</div>}
+    </div>}
     <div className="flex-1 min-h-0 overflow-auto space-y-3 p-3">
-      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
-      {messages.map((m, i) => (<div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.role === 'user' ? 'bg-primary text-primary-foreground' : m.error ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-muted'}`}>{m.text}</div></div>))}
+      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask Safar Intelligence about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
+      {messages.map((m, i) => (<div key={i} className={'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start')}><div className={'max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ' + (m.role === 'user' ? 'bg-primary text-primary-foreground' : m.error ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-muted')}>{m.text}</div></div>))}
       {busy && <div className="flex justify-start"><div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Thinking…</div></div>}
     </div>
     <div className="border-t p-2 flex gap-2">
-      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask the Copilot…" disabled={busy} />
+      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask Safar Intelligence…" disabled={busy} />
       <Button size="icon" onClick={() => send()} disabled={busy || !input.trim()}><Send className="h-4 w-4" /></Button>
     </div>
   </div>);
 }
 
 function CopilotWorkspace({ session }) {
-  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> AI Copilot</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
+  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Safar Intelligence</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
 }
 
 function CopilotFab({ session }) {
@@ -6947,8 +6994,8 @@ function CopilotFab({ session }) {
   const role = session && session.user && session.user.role;
   if (role && !can(role, 'ai:use')) return null;
   return (<>
-    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Copilot">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
-    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Copilot</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
+    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Safar Intelligence">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
+    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Safar Intelligence</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
   </>);
 }
 

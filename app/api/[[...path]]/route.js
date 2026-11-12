@@ -14,7 +14,7 @@ import {
 import { can, isValidRole } from '@/lib/rbac';
 import { canPlatform, isValidPlatformRole, PLATFORM_ROLES } from '@/lib/platform-rbac';
 import { tenantFilter, withAgency } from '@/lib/tenancy';
-import { aiConfig, aiRuntimeConfig, aiComplete } from '@/lib/ai';
+import { aiConfig, aiRuntimeConfig, aiComplete, normalizeAiModel } from '@/lib/ai';
 import {
   listPlans, getPlan, isValidPlan, priceFor, checkLimit,
   BILLING_INTERVALS, SUBSCRIPTION_STATUSES,
@@ -1373,32 +1373,86 @@ async function aiGet(db, session, path) {
 }
 
 async function aiPost(db, session, path, body) {
+  if (path === '/ai/diagnostics') {
+    const config = await aiRuntimeConfig(db);
+    if (!config.configured) return err('No active AI provider is configured. Check Super Admin → AI Platforms.', 503);
+    const checks = { provider: config.provider, model: config.model, configured: true, keyResolved: !!config.keyResolved, keySource: config.source || 'unknown', context: 'not_tested', providerTest: 'not_tested' };
+    try {
+      await aiBuildContext(db, session);
+      checks.context = 'ok';
+    } catch (e) {
+      console.warn('[safaros] AI context diagnostic failed:', e.code || '', e.message);
+      checks.context = 'failed';
+      checks.contextError = 'Agency data context could not be prepared. Check server logs.';
+      return json({ ok: false, checks }, 200);
+    }
+    try {
+      const reply = await aiComplete({ db, system: 'You are testing the SafarOS AI connection. Reply with exactly: CONNECTION_OK', messages: [{ role: 'user', text: 'Reply with the required test phrase.' }], maxTokens: 40, temperature: 0, allowFailover: false });
+      checks.providerTest = reply && /CONNECTION_OK/.test(reply) ? 'ok' : 'unexpected_response';
+    } catch (e) {
+      console.warn('[safaros] AI provider diagnostic failed:', e.code || '', e.detail || e.message);
+      checks.providerTest = 'failed';
+      checks.providerError = e.code === 'AI_PROVIDER_ERROR' ? 'The selected AI provider rejected the request.' : e.code === 'AI_PROVIDER_EMPTY_RESPONSE' ? 'The provider responded but returned no usable text.' : 'The selected AI provider could not complete a test request.';
+      if (e.providerStatus) checks.providerStatus = e.providerStatus;
+      if (e.providerCode) checks.providerCode = e.providerCode;
+      if (e.providerMessage) checks.providerReason = e.providerMessage;
+      if (e.code === 'AI_PROVIDER_EMPTY_RESPONSE') checks.providerReason = e.providerMessage || 'The provider returned an empty response.';
+    }
+    return json({ ok: checks.context === 'ok' && checks.providerTest === 'ok', checks });
+  }
   if (path !== '/ai/chat') return err('not found', 404);
   const message = str(body.message, 4000);
   if (!message) return err('Message is required');
-  if (!(await aiRuntimeConfig(db)).configured) return err('The Copilot is not configured yet. Configure an active AI provider in Super Admin → AI Platforms.', 503);
+  const config = await aiRuntimeConfig(db);
+  if (!config.configured) return err('No active AI provider is configured. Check Super Admin → AI Platforms.', 503);
   const now = new Date().toISOString();
   let conv = null;
-  if (body.conversationId) conv = await db.collection('aiConversations').findOne(tenantFilter(session, { id: String(body.conversationId), userId: session.userId }));
-  if (!conv) {
+  let history = [];
+  let conversationSaved = true;
+  try {
+    if (body.conversationId) conv = await db.collection('aiConversations').findOne(tenantFilter(session, { id: String(body.conversationId), userId: session.userId }));
+    if (!conv) {
+      conv = withAgency(session, { id: uuidv4(), userId: session.userId, title: message.slice(0, 60), messages: [], createdAt: now, updatedAt: now });
+    } else {
+      history = clip(conv.messages || [], 16).map((m) => ({ role: m.role, text: m.text }));
+    }
+  } catch (e) {
+    conversationSaved = false;
+    console.warn('[safaros] AI conversation read failed:', e.code || '', e.message);
     conv = withAgency(session, { id: uuidv4(), userId: session.userId, title: message.slice(0, 60), messages: [], createdAt: now, updatedAt: now });
-    await db.collection('aiConversations').insertOne(conv);
   }
-  const history = clip(conv.messages || [], 16).map((m) => ({ role: m.role, text: m.text }));
+  let ctx;
+  try {
+    ctx = await aiBuildContext(db, session);
+  } catch (e) {
+    console.warn('[safaros] AI agency context failed:', e.code || '', e.message);
+    return err('Safar Intelligence could not load your agency context. Please retry; if it continues, contact support.', 500);
+  }
   let reply;
   try {
-    const ctx = await aiBuildContext(db, session);
     reply = await aiComplete({ db, system: aiSystemPrompt(ctx), messages: [...history, { role: 'user', text: message }] });
   } catch (e) {
-    if (e.code === 'AI_UNCONFIGURED') return err('The Copilot is not configured.', 503);
-    console.warn('[safaros] ai error:', e.code || '', e.detail || e.message);
-    return err('The Copilot is temporarily unavailable. Please try again shortly.', 502);
+    if (e.code === 'AI_UNCONFIGURED') return err('No active AI provider is configured. Check Super Admin → AI Platforms.', 503);
+    console.warn('[safaros] AI provider request failed:', e.code || '', e.detail || e.message);
+    return err(e.code === 'AI_PROVIDER_ERROR'
+      ? 'Safar Intelligence could not get a response from the selected AI provider. Check the provider model, quota and API key permissions.'
+      : 'Safar Intelligence is temporarily unavailable. Please try again shortly.', 502);
   }
-  if (!reply) return err('The Copilot returned an empty response. Please try again.', 502);
+  if (!reply) return err('Safar Intelligence received an empty response. Please try again.', 502);
   const userMsg = { role: 'user', text: message, at: now };
   const aiMsg = { role: 'assistant', text: reply, at: new Date().toISOString() };
-  await db.collection('aiConversations').updateOne(tenantFilter(session, { id: conv.id }), { $push: { messages: { $each: [userMsg, aiMsg] } }, $set: { updatedAt: new Date().toISOString() } });
-  return json({ conversationId: conv.id, reply });
+  try {
+    const { messages: _storedMessages, updatedAt: _oldUpdatedAt, ...conversationMeta } = conv;
+    await db.collection('aiConversations').updateOne(tenantFilter(session, { id: conv.id, userId: session.userId }), {
+      $push: { messages: { $each: [userMsg, aiMsg] } },
+      $set: { updatedAt: new Date().toISOString() },
+      $setOnInsert: conversationMeta,
+    }, { upsert: true });
+  } catch (e) {
+    conversationSaved = false;
+    console.warn('[safaros] AI conversation save failed:', e.code || '', e.message);
+  }
+  return json({ conversationId: conv.id, reply, conversationSaved });
 }
 
 // ======================= CUSTOMER PORTAL (Phase 5.5) =======================
@@ -3204,7 +3258,7 @@ async function platformGet(db, session, path, sp) {
       const configured = envConfigured || !!d.keyLast4;
       const active = d.isActive === true || (!docs.some((x) => x.isActive === true) && aiConfig().provider === p);
       return {
-        provider: p, name: names[p], model: d.model || (active ? aiConfig().model : ''),
+        provider: p, name: names[p], model: d.model ? normalizeAiModel(p, d.model) : (active ? normalizeAiModel(p, aiConfig().model) : ''),
         enabled: d.enabled !== undefined ? d.enabled : active,
         status: configured ? (d.enabled === false ? 'disabled' : 'connected') : 'not_connected',
         keyMask: d.keyLast4 ? `••••••••••••${d.keyLast4}` : (envConfigured ? 'Set via server environment' : ''),
@@ -3325,6 +3379,33 @@ async function platformPost(db, session, path, body, request) {
     await db.collection('platformPlans').insertOne(doc);
     await platformAudit(db, session, request, { action: 'plan.created', targetType: 'plan', targetId: doc.id, metadata: { slug } });
     const { _id, ...safe } = doc; return json({ plan: safe }, 201);
+  }
+
+  if (path === '/platform/ai-platforms/gemini/test') {
+    if (!canPlatform(session.role, 'ai:manage')) return err('forbidden', 403);
+    const config = await aiRuntimeConfig(db);
+    if (!config.configured) return err('Gemini is not configured. Save a Google AI Studio API key first.', 503);
+    if (config.provider !== 'gemini') return err('Gemini is not the active AI provider. Make Google Gemini active before testing it.', 409);
+    const startedAt = Date.now();
+    try {
+      const reply = await aiComplete({
+        db,
+        system: 'You are testing the SafarOS Gemini connection. Reply with exactly: SAFAROS_GEMINI_OK',
+        messages: [{ role: 'user', text: 'Reply with the required test phrase.' }],
+        maxTokens: 40,
+        temperature: 0,
+        allowFailover: false,
+      });
+      const durationMs = Date.now() - startedAt;
+      const ok = !!reply && /SAFAROS_GEMINI_OK/.test(reply);
+      await platformAudit(db, session, request, { action: 'ai.gemini_connection_test', targetType: 'ai_provider', targetId: 'gemini', metadata: { ok, model: config.model, durationMs } });
+      return json({ ok, provider: 'gemini', model: config.model, durationMs, message: ok ? 'Gemini generated a test response successfully.' : 'Gemini responded, but the response did not contain the expected test phrase.' });
+    } catch (e) {
+      const durationMs = Date.now() - startedAt;
+      const safeReason = String(e.providerMessage || e.message || 'Gemini request failed').replace(/AIza[0-9A-Za-z_-]{20,}/g, '[redacted]').replace(/(key=)[^&\\s]+/gi, '$1[redacted]').slice(0, 500);
+      await platformAudit(db, session, request, { action: 'ai.gemini_connection_test', targetType: 'ai_provider', targetId: 'gemini', metadata: { ok: false, model: config.model, durationMs, status: e.providerStatus || 0, code: e.providerCode || e.code || 'unknown' } });
+      return json({ ok: false, provider: 'gemini', model: config.model, durationMs, providerStatus: e.providerStatus || null, providerCode: e.providerCode || e.code || null, message: safeReason });
+    }
   }
 
   const aiCfg = path.match(/^\/platform\/ai-platforms\/([^/]+)\/configure$/);
@@ -5181,7 +5262,7 @@ export async function POST(request, context) {
       return commPost(db, session, path, await readBody(request));
     }
 
-    if (path === '/ai/chat') {
+    if (path === '/ai/chat' || path === '/ai/diagnostics') {
       const session = getSession(request);
       if (!session) return err('unauthenticated', 401);
       if (!can(session.role, 'ai:use')) return err('forbidden', 403);
@@ -5611,6 +5692,9 @@ export async function PUT(request, context) {
       const id = path.split('/')[2];
       const existing = await db.collection('quotations').findOne(tenantFilter(session, { id }));
       if (!existing) return err('Quotation not found', 404);
+      if (existing.convertedBookingId) return err('This quotation is already converted to a booking and cannot be replaced.', 409);
+      const linkedBooking = await db.collection('bookings').findOne(tenantFilter(session, { quotationId: id, status: { $ne: 'cancelled' } }), { projection: { _id: 1 } });
+      if (linkedBooking) return err('This quotation is already linked to a booking and cannot be replaced.', 409);
       const body = await readBody(request);
       const { value, error } = validateQuotationInput(body);
       if (error) return err(error);
@@ -5624,6 +5708,7 @@ export async function PUT(request, context) {
         grandTotal: calc.grandTotal, internalCost: calc.internalCost, expectedProfit: calc.expectedProfit,
         internalNotes: String(body.internalNotes || '').slice(0, 2000),
         customerNotes: String(body.customerNotes || '').slice(0, 2000),
+        status: body.resetStatusToDraft === true ? 'draft' : existing.status,
         updatedAt: new Date().toISOString(),
       };
       await db.collection('quotations').updateOne(tenantFilter(session, { id }), { $set: update });
