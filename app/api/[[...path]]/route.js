@@ -3186,6 +3186,41 @@ async function platformGet(db, session, path, sp) {
   if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
   if (path === '/platform/safarcurated') return json(await scPlatformSummary(db));
 
+  // Explicit Super Admin action for the SafarOS-owned platform number only.
+  if (path === '/platform/whatsapp-hub/platform-number/register') {
+    if (!canPlatform(session.role, 'integrations:manage')) return err('forbidden', 403);
+    const pin = String(body?.pin || '').trim();
+    if (!/^\\d{6}$/.test(pin)) return err('Enter the six-digit WhatsApp two-step verification PIN.');
+    const { values } = await resolveProviderConfig(db, 'whatsapp_cloud');
+    const wabaId = String(values.platformWabaId || '').trim();
+    const phoneNumberId = String(values.platformPhoneNumberId || '').trim();
+    const accessToken = String(values.systemUserAccessToken || '').trim();
+    const version = String(values.graphApiVersion || process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
+    if (!/^\\d{5,30}$/.test(wabaId) || !/^\\d{5,30}$/.test(phoneNumberId) || accessToken.length < 30) {
+      return err('Configure the platform WABA ID, Phone Number ID and System User Access Token under API & Integrations → WhatsApp Cloud API first.', 400);
+    }
+    if (!/^v\\d+\\.\\d+$/.test(version)) return err('The configured Graph API version is invalid.', 400);
+    try {
+      const response = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(phoneNumberId)}/register`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', pin }),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(20000),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.error || (payload?.success !== true && payload?.success !== 'true')) {
+        const metaCode = Number(payload?.error?.code || 0);
+        await platformAudit(db, session, request, { action: 'whatsapp.platform_number.registration_failed', targetType: 'whatsapp_platform_number', targetId: phoneNumberId, metadata: { httpStatus: response.status, metaCode } });
+        return err('Meta did not register the SafarOS platform number. Check the number status, token permissions and Meta review status; no agency connection was changed.', 422);
+      }
+      await platformAudit(db, session, request, { action: 'whatsapp.platform_number.registered', targetType: 'whatsapp_platform_number', targetId: phoneNumberId, metadata: { wabaId } });
+      return json({ ok: true, status: 'registered', message: 'Meta accepted the SafarOS platform number registration.' });
+    } catch {
+      return err('Could not reach Meta to register the SafarOS platform number. No agency connection was changed.', 502);
+    }
+  }
+
   if (path === '/platform/themes') {
     for (const theme of PLATFORM_WEBSITE_THEME_DEFAULTS) {
       await db.collection('websiteThemes').updateOne({ id: theme.id }, { $setOnInsert: { ...theme, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }, { upsert: true });
