@@ -65,6 +65,10 @@ const STATUS_CLS = {
   not_connected: 'bg-muted text-muted-foreground border-border',
   connected: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   disabled: 'bg-amber-50 text-amber-700 border-amber-200',
+  processed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  processing: 'bg-blue-50 text-blue-700 border-blue-200',
+  failed: 'bg-rose-50 text-rose-700 border-rose-200',
+  unmapped: 'bg-amber-50 text-amber-700 border-amber-200',
 };
 function StatusBadge({ status }) {
   return <Badge variant="outline" className={`capitalize ${STATUS_CLS[status] || STATUS_CLS.not_connected}`}>{String(status || '').replace(/_/g, ' ')}</Badge>;
@@ -575,7 +579,7 @@ function WhatsAppHubView() {
     </Table></CardContent></Card>
     <Card><CardHeader><CardTitle className="text-base">Recent webhook activity</CardTitle></CardHeader><CardContent className="p-0"><Table>
       <TableHeader><TableRow><TableHead>Received</TableHead><TableHead>Agency</TableHead><TableHead>Event</TableHead><TableHead>Processing status</TableHead></TableRow></TableHeader>
-      <TableBody>{(data.recentWebhookEvents || []).length ? data.recentWebhookEvents.map((e) => <TableRow key={e.id}><TableCell className="text-xs text-muted-foreground">{fmt(e.receivedAt)}</TableCell><TableCell>{e.agencyName || (e.agencyId ? 'Unknown agency' : 'Unmapped')}</TableCell><TableCell>{e.eventType || '—'}</TableCell><TableCell><StatusBadge status={e.processingStatus === 'processed' ? 'connected' : e.processingStatus === 'failed' ? 'suspended' : 'trial'} /></TableCell></TableRow>) : <TableRow><TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">No webhook events recorded yet.</TableCell></TableRow>}</TableBody>
+      <TableBody>{(data.recentWebhookEvents || []).length ? data.recentWebhookEvents.map((e) => <TableRow key={e.id}><TableCell className="text-xs text-muted-foreground">{fmt(e.receivedAt)}</TableCell><TableCell>{e.agencyName || (e.agencyId ? 'Unknown agency' : 'Unmapped')}</TableCell><TableCell>{e.eventType || '—'}</TableCell><TableCell><StatusBadge status={e.processingStatus || 'not_connected'} /></TableCell></TableRow>) : <TableRow><TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">No webhook events recorded yet.</TableCell></TableRow>}</TableBody>
     </Table></CardContent></Card>
     <p className="text-xs text-muted-foreground">This dashboard never displays access tokens, App Secrets, webhook secrets or message bodies. Use API &amp; Integrations to manage platform credentials and each agency workspace to manage its own connection.</p>
   </div>);
