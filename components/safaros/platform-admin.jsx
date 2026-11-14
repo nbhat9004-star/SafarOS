@@ -580,7 +580,7 @@ function WhatsAppHubView() {
     </div>
     <Card><CardHeader><CardTitle className="text-base">SafarOS platform number registration</CardTitle></CardHeader><CardContent className="space-y-3">
       <p className="text-sm text-muted-foreground">Registers only the SafarOS-owned number configured under API &amp; Integrations → WhatsApp Cloud API. Agency numbers and connections are not modified.</p>
-      <div className="max-w-sm space-y-1.5"><Label htmlFor="whatsapp-platform-pin">Six-digit two-step verification PIN</Label><Input id="whatsapp-platform-pin" type="password" inputMode="numeric" autoComplete="off" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value.replace(/\\D/g, '').slice(0, 6))} placeholder="Enter PIN" /></div>
+      <div className="max-w-sm space-y-1.5"><Label htmlFor="whatsapp-platform-pin">Six-digit two-step verification PIN</Label><Input id="whatsapp-platform-pin" type="password" inputMode="numeric" autoComplete="off" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Enter PIN" /></div>
       <div className="flex flex-wrap items-center gap-2"><Button onClick={registerPlatformNumber} disabled={registering || pin.length !== 6}>{registering ? 'Registering with Meta…' : 'Register SafarOS Number'}</Button><span className="text-xs text-muted-foreground">Only click after Meta has approved the number and platform credentials are configured.</span></div>
     </CardContent></Card>
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
