@@ -3436,7 +3436,7 @@ async function platformPost(db, session, path, body, request) {
     if (!/^\d{5,30}$/.test(wabaId) || !/^\d{5,30}$/.test(phoneNumberId) || accessToken.length < 30) {
       return err('Configure the platform WABA ID, Phone Number ID and System User Access Token under API & Integrations → WhatsApp Cloud API first.', 400);
     }
-    if (!/^v\d+\\.\d+$/.test(version)) return err('The configured Graph API version is invalid.', 400);
+    if (!/^v\d+\.\d+$/.test(version)) return err('The configured Graph API version is invalid.', 400);
     try {
       const response = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(phoneNumberId)}/register`, {
         method: 'POST',
