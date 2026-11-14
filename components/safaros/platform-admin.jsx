@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus, MessageCircle, RefreshCw,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -46,6 +46,7 @@ const NAV = [
   { id: 'themes', label: 'Website Theme Library', icon: Palette },
   { id: 'ai', label: 'AI Platforms', icon: Bot },
   { id: 'api_integrations', label: 'API & Integrations', icon: KeyRound },
+  { id: 'whatsapp_hub', label: 'WhatsApp Hub', icon: MessageCircle },
   { id: 'safarcurated', label: 'SafarCurated', icon: Globe },
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
@@ -64,6 +65,10 @@ const STATUS_CLS = {
   not_connected: 'bg-muted text-muted-foreground border-border',
   connected: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   disabled: 'bg-amber-50 text-amber-700 border-amber-200',
+  processed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  processing: 'bg-blue-50 text-blue-700 border-blue-200',
+  failed: 'bg-rose-50 text-rose-700 border-rose-200',
+  unmapped: 'bg-amber-50 text-amber-700 border-amber-200',
 };
 function StatusBadge({ status }) {
   return <Badge variant="outline" className={`capitalize ${STATUS_CLS[status] || STATUS_CLS.not_connected}`}>{String(status || '').replace(/_/g, ' ')}</Badge>;
@@ -541,6 +546,45 @@ function WebsiteThemesView() {
   </div>;
 }
 
+// ---------- WhatsApp Hub (read-only platform monitoring) ----------
+function WhatsAppHubView() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setData(await api('/whatsapp-hub')); }
+    catch (e) { toast.error(e.message); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (!data) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
+  const s = data.stats || {};
+  const fmt = (v) => v ? new Date(v).toLocaleString() : '—';
+  return (<div className="space-y-5" data-testid="whatsapp-platform-hub">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><h2 className="text-base font-semibold">WhatsApp platform overview</h2><p className="text-sm text-muted-foreground">Read-only monitoring across agency connections. Credentials and conversations are not editable here.</p></div>
+      <Button variant="outline" size="sm" onClick={load} disabled={loading}><RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</Button>
+    </div>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Stat label="Agency connections" value={s.totalConnections || 0} sub={`${s.connectedConnections || 0} connected · ${s.otherConnections || 0} other`} />
+      <Stat label="Conversations" value={s.conversations || 0} sub={`${s.unreadConversations || 0} with unread messages`} />
+      <Stat label="Messages" value={s.totalMessages || 0} sub={`${s.inboundMessages || 0} inbound · ${s.outboundMessages || 0} outbound`} />
+      <Stat label="Failed messages" value={s.failedMessages || 0} sub="Across connected agency workspaces" />
+      <Stat label="Webhook events" value={s.webhookEvents || 0} sub={`${s.failedWebhookEvents || 0} failed · ${s.unmappedWebhookEvents || 0} unmapped`} />
+      <Stat label="Latest webhook" value={fmt(s.lastWebhookAt)} sub="Most recent received event" />
+    </div>
+    <Card><CardHeader><CardTitle className="text-base">Agency WhatsApp connections</CardTitle></CardHeader><CardContent className="p-0"><Table>
+      <TableHeader><TableRow><TableHead>Agency</TableHead><TableHead>Number</TableHead><TableHead>Display name</TableHead><TableHead>Status</TableHead><TableHead>Last health check</TableHead><TableHead>Last error code</TableHead></TableRow></TableHeader>
+      <TableBody>{(data.connections || []).length ? data.connections.map((c) => <TableRow key={c.id}><TableCell className="font-medium">{c.agencyName || 'Unknown agency'}</TableCell><TableCell>{c.displayPhoneNumber || '—'}</TableCell><TableCell>{c.verifiedName || '—'}</TableCell><TableCell><StatusBadge status={c.status || 'not_connected'} /></TableCell><TableCell className="text-xs text-muted-foreground">{fmt(c.lastHealthCheckAt)}</TableCell><TableCell className="text-xs text-muted-foreground">{c.lastErrorCode || '—'}</TableCell></TableRow>) : <TableRow><TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">No agency WhatsApp connections yet.</TableCell></TableRow>}</TableBody>
+    </Table></CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Recent webhook activity</CardTitle></CardHeader><CardContent className="p-0"><Table>
+      <TableHeader><TableRow><TableHead>Received</TableHead><TableHead>Agency</TableHead><TableHead>Event</TableHead><TableHead>Processing status</TableHead></TableRow></TableHeader>
+      <TableBody>{(data.recentWebhookEvents || []).length ? data.recentWebhookEvents.map((e) => <TableRow key={e.id}><TableCell className="text-xs text-muted-foreground">{fmt(e.receivedAt)}</TableCell><TableCell>{e.agencyName || (e.agencyId ? 'Unknown agency' : 'Unmapped')}</TableCell><TableCell>{e.eventType || '—'}</TableCell><TableCell><StatusBadge status={e.processingStatus || 'not_connected'} /></TableCell></TableRow>) : <TableRow><TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">No webhook events recorded yet.</TableCell></TableRow>}</TableBody>
+    </Table></CardContent></Card>
+    <p className="text-xs text-muted-foreground">This dashboard never displays access tokens, App Secrets, webhook secrets or message bodies. Use API &amp; Integrations to manage platform credentials and each agency workspace to manage its own connection.</p>
+  </div>);
+}
+
 // ---------- Integrations ----------
 function IntegrationsView() {
   const [data, setData] = useState(null);
@@ -809,6 +853,7 @@ export default function PlatformAdmin() {
         {section === 'themes' && <WebsiteThemesView />}
         {section === 'ai' && <AiView />}
         {section === 'api_integrations' && <ProviderCredentialsView />}
+        {section === 'whatsapp_hub' && <WhatsAppHubView />}
         {section === 'safarcurated' && <SafarCuratedView admin={admin} />}
         {section === 'integrations' && <IntegrationsView />}
         {section === 'analytics' && <AnalyticsView />}
