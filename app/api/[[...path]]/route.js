@@ -2852,6 +2852,7 @@ function platformReadPerm(path) {
   if (path.startsWith('/platform/plans')) return 'plans:read';
   if (path.startsWith('/platform/ai-platforms')) return 'ai:read';
   if (path.startsWith('/platform/provider-credentials')) return 'integrations:read';
+  if (path === '/platform/whatsapp-hub') return 'integrations:read';
   if (path.startsWith('/platform/safarcurated')) return 'integrations:read';
   if (path.startsWith('/platform/integrations')) return 'integrations:read';
   if (path.startsWith('/platform/analytics')) return 'analytics:read';
@@ -3294,6 +3295,50 @@ async function platformGet(db, session, path, sp) {
     const providers = PLATFORM_PROVIDER_CATALOG.map((def) => buildProviderView(def, byP[def.provider]));
     const categories = [...new Set(PLATFORM_PROVIDER_CATALOG.map((p) => p.category))];
     return json({ providers, categories });
+  }
+
+  if (path === '/platform/whatsapp-hub') {
+    // Read-only operational summary. Never select encrypted or plaintext credentials.
+    const [connections, conversationCount, unreadRows, messageCount, messageGroups, eventCount, eventGroups, recentEvents, agencies] = await Promise.all([
+      db.collection('whatsappConnections').find({}, { projection: { _id: 0, id: 1, agencyId: 1, displayPhoneNumber: 1, verifiedName: 1, status: 1, lastHealthCheckAt: 1, lastErrorCode: 1 } }).sort({ updatedAt: -1 }).limit(500).toArray(),
+      db.collection('whatsappConversations').countDocuments({}),
+      db.collection('whatsappConversations').aggregate([{ $match: { unreadCount: { $gt: 0 } } }, { $count: 'count' }]).toArray(),
+      db.collection('whatsappMessages').countDocuments({}),
+      db.collection('whatsappMessages').aggregate([{ $group: { _id: { direction: '$direction', status: '$status' }, count: { $sum: 1 } } }]).toArray(),
+      db.collection('whatsappWebhookEvents').countDocuments({}),
+      db.collection('whatsappWebhookEvents').aggregate([{ $group: { _id: '$processingStatus', count: { $sum: 1 } } }]).toArray(),
+      db.collection('whatsappWebhookEvents').find({}, { projection: { _id: 0, id: 1, agencyId: 1, eventType: 1, processingStatus: 1, receivedAt: 1 } }).sort({ receivedAt: -1 }).limit(15).toArray(),
+      db.collection('agencies').find({}, { projection: { _id: 0, id: 1, name: 1 } }).toArray(),
+    ]);
+    const agencyNames = Object.fromEntries(agencies.map((a) => [String(a.id), a.name]));
+    const messageStats = {};
+    for (const row of messageGroups) {
+      const direction = String(row._id?.direction || 'unknown');
+      const status = String(row._id?.status || 'unknown');
+      messageStats[direction] = (messageStats[direction] || 0) + Number(row.count || 0);
+      if (status === 'failed') messageStats.failed = (messageStats.failed || 0) + Number(row.count || 0);
+    }
+    const eventStats = Object.fromEntries(eventGroups.map((row) => [String(row._id || 'unknown'), Number(row.count || 0)]));
+    const connectedConnections = connections.filter((c) => c.status === 'connected').length;
+    return json({
+      stats: {
+        totalConnections: connections.length,
+        connectedConnections,
+        otherConnections: connections.length - connectedConnections,
+        conversations: conversationCount,
+        unreadConversations: Number(unreadRows[0]?.count || 0),
+        totalMessages: messageCount,
+        inboundMessages: messageStats.inbound || 0,
+        outboundMessages: messageStats.outbound || 0,
+        failedMessages: messageStats.failed || 0,
+        webhookEvents: eventCount,
+        failedWebhookEvents: eventStats.failed || 0,
+        unmappedWebhookEvents: eventStats.unmapped || 0,
+        lastWebhookAt: recentEvents[0]?.receivedAt || null,
+      },
+      connections: connections.map((c) => ({ ...c, agencyName: agencyNames[String(c.agencyId)] || '' })),
+      recentWebhookEvents: recentEvents.map((e) => ({ ...e, agencyName: agencyNames[String(e.agencyId)] || '' })),
+    });
   }
 
   if (path === '/platform/ai-platforms') {
