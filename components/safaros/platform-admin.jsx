@@ -550,6 +550,8 @@ function WebsiteThemesView() {
 function WhatsAppHubView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [pin, setPin] = useState('');
+  const [registering, setRegistering] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
     try { setData(await api('/whatsapp-hub')); }
@@ -557,6 +559,17 @@ function WhatsAppHubView() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+  const registerPlatformNumber = async () => {
+    if (!/^\\d{6}$/.test(pin)) { toast.error('Enter a six-digit PIN'); return; }
+    setRegistering(true);
+    try {
+      const result = await api('/whatsapp-hub/platform-number/register', { method: 'POST', body: JSON.stringify({ pin }) });
+      toast.success(result.message || 'Platform number registration accepted by Meta');
+      setPin('');
+      load();
+    } catch (e) { toast.error(e.message); }
+    finally { setRegistering(false); }
+  };
   if (!data) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
   const s = data.stats || {};
   const fmt = (v) => v ? new Date(v).toLocaleString() : '—';
@@ -565,6 +578,11 @@ function WhatsAppHubView() {
       <div><h2 className="text-base font-semibold">WhatsApp platform overview</h2><p className="text-sm text-muted-foreground">Read-only monitoring across agency connections. Credentials and conversations are not editable here.</p></div>
       <Button variant="outline" size="sm" onClick={load} disabled={loading}><RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</Button>
     </div>
+    <Card><CardHeader><CardTitle className="text-base">SafarOS platform number registration</CardTitle></CardHeader><CardContent className="space-y-3">
+      <p className="text-sm text-muted-foreground">Registers only the SafarOS-owned number configured under API &amp; Integrations → WhatsApp Cloud API. Agency numbers and connections are not modified.</p>
+      <div className="max-w-sm space-y-1.5"><Label htmlFor="whatsapp-platform-pin">Six-digit two-step verification PIN</Label><Input id="whatsapp-platform-pin" type="password" inputMode="numeric" autoComplete="off" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value.replace(/\\D/g, '').slice(0, 6))} placeholder="Enter PIN" /></div>
+      <div className="flex flex-wrap items-center gap-2"><Button onClick={registerPlatformNumber} disabled={registering || pin.length !== 6}>{registering ? 'Registering with Meta…' : 'Register SafarOS Number'}</Button><span className="text-xs text-muted-foreground">Only click after Meta has approved the number and platform credentials are configured.</span></div>
+    </CardContent></Card>
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Stat label="Agency connections" value={s.totalConnections || 0} sub={`${s.connectedConnections || 0} connected · ${s.otherConnections || 0} other`} />
       <Stat label="Conversations" value={s.conversations || 0} sub={`${s.unreadConversations || 0} with unread messages`} />
