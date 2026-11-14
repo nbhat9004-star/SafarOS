@@ -3190,16 +3190,16 @@ async function platformGet(db, session, path, sp) {
   if (path === '/platform/whatsapp-hub/platform-number/register') {
     if (!canPlatform(session.role, 'integrations:manage')) return err('forbidden', 403);
     const pin = String(body?.pin || '').trim();
-    if (!/^\\d{6}$/.test(pin)) return err('Enter the six-digit WhatsApp two-step verification PIN.');
+    if (!/^\d{6}$/.test(pin)) return err('Enter the six-digit WhatsApp two-step verification PIN.');
     const { values } = await resolveProviderConfig(db, 'whatsapp_cloud');
     const wabaId = String(values.platformWabaId || '').trim();
     const phoneNumberId = String(values.platformPhoneNumberId || '').trim();
     const accessToken = String(values.systemUserAccessToken || '').trim();
     const version = String(values.graphApiVersion || process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
-    if (!/^\\d{5,30}$/.test(wabaId) || !/^\\d{5,30}$/.test(phoneNumberId) || accessToken.length < 30) {
+    if (!/^\d{5,30}$/.test(wabaId) || !/^\d{5,30}$/.test(phoneNumberId) || accessToken.length < 30) {
       return err('Configure the platform WABA ID, Phone Number ID and System User Access Token under API & Integrations → WhatsApp Cloud API first.', 400);
     }
-    if (!/^v\\d+\\.\\d+$/.test(version)) return err('The configured Graph API version is invalid.', 400);
+    if (!/^v\d+\\.\d+$/.test(version)) return err('The configured Graph API version is invalid.', 400);
     try {
       const response = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(phoneNumberId)}/register`, {
         method: 'POST',
