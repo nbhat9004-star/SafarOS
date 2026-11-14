@@ -560,7 +560,7 @@ function WhatsAppHubView() {
   }, []);
   useEffect(() => { load(); }, [load]);
   const registerPlatformNumber = async () => {
-    if (!/^\\d{6}$/.test(pin)) { toast.error('Enter a six-digit PIN'); return; }
+    if (!/^\d{6}$/.test(pin)) { toast.error('Enter a six-digit PIN'); return; }
     setRegistering(true);
     try {
       const result = await api('/whatsapp-hub/platform-number/register', { method: 'POST', body: JSON.stringify({ pin }) });
