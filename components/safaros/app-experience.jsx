@@ -331,7 +331,7 @@ const SECTION_TITLES = {
   fin_payments: 'Payments',
   comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
   copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access',
-  marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
+  marketplace: 'SafarCurated Marketplace',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
   int_overview: 'Integrations', int_webhooks: 'Webhooks', int_api: 'Developer API',
@@ -1336,7 +1336,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'activities' && <Activities session={session} />}
           {active === 'quotations' && <Quotations key="q-list" session={session} initialView="list" onNavigate={navigateTo} />}
           {active === 'quote-create' && <Quotations key="q-create" session={session} initialView="create" onNavigate={navigateTo} />}
-          {active === 'packages' && <Packages key="pkg" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} />}
+          {active === 'packages' && <Packages key="pkg" session={session} navPayload={navPayload} onConsumePayload={() => setNavPayload(null)} onNavigate={setActive} />}
           {active === 'itineraries' && <Itineraries key="itin" session={session} />}
           {active === 'suppliers' && <Suppliers key="sup" session={session} />}
           {active === 'discover' && <SupplierDiscovery key="discover" session={session} onGo={setActive} />}
@@ -1349,7 +1349,7 @@ function Dashboard({ session, onLogout }) {
           {String(active).startsWith('fin_') && <Finance key="finance" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('fin_' + t)} />}
           {String(active).startsWith('comm_') && <Communications key="comm" session={session} tab={String(active).slice(5)} onNav={(t) => setActive('comm_' + t)} />}
           {active === 'copilot' && <CopilotWorkspace session={session} />}
-          {String(active).startsWith('web_') && <Website key="web" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('web_' + t)} />}
+          {String(active).startsWith('web_') && <MarketplaceWorkspace key="marketplace-legacy-redirect" />}
           {String(active).startsWith('an_') && <Analytics key="an" session={session} tab={String(active).slice(3)} onNav={(t) => setActive('an_' + t)} />}
           {String(active).startsWith('sub_') && <Billing key="sub" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('sub_' + t)} />}
           {String(active).startsWith('int_') && <Integrations key="int" session={session} tab={String(active).slice(4)} onNav={(t) => setActive('int_' + t)} />}
@@ -3619,15 +3619,19 @@ function PkgRow({ label, value }) {
   return (<div className="flex items-start justify-between gap-4 py-1.5"><span className="text-sm text-muted-foreground">{label}</span><span className="text-sm font-medium text-right">{value || '—'}</span></div>);
 }
 
-function PackageDetail({ session, packageId, onBack, onEdit }) {
+function PackageDetail({ session, packageId, onBack, onEdit, onNavigate }) {
   const role = session.user.role;
   const canUpdate = can(role, 'packages:update');
   const canDelete = can(role, 'packages:delete');
   const canItinCreate = can(role, 'itineraries:create');
+  const canPublish = can(role, 'marketplace:publish');
   const [p, setP] = useState(null);
   const [loading, setLoading] = useState(true);
   const [itin, setItin] = useState(null);
   const [editingItin, setEditingItin] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishSaving, setPublishSaving] = useState(false);
+  const [publishForm, setPublishForm] = useState({ title: '', description: '', price: '', currency: 'INR', seats: '', images: '', inclusions: '', exclusions: '', cancellationPolicy: '' });
 
   const load = async () => { setLoading(true); try { const d = await api(`/packages/${packageId}`); setP(d.package); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
   useEffect(() => { load(); }, [packageId]);
@@ -3640,6 +3644,31 @@ function PackageDetail({ session, packageId, onBack, onEdit }) {
   const changeStatus = async (status) => { try { const d = await api(`/packages/${packageId}/status`, { method: 'PUT', body: JSON.stringify({ status }) }); setP(d.package); toast.success('Status updated'); } catch (e) { toast.error(friendlyError(e)); } };
   const createItinerary = async () => { try { const d = await api('/itineraries', { method: 'POST', body: JSON.stringify({ packageId }) }); setItin(d.itinerary); setP((prev) => ({ ...prev, itineraryId: d.itinerary.id })); setEditingItin(true); toast.success('Itinerary created'); } catch (e) { toast.error(friendlyError(e)); } };
   const remove = async () => { try { await api(`/packages/${packageId}`, { method: 'DELETE' }); toast.success('Draft package deleted'); onBack(); } catch (e) { toast.error(friendlyError(e)); } };
+  const createMarketplaceListing = async () => {
+    if (!p) return;
+    const images = String(publishForm.images || '').split('\\n').map(x => x.trim()).filter(Boolean);
+    const inclusions = String(publishForm.inclusions || '').split('\\n').map(x => x.trim()).filter(Boolean);
+    const exclusions = String(publishForm.exclusions || '').split('\\n').map(x => x.trim()).filter(Boolean);
+    if (String(publishForm.title).trim().length < 3 || String(publishForm.description).trim().length < 10 || !(Number(publishForm.price) > 0) || !(Number(publishForm.seats) > 0) || !images.length || String(publishForm.cancellationPolicy).trim().length < 5) {
+      toast.error('Add a public title and description, price, available seats, at least one image URL and a cancellation policy'); return;
+    }
+    setPublishSaving(true);
+    try {
+      const payload = {
+        kind: 'marketplace', name: publishForm.title.trim(), destination: p.destination, startDate: p.startDate || '', endDate: p.endDate || '',
+        nights: Number(p.nights) || 0, description: publishForm.description.trim(),
+        marketplace: {
+          price: Number(publishForm.price), currency: publishForm.currency || 'INR', seats: Number(publishForm.seats),
+          images, inclusions, exclusions, cancellationPolicy: publishForm.cancellationPolicy,
+          itinerary: [],
+        },
+      };
+      const created = await api('/packages', { method: 'POST', body: JSON.stringify(payload) });
+      toast.success('SafarCurated listing draft created. Review and publish it from the Marketplace.');
+      setPublishOpen(false);
+      if (onNavigate) onNavigate('marketplace');
+    } catch (e) { toast.error(friendlyError(e)); } finally { setPublishSaving(false); }
+  };
 
   if (loading) return <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border bg-muted/30 animate-pulse" />)}</div>;
   if (!p) return <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Package not found.</CardContent></Card>;
@@ -3660,6 +3689,7 @@ function PackageDetail({ session, packageId, onBack, onEdit }) {
         </div>
         <div className="flex flex-wrap gap-2">
           {canUpdate && <Button variant="outline" size="sm" onClick={() => onEdit(p.id)}><Pencil className="h-4 w-4 mr-1" /> Edit</Button>}
+          {canPublish && p.kind !== 'marketplace' && <Button size="sm" onClick={() => { setPublishForm({ title: p.name || '', description: '', price: '', currency: 'INR', seats: '', images: '', inclusions: '', exclusions: '', cancellationPolicy: '' }); setPublishOpen(true); }}><Store className="h-4 w-4 mr-1" /> Publish on SafarCurated</Button>}
           {canDelete && p.status === 'draft' && <Button variant="outline" size="sm" onClick={remove}><Trash2 className="h-4 w-4 mr-1 text-destructive" /> Delete</Button>}
         </div>
       </div>
@@ -3710,6 +3740,23 @@ function PackageDetail({ session, packageId, onBack, onEdit }) {
       {itin && !editingItin && (
         <Card><CardContent className="p-5"><ItineraryView itin={itin} /></CardContent></Card>
       )}
+      <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader><DialogTitle>Prepare SafarCurated listing</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">This creates a separate public listing draft. Customer name, contact details, quotation data and private supplier costs are not copied.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1 sm:col-span-2"><Label>Public listing title *</Label><Input value={publishForm.title} onChange={e=>setPublishForm({...publishForm,title:e.target.value})}/></div>
+            <div className="space-y-1 sm:col-span-2"><Label>Public description *</Label><Textarea rows={4} value={publishForm.description} onChange={e=>setPublishForm({...publishForm,description:e.target.value})} placeholder="Write a customer-facing description. Do not include private customer details."/></div>
+            <div className="space-y-1"><Label>Public price per traveller (₹) *</Label><Input type="number" min="1" value={publishForm.price} onChange={e=>setPublishForm({...publishForm,price:e.target.value})}/></div>
+            <div className="space-y-1"><Label>Available seats *</Label><Input type="number" min="1" value={publishForm.seats} onChange={e=>setPublishForm({...publishForm,seats:e.target.value})}/></div>
+            <div className="space-y-1 sm:col-span-2"><Label>Public image URLs (one HTTPS URL per line) *</Label><Textarea rows={3} value={publishForm.images} onChange={e=>setPublishForm({...publishForm,images:e.target.value})} placeholder="https://…"/></div>
+            <div className="space-y-1"><Label>Inclusions (one per line)</Label><Textarea rows={3} value={publishForm.inclusions} onChange={e=>setPublishForm({...publishForm,inclusions:e.target.value})}/></div>
+            <div className="space-y-1"><Label>Exclusions (one per line)</Label><Textarea rows={3} value={publishForm.exclusions} onChange={e=>setPublishForm({...publishForm,exclusions:e.target.value})}/></div>
+            <div className="space-y-1 sm:col-span-2"><Label>Cancellation policy *</Label><Textarea rows={3} value={publishForm.cancellationPolicy} onChange={e=>setPublishForm({...publishForm,cancellationPolicy:e.target.value})}/></div>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={()=>setPublishOpen(false)}>Cancel</Button><Button onClick={createMarketplaceListing} disabled={publishSaving}>{publishSaving?'Creating listing…':'Create marketplace draft'}</Button></div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -4174,7 +4221,7 @@ function ItineraryView({ itin }) {
 }
 
 // ----------------------------- PACKAGES WORKSPACE -----------------------------
-function Packages({ session, navPayload, onConsumePayload }) {
+function Packages({ session, navPayload, onConsumePayload, onNavigate }) {
   const [view, setView] = useState('list');
   const [selectedId, setSelectedId] = useState(null);
   const [prefill, setPrefill] = useState(null);
@@ -4199,7 +4246,7 @@ function Packages({ session, navPayload, onConsumePayload }) {
 
   if (view === 'create') return <PackageForm session={session} mode="create" prefill={prefill} onDone={(p) => { setPrefill(null); openDetail(p.id); }} onCancel={() => { setPrefill(null); setView('list'); }} />;
   if (view === 'edit') return <PackageForm session={session} mode="edit" packageId={selectedId} onDone={(p) => openDetail(p.id)} onCancel={() => openDetail(selectedId)} />;
-  if (view === 'detail') return <PackageDetail session={session} packageId={selectedId} onBack={() => setView('list')} onEdit={openEdit} />;
+  if (view === 'detail') return <PackageDetail session={session} packageId={selectedId} onBack={() => setView('list')} onEdit={openEdit} onNavigate={onNavigate} />;
   return <PackageList session={session} onCreate={() => { setPrefill(null); setView('create'); }} onOpen={openDetail} />;
 }
 
@@ -7665,7 +7712,7 @@ function TravelRules({ session }) {
   const [editRule, setEditRule] = useState(null);
   const [form, setForm] = useState({ name: '', serviceCategory: '', surchargeType: 'fixed', surchargeValue: 0, destination: '', season: '', effectiveFrom: '', effectiveTo: '', active: true });
 
-  const canManage = can(session.role, 'travelrules:manage');
+  const canManage = can(session?.user?.role || session?.role, 'travelrules:manage');
 
   const load = async () => {
     setLoading(true);
