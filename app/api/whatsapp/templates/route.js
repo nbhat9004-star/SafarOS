@@ -15,7 +15,7 @@ function json(data, status = 200) {
 
 function graphBase() {
   const version = String(process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
-  if (!/^v\\d+\\.\\d+$/.test(version)) throw new Error('Invalid WhatsApp Graph API version');
+  if (!/^v\d+\.\d+$/.test(version)) throw new Error('Invalid WhatsApp Graph API version');
   return `https://graph.facebook.com/${version}`;
 }
 
@@ -132,7 +132,7 @@ export async function POST(request) {
   if (!['UTILITY', 'MARKETING', 'AUTHENTICATION'].includes(category)) return json({ error: 'Choose a valid WhatsApp template category.' }, 400);
   if (text.length < 1 || text.length > 1024) return json({ error: 'Template body must contain 1–1,024 characters.' }, 400);
 
-  const placeholders = [...text.matchAll(/\\{\\{(\\d+)\\}\\}/g)].map((match) => Number(match[1]));
+  const placeholders = [...text.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1]));
   if (placeholders.some((number) => !Number.isInteger(number) || number < 1) ||
       [...new Set(placeholders)].sort((a, b) => a - b).some((number, index) => number !== index + 1)) {
     return json({ error: 'Use sequential numbered variables such as {{1}}, {{2}} in the template body.' }, 400);
