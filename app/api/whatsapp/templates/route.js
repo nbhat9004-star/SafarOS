@@ -129,7 +129,7 @@ export async function POST(request) {
   const text = String(body?.body || '').trim();
   if (!/^[a-z0-9_]{1,512}$/.test(name)) return json({ error: 'Template name must use lowercase letters, numbers and underscores only.' }, 400);
   if (!/^[a-z]{2}_[A-Z]{2}$/.test(language)) return json({ error: 'Use a supported language code such as en_US.' }, 400);
-  if (!['UTILITY', 'MARKETING', 'AUTHENTICATION'].includes(category)) return json({ error: 'Choose a valid WhatsApp template category.' }, 400);
+  if (!['UTILITY', 'MARKETING'].includes(category)) return json({ error: 'Choose a valid WhatsApp template category.' }, 400);
   if (text.length < 1 || text.length > 1024) return json({ error: 'Template body must contain 1–1,024 characters.' }, 400);
 
   const placeholders = [...text.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1]));
@@ -147,7 +147,7 @@ export async function POST(request) {
       name,
       language,
       category,
-      components: [{ type: 'BODY', text }],
+      components: [{ type: 'BODY', text, ...(placeholders.length ? { example: { body_text: [placeholders.map((number) => 'Sample ' + number)] } } : {}) }],
     };
     const result = await metaRequest(
       `${encodeURIComponent(connection.wabaId)}/message_templates`,
