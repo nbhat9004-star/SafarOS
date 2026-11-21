@@ -5963,7 +5963,18 @@ function TransactionsPane({ session }) {
         <div className="space-y-1"><Label>Status</Label><Select value={f.status} onValueChange={(v) => setF({ ...f, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.keys(TXN_STATUS_META).map((s) => <SelectItem key={s} value={s}>{TXN_STATUS_META[s].label}</SelectItem>)}</SelectContent></Select></div>
         <div className="sm:col-span-3"><Button size="sm" onClick={save}>Save transaction</Button></div>
       </CardContent></Card>)}
-      {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
+      {canUpdate && <Card><CardContent className="space-y-3 p-4">
+       <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-semibold">Meta WhatsApp templates</div><p className="text-xs text-muted-foreground">Create templates in Meta and synchronize their approval status.</p></div><Button size="sm" variant="outline" onClick={syncMetaTemplates} disabled={metaBusy}>{metaBusy ? 'Please wait…' : 'Sync from Meta'}</Button></div>
+       {canCreate && <div className="grid gap-2 sm:grid-cols-2">
+         <Input value={metaForm.name} onChange={(e) => setMetaForm({ ...metaForm, name: e.target.value })} placeholder="template_name (lowercase)" />
+         <Input value={metaForm.language} onChange={(e) => setMetaForm({ ...metaForm, language: e.target.value })} placeholder="Language e.g. en_US" />
+         <Select value={metaForm.category} onValueChange={(v) => setMetaForm({ ...metaForm, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="UTILITY">Utility</SelectItem><SelectItem value="MARKETING">Marketing</SelectItem><SelectItem value="AUTHENTICATION">Authentication</SelectItem></SelectContent></Select>
+         <Textarea value={metaForm.body} onChange={(e) => setMetaForm({ ...metaForm, body: e.target.value })} placeholder="Template body. Use {{1}}, {{2}} for variables." rows={3} maxLength={1024} />
+         <div className="sm:col-span-2 flex items-center justify-between gap-2"><span className="text-xs text-muted-foreground">{metaForm.body.length}/1024 characters · Meta reviews submitted templates</span><Button size="sm" onClick={createMetaTemplate} disabled={metaBusy || !metaForm.name.trim() || !metaForm.body.trim()}>Submit to Meta</Button></div>
+       </div>}
+       {metaTemplates.length > 0 && <div className="space-y-2">{metaTemplates.map((t) => <div key={t.id || t.name} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2"><div><div className="text-sm font-medium">{t.name}</div><div className="text-xs text-muted-foreground">{t.language} · {t.category}</div></div><Badge variant="outline">{t.status}</Badge></div>)}</div>}
+     </CardContent></Card>}
+     {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
       {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No transactions yet.</CardContent></Card>}
       {!loading && rr.length > 0 && (<Card className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Party</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Method</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
         <TableBody>{rr.map((r) => (<TableRow key={r.id}><TableCell className="text-muted-foreground">{r.transactionDate}</TableCell><TableCell><Badge variant="outline" className={`font-normal ${r.type === 'income' ? 'text-emerald-700' : r.type === 'expense' ? 'text-rose-700' : 'text-blue-700'}`}>{titleCase(r.type)}</Badge></TableCell><TableCell>{titleCase(r.category) || '—'}</TableCell><TableCell className="max-w-[200px] truncate">{r.description || '—'}</TableCell><TableCell className="text-muted-foreground">{r.clientName || r.supplierName || (r.bookingNumber ? `Booking ${r.bookingNumber}` : '—')}</TableCell><TableCell className={`text-right font-medium ${r.type === 'income' ? 'text-emerald-700' : r.type === 'expense' ? 'text-rose-700' : ''}`}>{r.type === 'income' ? '+' : r.type === 'expense' ? '-' : ''}{money(r.amount)}</TableCell><TableCell className="text-muted-foreground">{FIN_PM_LABEL[r.paymentMethod] || '—'}</TableCell><TableCell><MetaBadge meta={TXN_STATUS_META[r.status] || TXN_STATUS_META.completed} /></TableCell></TableRow>))}</TableBody></Table></Card>)}
@@ -6059,6 +6070,28 @@ function ExpensesPane({ session }) {
   const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [query, setQuery] = useState(''); const [catF, setCatF] = useState('all'); const [statusF, setStatusF] = useState('all'); const [show, setShow] = useState(false); const [editId, setEditId] = useState(null);
   const blank = { category: 'other', amount: 0, description: '', supplierId: '', bookingId: '', expenseDate: '', paymentMethod: 'cash', status: 'pending', notes: '' };
   const [f, setF] = useState(blank);
+  const [metaTemplates, setMetaTemplates] = useState([]);
+  const [metaBusy, setMetaBusy] = useState(false);
+  const [metaForm, setMetaForm] = useState({ name: '', language: 'en_US', category: 'UTILITY', body: '' });
+  const syncMetaTemplates = async () => {
+    setMetaBusy(true);
+    try {
+      const result = await api('/whatsapp/templates');
+      setMetaTemplates(result.templates || []);
+      toast.success('Synced ' + (result.templates || []).length + ' WhatsApp templates from Meta.');
+    } catch (e) { toast.error(friendlyError(e)); }
+    finally { setMetaBusy(false); }
+  };
+  const createMetaTemplate = async () => {
+    setMetaBusy(true);
+    try {
+      await api('/whatsapp/templates', { method: 'POST', body: JSON.stringify(metaForm) });
+      toast.success('Template submitted to Meta for review.');
+      setMetaForm({ name: '', language: 'en_US', category: 'UTILITY', body: '' });
+      await syncMetaTemplates();
+    } catch (e) { toast.error(friendlyError(e)); }
+    finally { setMetaBusy(false); }
+  };
   const load = async () => { setLoading(true); try { const d = await api('/finance/expenses'); setRows(d.expenses || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
   useEffect(() => { load(); }, []);
   const save = async () => { if (!(Number(f.amount) > 0)) { toast.error('Amount must be greater than zero'); return; } try { if (editId) await api(`/finance/expenses/${editId}`, { method: 'PUT', body: JSON.stringify(f) }); else await api('/finance/expenses', { method: 'POST', body: JSON.stringify(f) }); toast.success('Expense saved'); setShow(false); setEditId(null); setF(blank); load(); } catch (e) { toast.error(friendlyError(e)); } };
