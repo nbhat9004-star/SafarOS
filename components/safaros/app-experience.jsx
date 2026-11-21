@@ -6742,6 +6742,10 @@ function WhatsAppInboxPanel() {
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
+  const [approvedTemplates, setApprovedTemplates] = useState([]);
+  const [templateChoice, setTemplateChoice] = useState('');
+  const [templateValues, setTemplateValues] = useState('');
+  const [templateSending, setTemplateSending] = useState(false);
   const load = async () => {
     setLoading(true);
     try {
@@ -6763,6 +6767,13 @@ function WhatsAppInboxPanel() {
     finally { setMessageLoading(false); }
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    api('/whatsapp/templates').then((data) => {
+      const approved = (data.templates || []).filter((template) => String(template.status || '').toUpperCase() === 'APPROVED');
+      setApprovedTemplates(approved);
+      setTemplateChoice(approved[0]?.id || '');
+    }).catch(() => {});
+  }, []);
   useEffect(() => { if (selected) { setDraft(''); openConversation(selected); } else { setMessages([]); } }, [selected]);
 
   // Keep the open WhatsApp inbox synchronised with webhook updates and Meta
@@ -6819,6 +6830,25 @@ function WhatsAppInboxPanel() {
     } catch (e) { toast.error(e?.message || 'WhatsApp reply failed. Please try again.'); }
     finally { setSending(false); }
   };
+  const sendApprovedTemplate = async () => {
+    const template = approvedTemplates.find((item) => item.id === templateChoice);
+    if (!active || !template || templateSending) return;
+    const parameters = templateValues.split(/\\r?\\n/).map((value) => value.trim()).filter(Boolean);
+    setTemplateSending(true);
+    try {
+      const result = await api('/whatsapp/messages', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId: active.id, templateName: template.name, templateLanguage: template.language, templateParameters: parameters }),
+      });
+      setMessages((old) => [...old, result.message]);
+      setTemplateValues('');
+      setRows((old) => old.map((item) => item.id === active.id ? {
+        ...item, lastMessageAt: result.message.createdAt, lastMessagePreview: '[Template: ' + template.name + ']',
+      } : item));
+      toast.success('Approved WhatsApp template sent');
+    } catch (e) { toast.error(e?.message || 'WhatsApp template could not be sent.'); }
+    finally { setTemplateSending(false); }
+  };
   return <Card><CardContent className="space-y-3 p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div><div className="font-semibold flex items-center gap-2"><MessageSquare className="h-4 w-4" /> WhatsApp Inbox</div><p className="text-xs text-muted-foreground">Live WhatsApp conversations through Meta</p></div>
@@ -6846,7 +6876,14 @@ function WhatsAppInboxPanel() {
         {serviceWindowOpen ? <div className="space-y-2 border-t pt-3">
           <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Write a WhatsApp reply..." rows={3} maxLength={4096} disabled={sending} />
           <div className="flex items-center justify-between gap-2"><span className="text-[11px] text-muted-foreground">{draft.length}/4096 · Replies allowed within 24 hours of the customer's last message</span><Button size="sm" onClick={sendMessage} disabled={sending || !draft.trim()}>{sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}{sending ? 'Sending...' : 'Send reply'}</Button></div>
-        </div> : <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">The 24-hour customer service window has expired. Use an approved WhatsApp template to message this customer.</div>}
+        </div> : <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <div className="font-medium">The 24-hour customer service window has expired. Send an approved WhatsApp template to continue.</div>
+          {approvedTemplates.length > 0 ? <>
+            <Select value={templateChoice} onValueChange={setTemplateChoice}><SelectTrigger className="bg-white"><SelectValue placeholder="Choose an approved template" /></SelectTrigger><SelectContent>{approvedTemplates.map((template) => <SelectItem key={template.id} value={template.id}>{template.name} · {template.language}</SelectItem>)}</SelectContent></Select>
+            <Textarea value={templateValues} onChange={(event) => setTemplateValues(event.target.value)} placeholder="Template variables: enter one value per line, in {{1}}, {{2}} order. Leave blank if none." rows={2} disabled={templateSending} />
+            <div className="flex justify-end"><Button size="sm" onClick={sendApprovedTemplate} disabled={templateSending || !templateChoice}>{templateSending ? 'Sending…' : 'Send approved template'}</Button></div>
+          </> : <div>There are no approved templates loaded. Open Communications → Templates and sync the approved templates from Meta.</div>}
+        </div>}
       </> : <div className="flex h-full min-h-[220px] items-center justify-center text-sm text-muted-foreground">Select a WhatsApp conversation</div>}</div>
     </div>}
   </CardContent></Card>;
