@@ -43,9 +43,43 @@ function verifySignature(rawBody, signature, appSecret) {
   return safeEqual(signature, expected);
 }
 
-function eventKeyFor(kind, item) {
-  if (kind === 'message') return 'message:' + String(item.id || '');
-  return ['status', item.id || '', item.status || '', item.timestamp || '', item.recipient_id || ''].join(':');
+function eventKeyFor(kind, item, phoneNumberId) {
+  const scope = String(phoneNumberId || 'unknown');
+  if (kind === 'message') return scope + ':message:' + String(item.id || '');
+  return [scope, 'status', item.id || '', item.status || '', item.timestamp || '', item.recipient_id || ''].join(':');
+}
+
+// Atomically claim an event so concurrent Meta retries cannot process it twice.
+// A crashed worker releases its claim automatically after the lease expires.
+async function claimWebhookEvent(db, event) {
+  const token = uuidv4();
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + 2 * 60 * 1000);
+  try {
+    await db.collection('whatsappWebhookEvents').insertOne({
+      ...event, processingToken: token, leaseUntil,
+    });
+    return token;
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+  }
+  const claimed = await db.collection('whatsappWebhookEvents').updateOne(
+    {
+      eventKey: event.eventKey,
+      processingStatus: { $ne: 'processed' },
+      $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: { $lte: now } }],
+    },
+    { $set: { processingStatus: 'processing', processingToken: token, leaseUntil: leaseUntil, receivedAt: event.receivedAt } }
+  );
+  return claimed.modifiedCount === 1 ? token : null;
+}
+
+async function completeWebhookEvent(db, eventKey, token) {
+  await db.collection('whatsappWebhookEvents').updateOne(
+    { eventKey, processingToken: token },
+    { $set: { processedAt: new Date().toISOString(), processingStatus: 'processed' },
+      $unset: { processingToken: '', leaseUntil: '' } }
+  );
 }
 
 function messageKind(message) {
@@ -69,19 +103,14 @@ async function persistMessage(db, connection, message, receivedAt) {
   const waId = String(message.from || '');
   if (!waId || !message.id) return;
 
-  const eventKey = eventKeyFor('message', message);
-  try {
-    await db.collection('whatsappWebhookEvents').insertOne({
-      id: uuidv4(), eventKey, agencyId, connectionId,
-      phoneNumberId: connection.phoneNumberId, eventType: 'message',
-      metaMessageId: message.id, receivedAt, processedAt: null,
-      processingStatus: 'processing',
-    });
-  } catch (error) {
-    if (error?.code !== 11000) throw error;
-    const prior = await db.collection('whatsappWebhookEvents').findOne({ eventKey }, { projection: { processingStatus: 1 } });
-    if (prior?.processingStatus === 'processed') return;
-  }
+  const eventKey = eventKeyFor('message', message, connection.phoneNumberId);
+  const processingToken = await claimWebhookEvent(db, {
+    id: uuidv4(), eventKey, agencyId, connectionId,
+    phoneNumberId: connection.phoneNumberId, eventType: 'message',
+    metaMessageId: message.id, receivedAt, processedAt: null,
+    processingStatus: 'processing',
+  });
+  if (!processingToken) return;
 
   const contactCollection = db.collection('whatsappContacts');
   // Keep insert-only fields separate from fields that may be updated on every
@@ -131,26 +160,19 @@ async function persistMessage(db, connection, message, receivedAt) {
         updatedAt: receivedAt, status: 'open' }, $inc: { unreadCount: 1 } }
     );
   }
-  await db.collection('whatsappWebhookEvents').updateOne(
-    { eventKey }, { $set: { processedAt: new Date().toISOString(), processingStatus: 'processed' } }
-  );
+  await completeWebhookEvent(db, eventKey, processingToken);
 }
 
 async function persistStatus(db, connection, status, receivedAt) {
   if (!status?.id) return;
-  const eventKey = eventKeyFor('status', status);
-  try {
-    await db.collection('whatsappWebhookEvents').insertOne({
-      id: uuidv4(), eventKey, agencyId: connection.agencyId, connectionId: connection.id,
-      phoneNumberId: connection.phoneNumberId, eventType: 'message_status',
-      metaMessageId: status.id, messageStatus: status.status || '',
-      receivedAt, processedAt: null, processingStatus: 'processing',
-    });
-  } catch (error) {
-    if (error?.code !== 11000) throw error;
-    const prior = await db.collection('whatsappWebhookEvents').findOne({ eventKey }, { projection: { processingStatus: 1 } });
-    if (prior?.processingStatus === 'processed') return;
-  }
+  const eventKey = eventKeyFor('status', status, connection.phoneNumberId);
+  const processingToken = await claimWebhookEvent(db, {
+    id: uuidv4(), eventKey, agencyId: connection.agencyId, connectionId: connection.id,
+    phoneNumberId: connection.phoneNumberId, eventType: 'message_status',
+    metaMessageId: status.id, messageStatus: status.status || '',
+    receivedAt, processedAt: null, processingStatus: 'processing',
+  });
+  if (!processingToken) return;
 
   const allowed = ['sent', 'delivered', 'read', 'failed'];
   if (allowed.includes(status.status)) {
@@ -169,9 +191,7 @@ async function persistStatus(db, connection, status, receivedAt) {
       } }
     );
   }
-  await db.collection('whatsappWebhookEvents').updateOne(
-    { eventKey }, { $set: { processedAt: new Date().toISOString(), processingStatus: 'processed' } }
-  );
+  await completeWebhookEvent(db, eventKey, processingToken);
 }
 
 export async function GET(request) {
@@ -238,7 +258,7 @@ export async function POST(request) {
           // Keep an auditable, content-minimized event so an operator can diagnose
           // a missing agency-to-number mapping without leaking message bodies.
           for (const message of messages) {
-            const eventKey = 'unmapped:' + eventKeyFor('message', message);
+            const eventKey = 'unmapped:' + eventKeyFor('message', message, phoneNumberId);
             try {
               await db.collection('whatsappWebhookEvents').insertOne({
                 id: uuidv4(), eventKey, agencyId: null, connectionId: null, phoneNumberId,
@@ -249,7 +269,7 @@ export async function POST(request) {
             } catch (error) { if (error?.code !== 11000) throw error; }
           }
           for (const status of statuses) {
-            const eventKey = 'unmapped:' + eventKeyFor('status', status);
+            const eventKey = 'unmapped:' + eventKeyFor('status', status, phoneNumberId);
             try {
               await db.collection('whatsappWebhookEvents').insertOne({
                 id: uuidv4(), eventKey, agencyId: null, connectionId: null, phoneNumberId,
