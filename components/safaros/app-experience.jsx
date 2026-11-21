@@ -6890,6 +6890,7 @@ function CommConversations() {
 
 function CommTemplates({ role }) {
   const canCreate = can(role, 'communications:create'); const canUpdate = can(role, 'communications:update');
+  const canManageMeta = can(role, 'communications:manage');
   const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [edit, setEdit] = useState(null); const [show, setShow] = useState(false);
   const blank = { name: '', channel: 'whatsapp', subject: '', body: '', variablesText: '' };
   const [f, setF] = useState(blank);
@@ -6929,12 +6930,12 @@ function CommTemplates({ role }) {
       <div className="space-y-1 sm:col-span-2"><Label>Variables (comma separated)</Label><Input value={f.variablesText} onChange={(e) => setF({ ...f, variablesText: e.target.value })} placeholder="clientName, bookingNumber, destination" /></div>
       <div className="sm:col-span-2 flex gap-2"><Button size="sm" onClick={save}>Save template</Button><Button size="sm" variant="ghost" onClick={() => { setShow(false); setEdit(null); setF(blank); }}>Cancel</Button></div>
     </CardContent></Card>}
-    {canUpdate && <Card><CardContent className="space-y-3 p-4">
+    {canManageMeta && <Card><CardContent className="space-y-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-semibold">Meta WhatsApp templates</div><p className="text-xs text-muted-foreground">Create templates in Meta and synchronize their approval status.</p></div><Button size="sm" variant="outline" onClick={syncMetaTemplates} disabled={metaBusy}>{metaBusy ? 'Please wait…' : 'Sync from Meta'}</Button></div>
       {canCreate && <div className="grid gap-2 sm:grid-cols-2">
         <Input value={metaForm.name} onChange={(e) => setMetaForm({ ...metaForm, name: e.target.value })} placeholder="template_name (lowercase)" />
         <Input value={metaForm.language} onChange={(e) => setMetaForm({ ...metaForm, language: e.target.value })} placeholder="Language e.g. en_US" />
-        <Select value={metaForm.category} onValueChange={(v) => setMetaForm({ ...metaForm, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="UTILITY">Utility</SelectItem><SelectItem value="MARKETING">Marketing</SelectItem><SelectItem value="AUTHENTICATION">Authentication</SelectItem></SelectContent></Select>
+        <Select value={metaForm.category} onValueChange={(v) => setMetaForm({ ...metaForm, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="UTILITY">Utility</SelectItem><SelectItem value="MARKETING">Marketing</SelectItem></SelectContent></Select>
         <Textarea value={metaForm.body} onChange={(e) => setMetaForm({ ...metaForm, body: e.target.value })} placeholder="Template body. Use {{1}}, {{2}} for variables." rows={3} maxLength={1024} />
         <div className="sm:col-span-2 flex items-center justify-between gap-2"><span className="text-xs text-muted-foreground">{metaForm.body.length}/1024 characters · Meta reviews submitted templates</span><Button size="sm" onClick={createMetaTemplate} disabled={metaBusy || !metaForm.name.trim() || !metaForm.body.trim()}>Submit to Meta</Button></div>
       </div>}
