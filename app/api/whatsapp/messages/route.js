@@ -66,7 +66,7 @@ export async function POST(request) {
       );
       if (!approvedTemplate) return json({ error: 'This template is not marked APPROVED in SafarOS. Sync templates from Meta and select an approved template before sending.' }, 409);
       const bodyComponent = (approvedTemplate.components || []).find((component) => String(component.type || '').toUpperCase() === 'BODY');
-      const requiredParameters = [...String(bodyComponent?.text || '').matchAll(/\\{\\{(\\d+)\\}\\}/g)].map((match) => Number(match[1]));
+      const requiredParameters = [...String(bodyComponent?.text || '').matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1]));
       const expectedCount = requiredParameters.length ? Math.max(...requiredParameters) : 0;
       if (requiredParameters.some((number, index) => number !== index + 1) || templateParameters.length !== expectedCount) return json({ error: 'This template requires exactly ' + expectedCount + ' body parameter' + (expectedCount === 1 ? '' : 's') + '.' }, 400);
     }
