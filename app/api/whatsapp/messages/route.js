@@ -36,9 +36,15 @@ export async function POST(request) {
 
   const conversationId = String(body?.conversationId || '').trim();
   const text = String(body?.text || '').trim();
+  const templateName = String(body?.templateName || '').trim().toLowerCase();
+  const templateLanguage = String(body?.templateLanguage || 'en_US').trim();
+  const templateParameters = Array.isArray(body?.templateParameters) ? body.templateParameters.map((value) => String(value ?? '').trim()) : [];
+  const isTemplateMessage = Boolean(templateName);
   if (!conversationId) return json({ error: 'Choose a WhatsApp conversation first' }, 400);
-  if (!text) return json({ error: 'Write a message before sending' }, 400);
-  if (text.length > 4096) return json({ error: 'WhatsApp text messages cannot exceed 4,096 characters' }, 400);
+  if (!isTemplateMessage && !text) return json({ error: 'Write a message before sending' }, 400);
+  if (!isTemplateMessage && text.length > 4096) return json({ error: 'WhatsApp text messages cannot exceed 4,096 characters' }, 400);
+  if (isTemplateMessage && (!/^[a-z0-9_]{1,512}$/.test(templateName) || !/^[a-z]{2}_[A-Z]{2}$/.test(templateLanguage))) return json({ error: 'Choose a valid approved WhatsApp template and language.' }, 400);
+  if (templateParameters.length > 20 || templateParameters.some((value) => !value || value.length > 1024)) return json({ error: 'Template parameters must contain 1–1,024 characters each, with no more than 20 values.' }, 400);
 
   let db;
   let outgoingId;
@@ -52,10 +58,23 @@ export async function POST(request) {
     );
     if (!conversation) return json({ error: 'WhatsApp conversation not found' }, 404);
 
+    let approvedTemplate = null;
+    if (isTemplateMessage) {
+      approvedTemplate = await db.collection('whatsappTemplates').findOne(
+        tenantFilter(session, { name: templateName, language: templateLanguage, status: 'APPROVED', provider: 'meta_whatsapp_cloud_api' }),
+        { projection: { _id: 0, name: 1, language: 1, components: 1 } }
+      );
+      if (!approvedTemplate) return json({ error: 'This template is not marked APPROVED in SafarOS. Sync templates from Meta and select an approved template before sending.' }, 409);
+      const bodyComponent = (approvedTemplate.components || []).find((component) => String(component.type || '').toUpperCase() === 'BODY');
+      const requiredParameters = [...String(bodyComponent?.text || '').matchAll(/\\{\\{(\\d+)\\}\\}/g)].map((match) => Number(match[1]));
+      const expectedCount = requiredParameters.length ? Math.max(...requiredParameters) : 0;
+      if (requiredParameters.some((number, index) => number !== index + 1) || templateParameters.length !== expectedCount) return json({ error: 'This template requires exactly ' + expectedCount + ' body parameter' + (expectedCount === 1 ? '' : 's') + '.' }, 400);
+    }
+
     const windowExpiry = conversation.serviceWindowExpiresAt
       ? new Date(conversation.serviceWindowExpiresAt).getTime()
       : (conversation.lastInboundAt ? new Date(conversation.lastInboundAt).getTime() + 24 * 60 * 60 * 1000 : 0);
-    if (!Number.isFinite(windowExpiry) || windowExpiry <= Date.now()) {
+    if (!isTemplateMessage && (!Number.isFinite(windowExpiry) || windowExpiry <= Date.now())) {
       return json({
         error: 'The 24-hour customer service window has expired. Use an approved WhatsApp message template to contact this customer.',
         code: 'WHATSAPP_SERVICE_WINDOW_EXPIRED',
@@ -124,8 +143,9 @@ export async function POST(request) {
       conversationId: conversation.id,
       contactId: '',
       direction: 'outbound',
-      type: 'text',
-      text,
+      type: isTemplateMessage ? 'template' : 'text',
+      text: isTemplateMessage ? '[WhatsApp template: ' + templateName + ']' : text,
+      ...(isTemplateMessage ? { templateName, templateLanguage } : {}),
       status: 'sending',
       source: 'agent',
       createdBy: String(session.userId || ''),
@@ -145,12 +165,19 @@ export async function POST(request) {
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
+          body: JSON.stringify(isTemplateMessage ? {
             messaging_product: 'whatsapp',
             recipient_type: 'individual',
             to: String(conversation.waId),
-            type: 'text',
-            text: { preview_url: false, body: text },
+            type: 'template',
+            template: {
+              name: templateName,
+              language: { code: templateLanguage },
+              ...(templateParameters.length ? { components: [{ type: 'body', parameters: templateParameters.map((value) => ({ type: 'text', text: value })) }] } : {}),
+            },
+          } : {
+            messaging_product: 'whatsapp', recipient_type: 'individual', to: String(conversation.waId),
+            type: 'text', text: { preview_url: false, body: text },
           }),
           cache: 'no-store',
           signal: AbortSignal.timeout(20000),
@@ -211,7 +238,7 @@ export async function POST(request) {
       tenantFilter(session, { id: conversation.id }),
       { $set: {
         lastMessageAt: sentAt,
-        lastMessagePreview: text.slice(0, 240),
+        lastMessagePreview: (isTemplateMessage ? '[Template: ' + templateName + ']' : text).slice(0, 240),
         updatedAt: sentAt,
       } }
     );
@@ -221,8 +248,9 @@ export async function POST(request) {
       message: {
         id: outgoingId,
         direction: 'outbound',
-        type: 'text',
-        text,
+        type: isTemplateMessage ? 'template' : 'text',
+        text: isTemplateMessage ? '[WhatsApp template: ' + templateName + ']' : text,
+        ...(isTemplateMessage ? { templateName, templateLanguage } : {}),
         status: 'sent',
         createdAt: now,
       },
