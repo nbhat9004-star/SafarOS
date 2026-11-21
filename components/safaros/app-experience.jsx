@@ -6833,7 +6833,7 @@ function WhatsAppInboxPanel() {
   const sendApprovedTemplate = async () => {
     const template = approvedTemplates.find((item) => item.id === templateChoice);
     if (!active || !template || templateSending) return;
-    const parameters = templateValues.split(/\\r?\\n/).map((value) => value.trim()).filter(Boolean);
+    const parameters = templateValues.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
     setTemplateSending(true);
     try {
       const result = await api('/whatsapp/messages', {
