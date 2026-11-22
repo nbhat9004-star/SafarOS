@@ -6751,6 +6751,7 @@ function WhatsAppInboxPanel() {
   const [templateSending, setTemplateSending] = useState(false);
   const [newMessageOpen, setNewMessageOpen] = useState(false);
   const [newRecipient, setNewRecipient] = useState('');
+  const [newRecipientOptIn, setNewRecipientOptIn] = useState(false);
   const [newTemplateChoice, setNewTemplateChoice] = useState('');
   const [newTemplateValues, setNewTemplateValues] = useState('');
   const [newTemplateSending, setNewTemplateSending] = useState(false);
@@ -6861,7 +6862,7 @@ function WhatsAppInboxPanel() {
   const sendNewTemplate = async () => {
     const template = approvedTemplates.find((item) => item.id === newTemplateChoice);
     const recipient = newRecipient.trim();
-    if (!recipient || !template || newTemplateSending) return;
+    if (!recipient || !newRecipientOptIn || !template || newTemplateSending) return;
     const parameters = newTemplateValues.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
     setNewTemplateSending(true);
     try {
@@ -6869,6 +6870,7 @@ function WhatsAppInboxPanel() {
         method: 'POST',
         body: JSON.stringify({
           to: recipient,
+          recipientOptIn: true,
           templateName: template.name,
           templateLanguage: template.language,
           templateParameters: parameters,
@@ -6877,6 +6879,7 @@ function WhatsAppInboxPanel() {
       toast.success('WhatsApp template message sent');
       setNewMessageOpen(false);
       setNewRecipient('');
+      setNewRecipientOptIn(false);
       setNewTemplateValues('');
       await load();
     } catch (e) {
@@ -6895,13 +6898,14 @@ function WhatsAppInboxPanel() {
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Start a WhatsApp conversation</DialogTitle>
-              <DialogDescription>Enter a recipient's number with country code and choose an approved template. Meta requires a template to initiate a conversation outside the 24-hour customer service window.</DialogDescription>
+              <p className="text-sm text-muted-foreground">Enter a recipient's number with country code and choose an approved template. Meta requires a template to initiate a conversation outside the 24-hour customer service window.</p>
             </DialogHeader>
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label>Recipient phone number</Label>
                 <Input type="tel" value={newRecipient} onChange={(event) => setNewRecipient(event.target.value)} placeholder="e.g. +971 50 123 4567" disabled={newTemplateSending} />
                 <p className="text-xs text-muted-foreground">Include the country code. Only message people who have agreed to receive WhatsApp messages from your agency.</p>
+                <label className="flex items-start gap-2 text-xs"><input type="checkbox" className="mt-0.5" checked={newRecipientOptIn} onChange={(event) => setNewRecipientOptIn(event.target.checked)} disabled={newTemplateSending} /><span>I confirm this recipient has opted in to receive WhatsApp messages from this agency.</span></label>
               </div>
               <div className="space-y-1.5">
                 <Label>Approved template</Label>
@@ -6917,7 +6921,7 @@ function WhatsAppInboxPanel() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setNewMessageOpen(false)} disabled={newTemplateSending}>Cancel</Button>
-              <Button onClick={sendNewTemplate} disabled={newTemplateSending || !newRecipient.trim() || !newTemplateChoice}>{newTemplateSending ? 'Sending…' : 'Send template'}</Button>
+              <Button onClick={sendNewTemplate} disabled={newTemplateSending || !newRecipient.trim() || !newRecipientOptIn || !newTemplateChoice}>{newTemplateSending ? 'Sending…' : 'Send template'}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
