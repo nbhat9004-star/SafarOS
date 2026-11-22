@@ -40,6 +40,7 @@ const humanize = (k) => String(k).replace(/([A-Z])/g, ' $1').replace(/^./, (c) =
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'agencies', label: 'Agencies', icon: Building2 },
+  { id: 'business_verifications', label: 'Business Verification', icon: ShieldCheck },
   { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
   { id: 'plans', label: 'Plans', icon: Layers },
@@ -69,6 +70,11 @@ const STATUS_CLS = {
   processing: 'bg-blue-50 text-blue-700 border-blue-200',
   failed: 'bg-rose-50 text-rose-700 border-rose-200',
   unmapped: 'bg-amber-50 text-amber-700 border-amber-200',
+  draft: 'bg-muted text-muted-foreground border-border',
+  pending_review: 'bg-blue-50 text-blue-700 border-blue-200',
+  needs_information: 'bg-amber-50 text-amber-700 border-amber-200',
+  approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  rejected: 'bg-rose-50 text-rose-700 border-rose-200',
 };
 function StatusBadge({ status }) {
   return <Badge variant="outline" className={`capitalize ${STATUS_CLS[status] || STATUS_CLS.not_connected}`}>{String(status || '').replace(/_/g, ' ')}</Badge>;
@@ -603,6 +609,99 @@ function WhatsAppHubView() {
   </div>);
 }
 
+// ---------- Agency Business Verification (SafarOS platform review only) ----------
+function BusinessVerificationsView() {
+  const [data, setData] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState('');
+  const [loading, setLoading] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setData(await api('/business-verifications')); }
+    catch (e) { toast.error(e.message); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const openDetail = async (row) => {
+    try {
+      const result = await api(`/business-verifications/${encodeURIComponent(row.agencyId)}`);
+      setDetail(result.verification);
+      setNote(result.verification.reviewNote || '');
+    } catch (e) { toast.error(e.message); }
+  };
+  const review = async (platformStatus) => {
+    if (!detail) return;
+    if (['needs_information', 'rejected'].includes(platformStatus) && !note.trim()) {
+      toast.error('Add a note explaining what the agency needs to correct');
+      return;
+    }
+    setBusy(platformStatus);
+    try {
+      const result = await api(`/business-verifications/${encodeURIComponent(detail.agencyId)}`, {
+        method: 'PUT', body: JSON.stringify({ platformStatus, reviewNote: note }),
+      });
+      setDetail(result.verification);
+      toast.success(platformStatus === 'approved' ? 'Agency approved for SafarOS' : platformStatus === 'rejected' ? 'SafarOS application rejected' : 'More information requested');
+      load();
+    } catch (e) { toast.error(e.message); }
+    finally { setBusy(''); }
+  };
+  const fmt = (v) => v ? new Date(v).toLocaleString() : '—';
+  if (!data) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
+  const counts = data.counts || {};
+  return (<div className="space-y-5" data-testid="business-verifications">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><h2 className="text-base font-semibold">Agency business verification</h2><p className="text-sm text-muted-foreground">Review agency documents for SafarOS platform onboarding. This does not approve Meta Business Verification.</p></div>
+      <Button variant="outline" size="sm" onClick={load} disabled={loading}><RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</Button>
+    </div>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Stat label="Awaiting review" value={counts.pending_review || 0} />
+      <Stat label="Needs information" value={counts.needs_information || 0} />
+      <Stat label="Approved for SafarOS" value={counts.approved || 0} />
+      <Stat label="Rejected" value={counts.rejected || 0} />
+    </div>
+    <Card><CardContent className="p-0"><Table>
+      <TableHeader><TableRow><TableHead>Agency</TableHead><TableHead>Legal business</TableHead><TableHead>Country</TableHead><TableHead>Meta status (agency reported)</TableHead><TableHead>SafarOS review</TableHead><TableHead>Documents</TableHead><TableHead>Submitted</TableHead></TableRow></TableHeader>
+      <TableBody>{(data.verifications || []).length ? data.verifications.map((row) => <TableRow key={row.agencyId} className="cursor-pointer" onClick={() => openDetail(row)}>
+        <TableCell><div className="font-medium">{row.agencyName}</div><div className="text-xs text-muted-foreground">{row.agencyEmail || row.agencyId}</div></TableCell>
+        <TableCell>{row.legalBusinessName || 'Draft'}</TableCell><TableCell>{row.country || '—'}</TableCell>
+        <TableCell><StatusBadge status={row.metaStatus || 'unknown'} /></TableCell><TableCell><StatusBadge status={row.platformStatus} /></TableCell>
+        <TableCell>{row.documentCount || 0}</TableCell><TableCell className="text-xs text-muted-foreground">{fmt(row.submittedAt)}</TableCell>
+      </TableRow>) : <TableRow><TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">No agency business verification submissions yet.</TableCell></TableRow>}</TableBody>
+    </Table></CardContent></Card>
+    <Dialog open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogHeader><DialogTitle>Review business documents — {detail?.agencyName || ''}</DialogTitle></DialogHeader>
+        {detail && <div className="space-y-4 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div><div className="text-xs text-muted-foreground">Legal business name</div><div className="font-medium">{detail.legalBusinessName}</div></div>
+            <div><div className="text-xs text-muted-foreground">Business type</div><div className="font-medium">{detail.businessType}</div></div>
+            <div><div className="text-xs text-muted-foreground">Country</div><div className="font-medium">{detail.country}</div></div>
+            <div><div className="text-xs text-muted-foreground">Registration number</div><div className="font-medium">{detail.registrationNumber || '—'}</div></div>
+            <div className="sm:col-span-2"><div className="text-xs text-muted-foreground">Registered address</div><div className="font-medium">{detail.registeredAddress}</div></div>
+            <div><div className="text-xs text-muted-foreground">Meta Business Verification (agency reported)</div><StatusBadge status={detail.metaStatus || 'unknown'} /></div>
+            <div><div className="text-xs text-muted-foreground">SafarOS platform review</div><StatusBadge status={detail.platformStatus} /></div>
+          </div>
+          <div><div className="mb-2 font-semibold">Submitted documents</div>
+            <div className="space-y-2">{(detail.documents || []).map((doc) => <div key={doc.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
+              <div className="min-w-0"><div className="truncate font-medium">{doc.fileName}</div><div className="text-xs text-muted-foreground">{doc.fileType} · {(Number(doc.fileSize || 0) / 1024 / 1024).toFixed(2)} MB</div></div>
+              <a className="shrink-0 text-violet-700 hover:underline" href={`/api/platform/business-verifications/${encodeURIComponent(detail.agencyId)}/documents/${encodeURIComponent(doc.id)}/download`} target="_blank" rel="noreferrer">Download</a>
+            </div>)}</div>
+          </div>
+          <div className="space-y-1.5"><Label>Review note</Label><Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Explain missing or incorrect information to the agency…" /></div>
+          <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
+            <Button variant="outline" disabled={!!busy} onClick={() => review('needs_information')}>{busy === 'needs_information' ? 'Saving…' : 'Request information'}</Button>
+            <Button variant="destructive" disabled={!!busy} onClick={() => review('rejected')}>{busy === 'rejected' ? 'Saving…' : 'Reject SafarOS application'}</Button>
+            <Button disabled={!!busy} onClick={() => review('approved')}>{busy === 'approved' ? 'Saving…' : 'Approve for SafarOS'}</Button>
+          </div>
+          <p className="text-xs text-muted-foreground">SafarOS approval controls access to the platform only. Meta independently decides whether the agency's Meta Business Verification is approved.</p>
+        </div>}
+      </DialogContent>
+    </Dialog>
+  </div>);
+}
+
 // ---------- Integrations ----------
 function IntegrationsView() {
   const [data, setData] = useState(null);
@@ -865,6 +964,7 @@ export default function PlatformAdmin() {
       <div className="p-4 sm:p-6">
         {section === 'dashboard' && <DashboardView />}
         {section === 'agencies' && <AgenciesView />}
+        {section === 'business_verifications' && <BusinessVerificationsView />}
         {section === 'users' && <UsersView />}
         {section === 'subscriptions' && <SubscriptionsView />}
         {section === 'plans' && <PlansView />}
