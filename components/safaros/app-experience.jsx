@@ -307,6 +307,7 @@ const NAV = [
   {
     group: 'Data Tools',
     items: [
+      { id: 'business_verification', label: 'Business Verification', icon: ShieldCheck },
       { id: 'data_import', label: 'Import Data', icon: Upload },
       { id: 'data_export', label: 'Export Data', icon: Download },
     ],
@@ -330,7 +331,7 @@ const SECTION_TITLES = {
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
   fin_payments: 'Payments',
   comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
-  copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access',
+  copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access', business_verification: 'Business Verification',
   marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
@@ -472,6 +473,7 @@ const DESKTOP_WORKSPACES = [
     { id: 'an_overview', label: 'Analytics', desc: 'Business insights & reports', icon: Gauge, tone: 'emerald' },
     { id: 'travelrules', label: 'Travel Intelligence', desc: 'Rules & surcharges', icon: MapPin, tone: 'violet' },
     { id: 'documents', label: 'Document Vault', desc: 'Secure document storage', icon: FileText, tone: 'sky' },
+    { id: 'business_verification', label: 'Business Verification', desc: 'Submit company documents and track onboarding review', icon: ShieldCheck, tone: 'violet' },
     { id: 'customfields', label: 'Custom Fields', desc: 'Extend modules with fields', icon: Database, tone: 'emerald' },
     { id: 'suppliers_network', label: 'Supplier Network', desc: 'B2B network visibility', icon: Store, tone: 'amber' },
     { id: 'marketplace', label: 'SafarCurated Marketplace', desc: 'Publish packages to SafarCurated', icon: Store, tone: 'amber' },
@@ -499,7 +501,7 @@ function majorOf(active) {
   if (String(active).startsWith('ws:')) return String(active).slice(3);
   if (FEATURE_TO_MAJOR[active]) return FEATURE_TO_MAJOR[active];
   if (String(active).startsWith('fin_')) return 'finance';
-  if (/^(comm_|web_|an_|sub_|int_)/.test(String(active)) || ['copilot', 'portal_admin', 'team', 'settings'].includes(active)) return 'more';
+  if (/^(comm_|web_|an_|sub_|int_)/.test(String(active)) || ['copilot', 'portal_admin', 'business_verification', 'team', 'settings'].includes(active)) return 'more';
   return 'overview';
 }
 function majorLabel(id) { const w = DESKTOP_WORKSPACES.find((x) => x.id === id); return w ? w.label : ''; }
@@ -1356,6 +1358,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'portal_admin' && <PortalAdmin session={session} />}
           {active === 'travelrules' && <TravelRules session={session} />}
           {active === 'documents' && <DocumentVault session={session} />}
+          {active === 'business_verification' && <BusinessVerification session={session} />}
           {active === 'customfields' && <CustomFields session={session} />}
           {active === 'suppliers_network' && <SupplierNetwork session={session} />}
           {active === 'data_import' && <DataImport key="imp" session={session} onNavigate={navigateTo} />}
@@ -5964,46 +5967,6 @@ function TransactionsPane({ session }) {
         <div className="sm:col-span-3"><Button size="sm" onClick={save}>Save transaction</Button></div>
       </CardContent></Card>)}
       {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
-      {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No transactions yet.</CardContent></Card>}
-      {!loading && rr.length > 0 && (<Card className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Party</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Method</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-        <TableBody>{rr.map((r) => (<TableRow key={r.id}><TableCell className="text-muted-foreground">{r.transactionDate}</TableCell><TableCell><Badge variant="outline" className={`font-normal ${r.type === 'income' ? 'text-emerald-700' : r.type === 'expense' ? 'text-rose-700' : 'text-blue-700'}`}>{titleCase(r.type)}</Badge></TableCell><TableCell>{titleCase(r.category) || '—'}</TableCell><TableCell className="max-w-[200px] truncate">{r.description || '—'}</TableCell><TableCell className="text-muted-foreground">{r.clientName || r.supplierName || (r.bookingNumber ? `Booking ${r.bookingNumber}` : '—')}</TableCell><TableCell className={`text-right font-medium ${r.type === 'income' ? 'text-emerald-700' : r.type === 'expense' ? 'text-rose-700' : ''}`}>{r.type === 'income' ? '+' : r.type === 'expense' ? '-' : ''}{money(r.amount)}</TableCell><TableCell className="text-muted-foreground">{FIN_PM_LABEL[r.paymentMethod] || '—'}</TableCell><TableCell><MetaBadge meta={TXN_STATUS_META[r.status] || TXN_STATUS_META.completed} /></TableCell></TableRow>))}</TableBody></Table></Card>)}
-    </FinListShell>
-  );
-}
-
-function PaymentPanel({ onSubmit, onCancel }) {
-  const [f, setF] = useState({ amount: 0, paymentDate: '', paymentMethod: 'cash', reference: '', notes: '' });
-  return (<div className="mt-2 rounded-lg border bg-muted/30 p-3 space-y-2">
-    <div className="grid gap-2 sm:grid-cols-3">
-      <div className="space-y-1"><Label className="text-xs">Amount</Label><Input type="number" min="0" value={f.amount} onChange={(e) => setF({ ...f, amount: Math.max(0, Number(e.target.value) || 0) })} /></div>
-      <div className="space-y-1"><Label className="text-xs">Date</Label><Input type="date" value={f.paymentDate} onChange={(e) => setF({ ...f, paymentDate: e.target.value })} /></div>
-      <div className="space-y-1"><Label className="text-xs">Method</Label><Select value={f.paymentMethod} onValueChange={(v) => setF({ ...f, paymentMethod: v })}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent>{FIN_PAYMENT_METHODS.map((m) => <SelectItem key={m} value={m}>{FIN_PM_LABEL[m]}</SelectItem>)}</SelectContent></Select></div>
-      <div className="space-y-1 sm:col-span-2"><Label className="text-xs">Reference</Label><Input value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} /></div>
-    </div>
-    <div className="flex gap-2"><Button size="sm" onClick={() => onSubmit(f)}>Record payment</Button><Button size="sm" variant="outline" onClick={onCancel}>Cancel</Button></div>
-  </div>);
-}
-
-function ReceivablesPane({ session }) {
-  const canCreate = can(session.user.role, 'finance:create');
-  const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [query, setQuery] = useState(''); const [show, setShow] = useState(false); const [payId, setPayId] = useState(null);
-  const [f, setF] = useState({ clientId: '', bookingId: '', totalAmount: 0, dueDate: '', notes: '' });
-  const load = async () => { setLoading(true); try { const d = await api('/finance/receivables'); setRows(d.receivables || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
-  useEffect(() => { load(); }, []);
-  const save = async () => { if (!(Number(f.totalAmount) > 0)) { toast.error('Total must be greater than zero'); return; } try { await api('/finance/receivables', { method: 'POST', body: JSON.stringify(f) }); toast.success('Receivable created'); setShow(false); setF({ clientId: '', bookingId: '', totalAmount: 0, dueDate: '', notes: '' }); load(); } catch (e) { toast.error(friendlyError(e)); } };
-  const pay = async (id, data) => { try { await api(`/finance/receivables/${id}/payment`, { method: 'POST', body: JSON.stringify(data) }); toast.success('Payment recorded'); setPayId(null); load(); } catch (e) { toast.error(friendlyError(e)); } };
-  const q = query.trim().toLowerCase();
-  const rr = rows.filter((r) => !q || [r.clientName, r.bookingNumber].some((v) => String(v || '').toLowerCase().includes(q)));
-  return (
-    <FinListShell canCreate={canCreate} createLabel="Add receivable" onCreate={() => setShow((v) => !v)} query={query} setQuery={setQuery} searchPlaceholder="Search customer / booking">
-      {show && (<Card><CardContent className="grid gap-3 p-4 sm:grid-cols-2">
-        <div className="space-y-1"><Label>Client</Label><FinClientPicker value={f.clientId} onChange={(v) => setF({ ...f, clientId: v })} /></div>
-        <div className="space-y-1"><Label>Booking</Label><FinBookingPicker value={f.bookingId} onChange={(v) => setF({ ...f, bookingId: v })} /></div>
-        <div className="space-y-1"><Label>Total amount</Label><Input type="number" min="0" value={f.totalAmount} onChange={(e) => setF({ ...f, totalAmount: Math.max(0, Number(e.target.value) || 0) })} /></div>
-        <div className="space-y-1"><Label>Due date</Label><Input type="date" value={f.dueDate} onChange={(e) => setF({ ...f, dueDate: e.target.value })} /></div>
-        <div className="sm:col-span-2"><Button size="sm" onClick={save}>Save receivable</Button></div>
-      </CardContent></Card>)}
-      {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
       {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No customer receivables yet.</CardContent></Card>}
       {!loading && rr.map((r) => { const ov = finOverdue(r); const meta = ov ? SETTLE_META.overdue : (SETTLE_META[r.status] || SETTLE_META.pending); return (
         <Card key={r.id}><CardContent className="p-4">
@@ -6782,6 +6745,10 @@ function WhatsAppInboxPanel() {
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
+  const [approvedTemplates, setApprovedTemplates] = useState([]);
+  const [templateChoice, setTemplateChoice] = useState('');
+  const [templateValues, setTemplateValues] = useState('');
+  const [templateSending, setTemplateSending] = useState(false);
   const load = async () => {
     setLoading(true);
     try {
@@ -6803,6 +6770,13 @@ function WhatsAppInboxPanel() {
     finally { setMessageLoading(false); }
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    api('/whatsapp/templates').then((data) => {
+      const approved = (data.templates || []).filter((template) => String(template.status || '').toUpperCase() === 'APPROVED');
+      setApprovedTemplates(approved);
+      setTemplateChoice(approved[0]?.id || '');
+    }).catch(() => {});
+  }, []);
   useEffect(() => { if (selected) { setDraft(''); openConversation(selected); } else { setMessages([]); } }, [selected]);
 
   // Keep the open WhatsApp inbox synchronised with webhook updates and Meta
@@ -6859,6 +6833,25 @@ function WhatsAppInboxPanel() {
     } catch (e) { toast.error(e?.message || 'WhatsApp reply failed. Please try again.'); }
     finally { setSending(false); }
   };
+  const sendApprovedTemplate = async () => {
+    const template = approvedTemplates.find((item) => item.id === templateChoice);
+    if (!active || !template || templateSending) return;
+    const parameters = templateValues.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+    setTemplateSending(true);
+    try {
+      const result = await api('/whatsapp/messages', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId: active.id, templateName: template.name, templateLanguage: template.language, templateParameters: parameters }),
+      });
+      setMessages((old) => [...old, result.message]);
+      setTemplateValues('');
+      setRows((old) => old.map((item) => item.id === active.id ? {
+        ...item, lastMessageAt: result.message.createdAt, lastMessagePreview: '[Template: ' + template.name + ']',
+      } : item));
+      toast.success('Approved WhatsApp template sent');
+    } catch (e) { toast.error(e?.message || 'WhatsApp template could not be sent.'); }
+    finally { setTemplateSending(false); }
+  };
   return <Card><CardContent className="space-y-3 p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div><div className="font-semibold flex items-center gap-2"><MessageSquare className="h-4 w-4" /> WhatsApp Inbox</div><p className="text-xs text-muted-foreground">Live WhatsApp conversations through Meta</p></div>
@@ -6886,7 +6879,14 @@ function WhatsAppInboxPanel() {
         {serviceWindowOpen ? <div className="space-y-2 border-t pt-3">
           <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Write a WhatsApp reply..." rows={3} maxLength={4096} disabled={sending} />
           <div className="flex items-center justify-between gap-2"><span className="text-[11px] text-muted-foreground">{draft.length}/4096 · Replies allowed within 24 hours of the customer's last message</span><Button size="sm" onClick={sendMessage} disabled={sending || !draft.trim()}>{sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}{sending ? 'Sending...' : 'Send reply'}</Button></div>
-        </div> : <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">The 24-hour customer service window has expired. Use an approved WhatsApp template to message this customer.</div>}
+        </div> : <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <div className="font-medium">The 24-hour customer service window has expired. Send an approved WhatsApp template to continue.</div>
+          {approvedTemplates.length > 0 ? <>
+            <Select value={templateChoice} onValueChange={setTemplateChoice}><SelectTrigger className="bg-white"><SelectValue placeholder="Choose an approved template" /></SelectTrigger><SelectContent>{approvedTemplates.map((template) => <SelectItem key={template.id} value={template.id}>{template.name} · {template.language}</SelectItem>)}</SelectContent></Select>
+            <Textarea value={templateValues} onChange={(event) => setTemplateValues(event.target.value)} placeholder="Template variables: enter one value per line, in {{1}}, {{2}} order. Leave blank if none." rows={2} disabled={templateSending} />
+            <div className="flex justify-end"><Button size="sm" onClick={sendApprovedTemplate} disabled={templateSending || !templateChoice}>{templateSending ? 'Sending…' : 'Send approved template'}</Button></div>
+          </> : <div>There are no approved templates loaded. Open Communications → Templates and sync the approved templates from Meta.</div>}
+        </div>}
       </> : <div className="flex h-full min-h-[220px] items-center justify-center text-sm text-muted-foreground">Select a WhatsApp conversation</div>}</div>
     </div>}
   </CardContent></Card>;
@@ -6930,9 +6930,32 @@ function CommConversations() {
 
 function CommTemplates({ role }) {
   const canCreate = can(role, 'communications:create'); const canUpdate = can(role, 'communications:update');
+  const canManageMeta = can(role, 'communications:manage');
   const [rows, setRows] = useState([]); const [loading, setLoading] = useState(true); const [edit, setEdit] = useState(null); const [show, setShow] = useState(false);
   const blank = { name: '', channel: 'whatsapp', subject: '', body: '', variablesText: '' };
   const [f, setF] = useState(blank);
+  const [metaTemplates, setMetaTemplates] = useState([]);
+  const [metaBusy, setMetaBusy] = useState(false);
+  const [metaForm, setMetaForm] = useState({ name: '', language: 'en_US', category: 'UTILITY', body: '' });
+  const syncMetaTemplates = async () => {
+    setMetaBusy(true);
+    try {
+      const result = await api('/whatsapp/templates');
+      setMetaTemplates(result.templates || []);
+      toast.success('Synced ' + (result.templates || []).length + ' WhatsApp templates from Meta.');
+    } catch (e) { toast.error(friendlyError(e)); }
+    finally { setMetaBusy(false); }
+  };
+  const createMetaTemplate = async () => {
+    setMetaBusy(true);
+    try {
+      await api('/whatsapp/templates', { method: 'POST', body: JSON.stringify(metaForm) });
+      toast.success('Template submitted to Meta for review.');
+      setMetaForm({ name: '', language: 'en_US', category: 'UTILITY', body: '' });
+      await syncMetaTemplates();
+    } catch (e) { toast.error(friendlyError(e)); }
+    finally { setMetaBusy(false); }
+  };
   const load = async () => { setLoading(true); try { const d = await api('/communications/templates'); setRows(d.templates || []); } catch (e) { toast.error(friendlyError(e)); } finally { setLoading(false); } };
   useEffect(() => { load(); }, []);
   const save = async () => { if (!f.name.trim()) { toast.error('Template name is required'); return; } const payload = { name: f.name, channel: f.channel, subject: f.subject, body: f.body, variables: f.variablesText.split(',').map((s) => s.trim()).filter(Boolean) }; try { if (edit) await api(`/communications/templates/${edit}`, { method: 'PUT', body: JSON.stringify(payload) }); else await api('/communications/templates', { method: 'POST', body: JSON.stringify(payload) }); toast.success('Template saved'); setShow(false); setEdit(null); setF(blank); load(); } catch (e) { toast.error(friendlyError(e)); } };
@@ -6946,6 +6969,17 @@ function CommTemplates({ role }) {
       <div className="space-y-1 sm:col-span-2"><Label>Body</Label><Textarea rows={4} value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} /></div>
       <div className="space-y-1 sm:col-span-2"><Label>Variables (comma separated)</Label><Input value={f.variablesText} onChange={(e) => setF({ ...f, variablesText: e.target.value })} placeholder="clientName, bookingNumber, destination" /></div>
       <div className="sm:col-span-2 flex gap-2"><Button size="sm" onClick={save}>Save template</Button><Button size="sm" variant="ghost" onClick={() => { setShow(false); setEdit(null); setF(blank); }}>Cancel</Button></div>
+    </CardContent></Card>}
+    {canManageMeta && <Card><CardContent className="space-y-3 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="font-semibold">Meta WhatsApp templates</div><p className="text-xs text-muted-foreground">Create templates in Meta and synchronize their approval status.</p></div><Button size="sm" variant="outline" onClick={syncMetaTemplates} disabled={metaBusy}>{metaBusy ? 'Please wait…' : 'Sync from Meta'}</Button></div>
+      {canCreate && <div className="grid gap-2 sm:grid-cols-2">
+        <Input value={metaForm.name} onChange={(e) => setMetaForm({ ...metaForm, name: e.target.value })} placeholder="template_name (lowercase)" />
+        <Input value={metaForm.language} onChange={(e) => setMetaForm({ ...metaForm, language: e.target.value })} placeholder="Language e.g. en_US" />
+        <Select value={metaForm.category} onValueChange={(v) => setMetaForm({ ...metaForm, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="UTILITY">Utility</SelectItem><SelectItem value="MARKETING">Marketing</SelectItem></SelectContent></Select>
+        <Textarea value={metaForm.body} onChange={(e) => setMetaForm({ ...metaForm, body: e.target.value })} placeholder="Template body. Use {{1}}, {{2}} for variables." rows={3} maxLength={1024} />
+        <div className="sm:col-span-2 flex items-center justify-between gap-2"><span className="text-xs text-muted-foreground">{metaForm.body.length}/1024 characters · Meta reviews submitted templates</span><Button size="sm" onClick={createMetaTemplate} disabled={metaBusy || !metaForm.name.trim() || !metaForm.body.trim()}>Submit to Meta</Button></div>
+      </div>}
+      {metaTemplates.length > 0 && <div className="space-y-2">{metaTemplates.map((t) => <div key={t.id || t.name} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2"><div><div className="text-sm font-medium">{t.name}</div><div className="text-xs text-muted-foreground">{t.language} · {t.category}</div></div><Badge variant="outline">{t.status}</Badge></div>)}</div>}
     </CardContent></Card>}
     {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
     {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No templates yet.</CardContent></Card>}
@@ -7005,6 +7039,31 @@ function SupportTickets({ session }) {
   </div>;
 }
 
+async function ensureMetaFacebookSdk(appId) {
+  if (typeof window === 'undefined') throw new Error('WhatsApp signup must run in a browser.');
+  if (window.FB) return window.FB;
+  await new Promise((resolve, reject) => {
+    window.fbAsyncInit = () => {
+      try {
+        window.FB.init({ appId, cookie: true, xfbml: false, version: 'v23.0' });
+        resolve();
+      } catch (error) { reject(error); }
+    };
+    let script = document.getElementById('facebook-jssdk');
+    if (!script) {
+      script = document.createElement('script');
+      script.id = 'facebook-jssdk';
+      script.src = 'https://connect.facebook.net/en_US/sdk.js';
+      script.async = true;
+      script.defer = true;
+      script.crossOrigin = 'anonymous';
+      script.onerror = () => reject(new Error('Meta login could not be loaded. Check your connection and try again.'));
+      document.head.appendChild(script);
+    }
+  });
+  return window.FB;
+}
+
 function ChannelIntegrations({ session }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -7012,6 +7071,7 @@ function ChannelIntegrations({ session }) {
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState({});
   const [waConnection, setWaConnection] = useState(null);
+  const [waMetaConfig, setWaMetaConfig] = useState(null);
   const [waForm, setWaForm] = useState({ wabaId: '', phoneNumberId: '', accessToken: '' });
   const [waSaving, setWaSaving] = useState(false);
   const canManage = can(session.user.role, 'communications:manage');
@@ -7024,12 +7084,14 @@ function ChannelIntegrations({ session }) {
   const load = async () => {
     setLoading(true);
     try {
-      const [integrations, connection] = await Promise.all([
+      const [integrations, connection, metaConfig] = await Promise.all([
         api('/communications/integrations'),
         api('/whatsapp/connection'),
+        api('/whatsapp/embedded-signup/config'),
       ]);
       setItems(integrations.integrations || []);
       setWaConnection(connection.connection || { connected: false, status: 'not_connected' });
+      setWaMetaConfig(metaConfig || { enabled: false });
     } catch (e) {
       toast.error(friendlyError(e));
     } finally {
@@ -7088,6 +7150,94 @@ function ChannelIntegrations({ session }) {
     }
   };
 
+  const connectWhatsAppWithMeta = async () => {
+    setWaSaving(true);
+    try {
+      if (!waMetaConfig?.enabled || !waMetaConfig?.appId || !waMetaConfig?.configurationId) {
+        throw new Error('Meta Embedded Signup is not configured yet. Ask the SafarOS administrator to add the Meta App ID and Configuration ID in Vercel.');
+      }
+      const { state } = await api('/whatsapp/embedded-signup/state', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const FB = await ensureMetaFacebookSdk(waMetaConfig.appId);
+      const signup = await new Promise((resolve, reject) => {
+        let authorizationCode = '';
+        let signupInfo = null;
+        let settled = false;
+        const cleanup = () => {
+          window.removeEventListener('message', onMessage);
+          window.clearTimeout(timeout);
+        };
+        const fail = (message) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new Error(message));
+        };
+        const finishIfReady = () => {
+          if (settled || !authorizationCode || !signupInfo?.waba_id || !signupInfo?.phone_number_id) return;
+          settled = true;
+          cleanup();
+          resolve({
+            code: authorizationCode,
+            wabaId: String(signupInfo.waba_id),
+            phoneNumberId: String(signupInfo.phone_number_id),
+            state,
+          });
+        };
+        const onMessage = (event) => {
+          if (!['https://www.facebook.com', 'https://web.facebook.com'].includes(event.origin)) return;
+          const payload = event.data;
+          if (!payload || payload.type !== 'WA_EMBEDDED_SIGNUP') return;
+          if (payload.event === 'FINISH') {
+            signupInfo = payload.data || {};
+            finishIfReady();
+          } else if (payload.event === 'CANCEL') {
+            fail('WhatsApp setup was cancelled before completion.');
+          } else if (payload.event === 'ERROR') {
+            fail('Meta reported an error during WhatsApp setup. Please try again.');
+          }
+        };
+        const timeout = window.setTimeout(() => {
+          fail('WhatsApp setup timed out. Please try again and complete every step in the Meta window.');
+        }, 180000);
+        window.addEventListener('message', onMessage);
+        try {
+          FB.login((response) => {
+            const code = response?.authResponse?.code;
+            if (code) {
+              authorizationCode = String(code);
+              finishIfReady();
+            } else if (response?.status !== 'connected') {
+              fail('Meta authorization was not completed. Please try again.');
+            }
+          }, {
+            config_id: waMetaConfig.configurationId,
+            auth_type: 'rerequest',
+            response_type: 'code',
+            override_default_response_type: true,
+            state,
+            extras: {},
+          });
+        } catch {
+          fail('Unable to open Meta WhatsApp signup. Check the Facebook Login for Business settings.');
+        }
+      });
+
+      const result = await api('/whatsapp/embedded-signup/exchange', {
+        method: 'POST',
+        body: JSON.stringify(signup),
+      });
+      setWaConnection(result.connection || { connected: true, status: 'connected' });
+      toast.success('WhatsApp Business connected to this agency.');
+    } catch (error) {
+      toast.error(String(error?.message || 'Unable to connect WhatsApp with Meta.'));
+    } finally {
+      setWaSaving(false);
+    }
+  };
+
   const disconnectWhatsApp = async () => {
     if (!window.confirm('Disconnect this agency WhatsApp number from SafarOS?')) return;
     setWaSaving(true);
@@ -7116,7 +7266,7 @@ function ChannelIntegrations({ session }) {
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
             <div className="min-w-0 flex-1">
               <div className="font-medium">WhatsApp Business</div>
-              <p className="text-sm text-muted-foreground">Connect this agency's own WhatsApp Business Account using its Meta access token and account IDs.</p>
+              <p className="text-sm text-muted-foreground">Connect this agency's own WhatsApp Business Account through Meta Embedded Signup, or use manual credentials for internal testing.</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Badge variant="outline">{connected ? 'Connected' : waConnection?.status === 'disconnected' ? 'Disconnected' : 'Not connected'}</Badge>
                 {connected && waConnection?.displayPhoneNumber && <span className="text-sm text-muted-foreground">{waConnection.displayPhoneNumber}</span>}
@@ -7124,6 +7274,17 @@ function ChannelIntegrations({ session }) {
               </div>
             </div>
           </div>
+          {canManage && !connected && <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+            <div className="space-y-1">
+              <div className="font-medium">Connect with Meta</div>
+              <p className="text-xs text-muted-foreground">Let your agency administrator securely select and authorize the agency's own WhatsApp Business Account in Meta.</p>
+            </div>
+            <Button onClick={connectWhatsAppWithMeta} disabled={waSaving || loading || !waMetaConfig?.enabled}>
+              {waSaving ? 'Opening Meta signup…' : 'Continue with Meta'}
+            </Button>
+            {!waMetaConfig?.enabled && <p className="text-xs text-amber-700">Embedded Signup needs META_APP_ID and META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID configured in Vercel. The App Secret must also be set server-side as META_APP_SECRET.</p>}
+            <div className="flex items-center gap-3 text-xs text-muted-foreground"><div className="h-px flex-1 bg-border" /><span>OR CONNECT MANUALLY</span><div className="h-px flex-1 bg-border" /></div>
+          </div>}
           {canManage && !connected && <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
             <div className="space-y-1">
               <Label>WhatsApp Business Account ID (WABA ID)</Label>
@@ -7163,7 +7324,7 @@ function ChannelIntegrations({ session }) {
       {editing.fields.map((field) => <div key={field.key} className="space-y-1"><Label>{field.label}</Label><Input value={config[field.key] || ''} placeholder={field.placeholder} onChange={(e) => setConfig((v) => ({ ...v, [field.key]: e.target.value }))} /></div>)}
       <div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</Button><Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button></div>
     </CardContent></Card>}
-    <p className="text-xs text-muted-foreground">WhatsApp connection is verified against Meta before it is marked connected. Inbound message handling is provided by the signed Meta webhook. Outbound replies and the unified WhatsApp inbox are the next implementation phase.</p>
+    <p className="text-xs text-muted-foreground">WhatsApp connections are verified against Meta before they are marked connected. Inbound webhook events, outbound messages, approved templates and delivery statuses are handled by the agency-scoped WhatsApp Hub. Embedded Signup availability for customer agencies remains subject to Meta's required app approvals.</p>
   </div>;
 }
 
@@ -8064,6 +8225,138 @@ function TravelRules({ session }) {
       )}
     </div>
   );
+}
+
+// ================================================================
+// Agency Business Verification — SafarOS onboarding review
+// ================================================================
+function BusinessVerification({ session }) {
+  const [verification, setVerification] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [form, setForm] = useState({
+    legalBusinessName: session.agency?.name || '', businessType: 'private_limited_company',
+    country: session.agency?.country || 'India', registrationNumber: '',
+    registeredAddress: '', metaStatus: 'unknown',
+  });
+  const owner = session.user?.role === 'owner';
+  const load = async () => {
+    setLoading(true);
+    try {
+      const result = await api('/business-verification');
+      setVerification(result.verification || null);
+      if (result.verification) setForm((current) => ({
+        ...current,
+        legalBusinessName: result.verification.legalBusinessName || current.legalBusinessName,
+        businessType: result.verification.businessType || current.businessType,
+        country: result.verification.country || current.country,
+        registrationNumber: result.verification.registrationNumber || '',
+        registeredAddress: result.verification.registeredAddress || '',
+        metaStatus: result.verification.metaStatus || 'unknown',
+      }));
+    } catch (e) { toast.error(e.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+  const readFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read selected file'));
+    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+    reader.readAsDataURL(file);
+  });
+  const uploadFiles = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    if ((verification?.documents?.length || 0) + files.length > 3) {
+      toast.error('You can upload up to three documents'); return;
+    }
+    setUploading(true);
+    try {
+      for (const file of files) {
+        if (file.size > 3 * 1024 * 1024) throw new Error('Each document must be 3 MB or smaller');
+        if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) throw new Error('Only PDF, JPEG and PNG files are accepted');
+        const content = await readFile(file);
+        await api('/business-verification', { method: 'POST', body: JSON.stringify({
+          action: 'upload', fileName: file.name, fileType: file.type, content,
+        }) });
+      }
+      toast.success('Business document uploaded securely');
+      await load();
+    } catch (e) { toast.error(e.message); }
+    finally { setUploading(false); }
+  };
+  const saveMetaStatus = async () => {
+    try {
+      await api('/business-verification', { method: 'POST', body: JSON.stringify({ action: 'meta_status', metaStatus: form.metaStatus }) });
+      toast.success('Meta verification status updated (agency reported)');
+      await load();
+    } catch (e) { toast.error(e.message); }
+  };
+  const removeDocument = async (id) => {
+    try {
+      await api('/business-verification', { method: 'POST', body: JSON.stringify({ action: 'remove', documentId: id }) });
+      toast.success('Document removed'); load();
+    } catch (e) { toast.error(e.message); }
+  };
+  const submit = async () => {
+    if (!form.legalBusinessName.trim() || !form.businessType || !form.country.trim() || !form.registeredAddress.trim()) {
+      toast.error('Complete all required business details'); return;
+    }
+    if (!(verification?.documents || []).length) { toast.error('Upload at least one business document'); return; }
+    setSaving(true);
+    try {
+      const result = await api('/business-verification', { method: 'POST', body: JSON.stringify({ action: 'submit', ...form }) });
+      setVerification(result.verification);
+      toast.success('Business information submitted to SafarOS for review');
+    } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
+  };
+  const status = verification?.platformStatus || 'not_submitted';
+  const locked = ['pending_review', 'approved', 'rejected'].includes(status);
+  if (loading) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
+  if (!owner) return <Card><CardContent className="p-6 text-sm text-muted-foreground">Only the agency owner can submit legal business details and documents. Please ask your agency owner to complete this step.</CardContent></Card>;
+  return (<div className="space-y-5" data-testid="agency-business-verification">
+    <div><h2 className="text-2xl font-bold tracking-tight">Business Verification</h2><p className="text-sm text-muted-foreground">Submit your company's details for SafarOS onboarding review and track your separate Meta verification progress.</p></div>
+    <Card><CardHeader><CardTitle className="text-base">Your SafarOS application</CardTitle></CardHeader><CardContent className="flex flex-wrap items-center gap-3">
+      <StatusBadgePlaceholder status={status} />
+      <span className="text-sm text-muted-foreground">{status === 'approved' ? 'Your agency has been approved to use SafarOS.' : status === 'pending_review' ? 'Your documents are awaiting SafarOS review.' : status === 'needs_information' ? 'SafarOS needs additional information. Update your details and resubmit.' : status === 'rejected' ? 'This application was rejected. Contact SafarOS support if you believe this is incorrect.' : 'Complete the form and submit your documents for SafarOS review.'}</span>
+      {verification?.reviewNote && <p className="w-full rounded-md border bg-muted/30 p-3 text-sm"><strong>SafarOS review note:</strong> {verification.reviewNote}</p>}
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Registered business details</CardTitle></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1.5 sm:col-span-2"><Label>Legal business name *</Label><Input disabled={locked} value={form.legalBusinessName} onChange={(e) => setForm({ ...form, legalBusinessName: e.target.value })} placeholder="Exact name shown on registration documents" /></div>
+      <div className="space-y-1.5"><Label>Business type *</Label><Select disabled={locked} value={form.businessType} onValueChange={(v) => setForm({ ...form, businessType: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="sole_proprietorship">Sole proprietorship</SelectItem><SelectItem value="partnership">Partnership</SelectItem><SelectItem value="llp">Limited liability partnership</SelectItem><SelectItem value="private_limited_company">Private limited company</SelectItem><SelectItem value="public_limited_company">Public limited company</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
+      <div className="space-y-1.5"><Label>Country *</Label><Input disabled={locked} value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} /></div>
+      <div className="space-y-1.5"><Label>Registration / tax number (optional)</Label><Input disabled={locked} value={form.registrationNumber} onChange={(e) => setForm({ ...form, registrationNumber: e.target.value })} placeholder="Company registration number, GSTIN, etc." /></div>
+      <div className="space-y-1.5 sm:col-span-2"><Label>Registered business address *</Label><Textarea disabled={locked} rows={3} value={form.registeredAddress} onChange={(e) => setForm({ ...form, registeredAddress: e.target.value })} /></div>
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Business documents</CardTitle></CardHeader><CardContent className="space-y-3">
+      <p className="text-sm text-muted-foreground">Upload 1–3 official business documents (PDF, JPEG or PNG; maximum 3 MB each). Examples include a certificate of incorporation, business registration certificate, or tax registration document. Upload only documents you are authorized to share.</p>
+      {(verification?.documents || []).map((doc) => <div key={doc.id} className="flex items-center justify-between gap-3 rounded-md border p-3"><div className="min-w-0"><div className="truncate text-sm font-medium">{doc.fileName}</div><div className="text-xs text-muted-foreground">{(Number(doc.fileSize || 0) / 1024 / 1024).toFixed(2)} MB · Uploaded {new Date(doc.createdAt).toLocaleDateString()}</div></div>{!locked && <Button size="sm" variant="ghost" onClick={() => removeDocument(doc.id)}>Remove</Button>}</div>)}
+      {!locked && (verification?.documents?.length || 0) < 3 && <div><Input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" disabled={uploading} onChange={uploadFiles} /><p className="mt-1 text-xs text-muted-foreground">Each file uploads separately to keep the transfer reliable.</p></div>}
+      <div className="flex flex-wrap gap-2"><Button onClick={submit} disabled={saving || uploading || locked}>{saving ? 'Submitting…' : status === 'needs_information' ? 'Resubmit for review' : 'Submit to SafarOS'}</Button><Button variant="outline" onClick={load} disabled={saving || uploading}>Refresh status</Button></div>
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Meta Business Verification — separate process</CardTitle></CardHeader><CardContent className="space-y-3">
+      <p className="text-sm text-muted-foreground">SafarOS cannot approve your Meta Business Verification. Open Meta Business Suite and complete verification for your own business portfolio. Meta reviews and decides the result independently.</p>
+      <a className="inline-flex items-center gap-1 text-sm font-medium text-violet-700 hover:underline" href="https://business.facebook.com/settings/security" target="_blank" rel="noreferrer">Open Meta Business Settings <ExternalLink className="h-3.5 w-3.5" /></a>
+      <div className="space-y-1.5"><Label>Meta verification status (self-reported)</Label><Select value={form.metaStatus} onValueChange={(v) => setForm({ ...form, metaStatus: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unknown">Not sure</SelectItem><SelectItem value="not_started">Not started</SelectItem><SelectItem value="in_progress">In progress</SelectItem><SelectItem value="verified">Verified</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></div>
+      <p className="text-xs text-muted-foreground">This status is reported by your agency and is not independently verified by Meta or SafarOS.</p>
+      <Button size="sm" variant="outline" onClick={saveMetaStatus}>Save Meta status</Button>
+    </CardContent></Card>
+  </div>);
+}
+
+function StatusBadgePlaceholder({ status }) {
+  const styles = {
+    not_submitted: 'bg-muted text-muted-foreground border-border',
+    draft: 'bg-muted text-muted-foreground border-border',
+    pending_review: 'bg-blue-50 text-blue-700 border-blue-200',
+    needs_information: 'bg-amber-50 text-amber-700 border-amber-200',
+    approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    rejected: 'bg-rose-50 text-rose-700 border-rose-200',
+  };
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${styles[status] || styles.not_submitted}`}>{String(status).replace(/_/g, ' ')}</span>;
 }
 
 // ================================================================
