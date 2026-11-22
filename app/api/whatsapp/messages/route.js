@@ -35,14 +35,14 @@ export async function POST(request) {
   }
 
   const conversationId = String(body?.conversationId || '').trim();
-  const recipientWaId = String(body?.to || '').replace(/\\D/g, '');
+  const recipientWaId = String(body?.to || '').replace(/\D/g, '');
   const text = String(body?.text || '').trim();
   const templateName = String(body?.templateName || '').trim().toLowerCase();
   const templateLanguage = String(body?.templateLanguage || 'en_US').trim();
   const templateParameters = Array.isArray(body?.templateParameters) ? body.templateParameters.map((value) => String(value ?? '').trim()) : [];
   const isTemplateMessage = Boolean(templateName);
   if (!conversationId && !recipientWaId) return json({ error: 'Choose a WhatsApp conversation or enter a recipient number' }, 400);
-  if (recipientWaId && !/^\\d{7,15}$/.test(recipientWaId)) return json({ error: 'Enter a valid international phone number including its country code' }, 400);
+  if (recipientWaId && !/^\d{7,15}$/.test(recipientWaId)) return json({ error: 'Enter a valid international phone number including its country code' }, 400);
   if (!isTemplateMessage && !text) return json({ error: 'Write a message before sending' }, 400);
   if (!isTemplateMessage && text.length > 4096) return json({ error: 'WhatsApp text messages cannot exceed 4,096 characters' }, 400);
   if (isTemplateMessage && (!/^[a-z0-9_]{1,512}$/.test(templateName) || !/^[a-z]{2}_[A-Z]{2}$/.test(templateLanguage))) return json({ error: 'Choose a valid approved WhatsApp template and language.' }, 400);
