@@ -7321,7 +7321,7 @@ function ChannelIntegrations({ session }) {
       {editing.fields.map((field) => <div key={field.key} className="space-y-1"><Label>{field.label}</Label><Input value={config[field.key] || ''} placeholder={field.placeholder} onChange={(e) => setConfig((v) => ({ ...v, [field.key]: e.target.value }))} /></div>)}
       <div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</Button><Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button></div>
     </CardContent></Card>}
-    <p className="text-xs text-muted-foreground">WhatsApp connection is verified against Meta before it is marked connected. Inbound message handling is provided by the signed Meta webhook. Outbound replies and the unified WhatsApp inbox are the next implementation phase.</p>
+    <p className="text-xs text-muted-foreground">WhatsApp connections are verified against Meta before they are marked connected. Inbound webhook events, outbound messages, approved templates and delivery statuses are handled by the agency-scoped WhatsApp Hub. Embedded Signup availability for customer agencies remains subject to Meta's required app approvals.</p>
   </div>;
 }
 
