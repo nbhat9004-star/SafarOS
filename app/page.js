@@ -45,7 +45,7 @@ function SectionHead({ eyebrow, title, sub, dark = false }) {
   );
 }
 
-const SALES_WA_NUMBER = (process.env.NEXT_PUBLIC_SAFAROS_SALES_WHATSAPP || '').replace(/\\D/g, '');
+const SALES_WA_NUMBER = (process.env.NEXT_PUBLIC_SAFAROS_SALES_WHATSAPP || '').replace(/\D/g, '');
 const SALES_WA_MESSAGE = "Hi SafarOS! I want to unlock the next level for my travel agency. Please show me what SafarOS can do.";
 const SALES_WA_URL = SALES_WA_NUMBER
   ? `https://wa.me/${SALES_WA_NUMBER}?text=${encodeURIComponent(SALES_WA_MESSAGE)}`
