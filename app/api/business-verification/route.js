@@ -88,8 +88,8 @@ export async function POST(request) {
         return err('Each document must be a valid file no larger than 3 MB');
       }
       if (!validFile(bytes, fileType)) return err('The file content does not match its selected PDF, JPEG or PNG type');
-      const currentCount = await docs.countDocuments({ agencyId, verificationId: existing?.id || { $exists: false } });
-      if ((existing?.documentIds?.length || currentCount) >= 3) return err('You can upload up to three documents');
+      const currentCount = existing ? await docs.countDocuments({ agencyId, verificationId: existing.id }) : 0;
+      if (currentCount >= 3) return err('You can upload up to three documents');
       const verificationId = existing?.id || randomUUID();
       const document = {
         id: randomUUID(), verificationId, agencyId, fileName, fileType, fileSize: bytes.length,
