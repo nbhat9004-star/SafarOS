@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
+import { decryptBusinessVerificationDocument } from '@/lib/business-verification-crypto';
 import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured, isAgencyEmailConfigured } from '@/lib/email';
 import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
 import {
@@ -3250,8 +3251,10 @@ async function platformGet(db, session, path, sp) {
       { agencyId, id: documentId },
       { projection: { _id: 0 } }
     );
-    if (!document?.data) return err('Business document not found', 404);
-    const bytes = Buffer.from(document.data, 'base64');
+    if (!document?.encryptedData) return err('Business document not found', 404);
+    let bytes;
+    try { bytes = Buffer.from(decryptBusinessVerificationDocument(document.encryptedData, agencyId), 'base64'); }
+    catch { return err('Business document could not be decrypted. Check the configured document encryption key.', 503); }
     const safeName = String(document.fileName || 'business-document').replace(/[\r\n"]/g, '_');
     return new NextResponse(bytes, { status: 200, headers: {
       'Content-Type': document.fileType || 'application/octet-stream',
@@ -3268,7 +3271,7 @@ async function platformGet(db, session, path, sp) {
     if (!record) return err('Business verification record not found', 404);
     const documents = await db.collection('agencyBusinessVerificationDocuments').find(
       { agencyId, verificationId: record.id },
-      { projection: { _id: 0, data: 0 } }
+      { projection: { _id: 0, data: 0, encryptedData: 0 } }
     ).sort({ createdAt: 1 }).toArray();
     const agency = await db.collection('agencies').findOne({ id: agencyId }, { projection: { _id: 0, id: 1, name: 1, email: 1, country: 1 } });
     return json({ verification: { ...record, agencyName: agency?.name || 'Unknown agency', agencyEmail: agency?.email || '', documents } });
