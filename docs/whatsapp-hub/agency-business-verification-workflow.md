@@ -40,7 +40,7 @@ Every review action is recorded in the platform audit log. A review note is requ
 - Metadata collection: `agencyBusinessVerifications`
 - Private file collection: `agencyBusinessVerificationDocuments`
 
-Agency endpoints require the agency owner role. Platform endpoints require a separate authenticated platform-admin session and the relevant platform permissions. Document contents are excluded from list/detail responses and are only returned through authenticated download endpoints. File types are checked by both MIME type and file signature. The document endpoint uses private, no-store responses.
+Agency endpoints require the agency owner role. Platform endpoints require a separate authenticated platform-admin session and the relevant platform permissions. Document contents are excluded from list/detail responses and are only returned through authenticated download endpoints. File bytes are encrypted at rest with AES-256-GCM using the dedicated `CREDENTIALS_ENCRYPTION_KEY` and agency ID as authenticated additional data. File types are checked by both MIME type and file signature. The document endpoint uses private, no-store responses.
 
 ## Important limitations
 
@@ -48,4 +48,4 @@ Agency endpoints require the agency owner role. Platform endpoints require a sep
 - SafarOS approval is not Meta business verification, WhatsApp display-name approval, WABA approval, or a guarantee that Meta will allow messaging.
 - This workflow does not use the Partner-Led Business Verification API and does not require a Multi-Partner Solution.
 - Before production release, verify database backup/retention policy, access logging, privacy notice and legal basis for collecting business documents, and test upload/download limits on the actual hosting plan.
-- The first implementation stores encrypted-transport document bytes in the private MongoDB collection using the existing application database. Production deployment should be reviewed for at-rest encryption, retention/deletion policy and file-size limits.
+- The implementation stores encrypted document bytes in a private MongoDB collection using the existing application database. Production deployment should be reviewed for backup/retention, key rotation, deletion policy and file-size limits. The `CREDENTIALS_ENCRYPTION_KEY` must be configured and backed up securely; losing it makes uploaded documents unreadable.
