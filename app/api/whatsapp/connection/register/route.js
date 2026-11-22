@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 function graphBase() {
   const version = String(process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
   if (!/^v\d+\.\d+$/.test(version)) throw new Error('Invalid WhatsApp Graph API version');
-  return \`https://graph.facebook.com/\${version}\`;
+  return `https://graph.facebook.com/${version}`;
 }
 
 function json(data, status = 200) {
@@ -56,10 +56,10 @@ export async function POST(request) {
       return json({ error: 'SafarOS could not unlock this agency WhatsApp token. Ask an administrator to verify the encryption key.' }, 503);
     }
 
-    const response = await fetch(\`\${graphBase()}/\${encodeURIComponent(connection.phoneNumberId)}/register\`, {
+    const response = await fetch(`${graphBase()}/${encodeURIComponent(connection.phoneNumberId)}/register`, {
       method: 'POST',
       headers: {
-        Authorization: \`Bearer \${token}\`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ messaging_product: 'whatsapp', pin }),
