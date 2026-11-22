@@ -7187,11 +7187,25 @@ function ChannelIntegrations({ session }) {
           });
         };
         const onMessage = (event) => {
+          // Meta sends WA_EMBEDDED_SIGNUP as a JSON-encoded string.
+          // Accept an object as well for compatibility with SDK/browser variations.
           if (!['https://www.facebook.com', 'https://web.facebook.com'].includes(event.origin)) return;
-          const payload = event.data;
-          if (!payload || payload.type !== 'WA_EMBEDDED_SIGNUP') return;
+          let payload = event.data;
+          if (typeof payload === 'string') {
+            try {
+              payload = JSON.parse(payload);
+            } catch {
+              return;
+            }
+          }
+          if (!payload || typeof payload !== 'object' || payload.type !== 'WA_EMBEDDED_SIGNUP') return;
           if (payload.event === 'FINISH') {
-            signupInfo = payload.data || {};
+            const data = payload.data || {};
+            if (!data.waba_id || !data.phone_number_id) {
+              fail('Meta completed signup but did not return the WhatsApp Business Account and phone number IDs. Please try again.');
+              return;
+            }
+            signupInfo = data;
             finishIfReady();
           } else if (payload.event === 'CANCEL') {
             fail('WhatsApp setup was cancelled before completion.');
