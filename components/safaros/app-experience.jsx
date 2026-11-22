@@ -331,7 +331,7 @@ const SECTION_TITLES = {
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
   fin_payments: 'Payments',
   comm_inbox: 'Messages', comm_conversations: 'Conversation history', comm_templates: 'Templates', comm_activity: 'Communication Activity',
-  copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access', business_verification: 'Business Verification',
+  copilot: 'Ask SafarOS', portal_admin: 'Customer Portal Access', business_verification: 'Business Verification',
   marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
@@ -423,7 +423,7 @@ const MOBILE_NAV = [
     { id: 'discover', label: 'Supplier Discovery' }, { id: 'suppliers', label: 'Saved Suppliers' },
   ] },
   { id: 'aitools', label: 'AI & Tools', icon: Sparkles, items: [
-    { id: 'copilot', label: 'Safar Intelligence' }, { id: 'an_overview', label: 'Analytics' },
+    { id: 'copilot', label: 'Ask SafarOS' }, { id: 'an_overview', label: 'Analytics' },
   ] },
   { id: 'more', label: 'More', icon: LayoutGrid, items: [
     { id: 'marketplace', label: 'SafarCurated Marketplace' }, { id: 'int_overview', label: 'Integrations' }, { id: 'data_import', label: 'Import Data' }, { id: 'data_export', label: 'Export Data' }, { id: 'sub_overview', label: 'Subscription' }, { id: 'team', label: 'Team' }, { id: 'settings', label: 'Settings' },
@@ -469,7 +469,7 @@ const DESKTOP_WORKSPACES = [
   { id: 'discover', label: 'Discover', icon: Compass, direct: 'discover' },
   { id: 'more', label: 'More', icon: LayoutGrid, subtitle: 'Communications, tools & settings', tiles: [
     { id: 'comm_inbox', label: 'Communications', desc: 'Inbox, templates & logs', icon: MessageSquare, tone: 'sky' },
-    { id: 'copilot', label: 'Safar Intelligence', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
+    { id: 'copilot', label: 'Ask SafarOS', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
     { id: 'an_overview', label: 'Analytics', desc: 'Business insights & reports', icon: Gauge, tone: 'emerald' },
     { id: 'travelrules', label: 'Travel Intelligence', desc: 'Rules & surcharges', icon: MapPin, tone: 'violet' },
     { id: 'documents', label: 'Document Vault', desc: 'Secure document storage', icon: FileText, tone: 'sky' },
@@ -1564,7 +1564,7 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
             { label: 'Operations', desc: 'Trips & suppliers', icon: Truck, tone: 'emerald', go: 'ws:operations' },
             { label: 'Finance', desc: 'Money & invoices', icon: Wallet, tone: 'amber', go: 'ws:finance' },
             { label: 'Discover', desc: 'Find suppliers', icon: Compass, tone: 'rose', go: 'discover' },
-            { label: 'Safar Intelligence', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
+            { label: 'Ask SafarOS', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
           ].map((w) => {
             const Icon = w.icon;
             return (
@@ -1657,7 +1657,7 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
                     { label: 'Bookings', icon: ClipboardList, go: 'bookings' },
                     { label: 'Packages', icon: Package, go: 'packages' },
                     { label: 'Payments', icon: Banknote, go: 'fin_payments' },
-                    { label: 'Safar Intelligence', icon: Sparkles, go: 'copilot' },
+                    { label: 'Ask SafarOS', icon: Sparkles, go: 'copilot' },
                   ].map((q) => {
                     const Icon = q.icon;
                     return (
@@ -7436,7 +7436,7 @@ function CopilotChat({ session }) {
       setConv(d.conversationId);
       setMessages((m) => [...m, { role: 'assistant', text: d.reply }]);
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', text: e.message || 'Safar Intelligence could not complete the request.', error: true }]);
+      setMessages((m) => [...m, { role: 'assistant', text: e.message || 'Ask SafarOS could not complete the request.', error: true }]);
     } finally { setBusy(false); }
   };
   return (<div className="flex flex-col h-full min-h-0">
@@ -7457,19 +7457,19 @@ function CopilotChat({ session }) {
       {diagnostic.checks?.error && <div>{diagnostic.checks.error}</div>}
     </div>}
     <div className="flex-1 min-h-0 overflow-auto space-y-3 p-3">
-      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask Safar Intelligence about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
+      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask Ask SafarOS about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
       {messages.map((m, i) => (<div key={i} className={'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start')}><div className={'max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ' + (m.role === 'user' ? 'bg-primary text-primary-foreground' : m.error ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-muted')}>{m.text}</div></div>))}
       {busy && <div className="flex justify-start"><div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Thinking…</div></div>}
     </div>
     <div className="border-t p-2 flex gap-2">
-      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask Safar Intelligence…" disabled={busy} />
+      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask Ask SafarOS…" disabled={busy} />
       <Button size="icon" onClick={() => send()} disabled={busy || !input.trim()}><Send className="h-4 w-4" /></Button>
     </div>
   </div>);
 }
 
 function CopilotWorkspace({ session }) {
-  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Safar Intelligence</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
+  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Ask SafarOS</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
 }
 
 function CopilotFab({ session }) {
@@ -7477,8 +7477,8 @@ function CopilotFab({ session }) {
   const role = session && session.user && session.user.role;
   if (role && !can(role, 'ai:use')) return null;
   return (<>
-    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Safar Intelligence">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
-    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Safar Intelligence</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
+    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Ask SafarOS">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
+    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Ask SafarOS</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
   </>);
 }
 
