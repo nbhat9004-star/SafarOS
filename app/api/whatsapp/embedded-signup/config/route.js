@@ -1,0 +1,22 @@
+import { NextResponse } from 'next/server';
+import { getSession } from '@/lib/auth';
+import { can } from '@/lib/rbac';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function GET(request) {
+  const session = getSession(request);
+  if (!session?.agencyId) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+  if (!can(session.role, 'communications:manage')) {
+    return NextResponse.json({ error: 'You do not have permission to manage WhatsApp' }, { status: 403 });
+  }
+
+  const appId = String(process.env.META_APP_ID || '').trim();
+  const configurationId = String(process.env.META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID || '').trim();
+  return NextResponse.json({
+    enabled: /^\d{5,30}$/.test(appId) && /^\d{5,30}$/.test(configurationId),
+    appId: /^\d{5,30}$/.test(appId) ? appId : '',
+    configurationId: /^\d{5,30}$/.test(configurationId) ? configurationId : '',
+  });
+}
