@@ -6894,7 +6894,7 @@ function WhatsAppInboxPanel() {
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline">{rows.reduce((total, item) => total + Number(item.unreadCount || 0), 0)} unread</Badge>
         <Dialog open={newMessageOpen} onOpenChange={setNewMessageOpen}>
-          <DialogTrigger asChild><Button size="sm" disabled={approvedTemplates.length === 0}><Plus className="mr-1 h-3.5 w-3.5" /> New message</Button></DialogTrigger>
+          <DialogTrigger asChild><Button size="sm"><Plus className="mr-1 h-3.5 w-3.5" /> New message</Button></DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Start a WhatsApp conversation</DialogTitle>
@@ -6909,6 +6909,7 @@ function WhatsAppInboxPanel() {
               </div>
               <div className="space-y-1.5">
                 <Label>Approved template</Label>
+                {approvedTemplates.length === 0 && <p className="text-xs text-amber-700">No approved templates are loaded. Open Communications → Templates and sync your approved templates from Meta.</p>}
                 <Select value={newTemplateChoice} onValueChange={setNewTemplateChoice}>
                   <SelectTrigger><SelectValue placeholder="Choose an approved template" /></SelectTrigger>
                   <SelectContent>{approvedTemplates.map((template) => <SelectItem key={template.id} value={template.id}>{template.name} · {template.language}</SelectItem>)}</SelectContent>
