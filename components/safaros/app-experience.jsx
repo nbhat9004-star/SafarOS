@@ -8287,6 +8287,13 @@ function BusinessVerification({ session }) {
     } catch (e) { toast.error(e.message); }
     finally { setUploading(false); }
   };
+  const saveMetaStatus = async () => {
+    try {
+      await api('/business-verification', { method: 'POST', body: JSON.stringify({ action: 'meta_status', metaStatus: form.metaStatus }) });
+      toast.success('Meta verification status updated (agency reported)');
+      await load();
+    } catch (e) { toast.error(e.message); }
+  };
   const removeDocument = async (id) => {
     try {
       await api('/business-verification', { method: 'POST', body: JSON.stringify({ action: 'remove', documentId: id }) });
@@ -8336,6 +8343,7 @@ function BusinessVerification({ session }) {
       <a className="inline-flex items-center gap-1 text-sm font-medium text-violet-700 hover:underline" href="https://business.facebook.com/settings/security" target="_blank" rel="noreferrer">Open Meta Business Settings <ExternalLink className="h-3.5 w-3.5" /></a>
       <div className="space-y-1.5"><Label>Meta verification status (self-reported)</Label><Select value={form.metaStatus} onValueChange={(v) => setForm({ ...form, metaStatus: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unknown">Not sure</SelectItem><SelectItem value="not_started">Not started</SelectItem><SelectItem value="in_progress">In progress</SelectItem><SelectItem value="verified">Verified</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></div>
       <p className="text-xs text-muted-foreground">This status is reported by your agency and is not independently verified by Meta or SafarOS.</p>
+      <Button size="sm" variant="outline" onClick={saveMetaStatus}>Save Meta status</Button>
     </CardContent></Card>
   </div>);
 }
