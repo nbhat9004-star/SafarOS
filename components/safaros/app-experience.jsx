@@ -307,6 +307,7 @@ const NAV = [
   {
     group: 'Data Tools',
     items: [
+      { id: 'business_verification', label: 'Business Verification', icon: ShieldCheck },
       { id: 'data_import', label: 'Import Data', icon: Upload },
       { id: 'data_export', label: 'Export Data', icon: Download },
     ],
@@ -330,7 +331,7 @@ const SECTION_TITLES = {
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
   fin_payments: 'Payments',
   comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
-  copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access',
+  copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access', business_verification: 'Business Verification',
   marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
@@ -472,6 +473,7 @@ const DESKTOP_WORKSPACES = [
     { id: 'an_overview', label: 'Analytics', desc: 'Business insights & reports', icon: Gauge, tone: 'emerald' },
     { id: 'travelrules', label: 'Travel Intelligence', desc: 'Rules & surcharges', icon: MapPin, tone: 'violet' },
     { id: 'documents', label: 'Document Vault', desc: 'Secure document storage', icon: FileText, tone: 'sky' },
+    { id: 'business_verification', label: 'Business Verification', desc: 'Submit company documents and track onboarding review', icon: ShieldCheck, tone: 'violet' },
     { id: 'customfields', label: 'Custom Fields', desc: 'Extend modules with fields', icon: Database, tone: 'emerald' },
     { id: 'suppliers_network', label: 'Supplier Network', desc: 'B2B network visibility', icon: Store, tone: 'amber' },
     { id: 'marketplace', label: 'SafarCurated Marketplace', desc: 'Publish packages to SafarCurated', icon: Store, tone: 'amber' },
@@ -499,7 +501,7 @@ function majorOf(active) {
   if (String(active).startsWith('ws:')) return String(active).slice(3);
   if (FEATURE_TO_MAJOR[active]) return FEATURE_TO_MAJOR[active];
   if (String(active).startsWith('fin_')) return 'finance';
-  if (/^(comm_|web_|an_|sub_|int_)/.test(String(active)) || ['copilot', 'portal_admin', 'team', 'settings'].includes(active)) return 'more';
+  if (/^(comm_|web_|an_|sub_|int_)/.test(String(active)) || ['copilot', 'portal_admin', 'business_verification', 'team', 'settings'].includes(active)) return 'more';
   return 'overview';
 }
 function majorLabel(id) { const w = DESKTOP_WORKSPACES.find((x) => x.id === id); return w ? w.label : ''; }
@@ -1356,6 +1358,7 @@ function Dashboard({ session, onLogout }) {
           {active === 'portal_admin' && <PortalAdmin session={session} />}
           {active === 'travelrules' && <TravelRules session={session} />}
           {active === 'documents' && <DocumentVault session={session} />}
+          {active === 'business_verification' && <BusinessVerification session={session} />}
           {active === 'customfields' && <CustomFields session={session} />}
           {active === 'suppliers_network' && <SupplierNetwork session={session} />}
           {active === 'data_import' && <DataImport key="imp" session={session} onNavigate={navigateTo} />}
@@ -8222,6 +8225,131 @@ function TravelRules({ session }) {
       )}
     </div>
   );
+}
+
+// ================================================================
+// Agency Business Verification — SafarOS onboarding review
+// ================================================================
+function BusinessVerification({ session }) {
+  const [verification, setVerification] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [form, setForm] = useState({
+    legalBusinessName: session.agency?.name || '', businessType: 'private_limited_company',
+    country: session.agency?.country || 'India', registrationNumber: '',
+    registeredAddress: '', metaStatus: 'unknown',
+  });
+  const owner = session.user?.role === 'owner';
+  const load = async () => {
+    setLoading(true);
+    try {
+      const result = await api('/business-verification');
+      setVerification(result.verification || null);
+      if (result.verification) setForm((current) => ({
+        ...current,
+        legalBusinessName: result.verification.legalBusinessName || current.legalBusinessName,
+        businessType: result.verification.businessType || current.businessType,
+        country: result.verification.country || current.country,
+        registrationNumber: result.verification.registrationNumber || '',
+        registeredAddress: result.verification.registeredAddress || '',
+        metaStatus: result.verification.metaStatus || 'unknown',
+      }));
+    } catch (e) { toast.error(e.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+  const readFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read selected file'));
+    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+    reader.readAsDataURL(file);
+  });
+  const uploadFiles = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    if ((verification?.documents?.length || 0) + files.length > 3) {
+      toast.error('You can upload up to three documents'); return;
+    }
+    setUploading(true);
+    try {
+      for (const file of files) {
+        if (file.size > 3 * 1024 * 1024) throw new Error('Each document must be 3 MB or smaller');
+        if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) throw new Error('Only PDF, JPEG and PNG files are accepted');
+        const content = await readFile(file);
+        await api('/business-verification', { method: 'POST', body: JSON.stringify({
+          action: 'upload', fileName: file.name, fileType: file.type, content,
+        }) });
+      }
+      toast.success('Business document uploaded securely');
+      await load();
+    } catch (e) { toast.error(e.message); }
+    finally { setUploading(false); }
+  };
+  const removeDocument = async (id) => {
+    try {
+      await api('/business-verification', { method: 'POST', body: JSON.stringify({ action: 'remove', documentId: id }) });
+      toast.success('Document removed'); load();
+    } catch (e) { toast.error(e.message); }
+  };
+  const submit = async () => {
+    if (!form.legalBusinessName.trim() || !form.businessType || !form.country.trim() || !form.registeredAddress.trim()) {
+      toast.error('Complete all required business details'); return;
+    }
+    if (!(verification?.documents || []).length) { toast.error('Upload at least one business document'); return; }
+    setSaving(true);
+    try {
+      const result = await api('/business-verification', { method: 'POST', body: JSON.stringify({ action: 'submit', ...form }) });
+      setVerification(result.verification);
+      toast.success('Business information submitted to SafarOS for review');
+    } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
+  };
+  const status = verification?.platformStatus || 'not_submitted';
+  const locked = ['pending_review', 'approved', 'rejected'].includes(status);
+  const metaLabel = { not_started: 'Not started', in_progress: 'In progress', verified: 'Verified (agency reported)', rejected: 'Rejected (agency reported)', unknown: 'Not sure' };
+  if (loading) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
+  if (!owner) return <Card><CardContent className="p-6 text-sm text-muted-foreground">Only the agency owner can submit legal business details and documents. Please ask your agency owner to complete this step.</CardContent></Card>;
+  return (<div className="space-y-5" data-testid="agency-business-verification">
+    <div><h2 className="text-2xl font-bold tracking-tight">Business Verification</h2><p className="text-sm text-muted-foreground">Submit your company's details for SafarOS onboarding review and track your separate Meta verification progress.</p></div>
+    <Card><CardHeader><CardTitle className="text-base">Your SafarOS application</CardTitle></CardHeader><CardContent className="flex flex-wrap items-center gap-3">
+      <StatusBadgePlaceholder status={status} />
+      <span className="text-sm text-muted-foreground">{status === 'approved' ? 'Your agency has been approved to use SafarOS.' : status === 'pending_review' ? 'Your documents are awaiting SafarOS review.' : status === 'needs_information' ? 'SafarOS needs additional information. Update your details and resubmit.' : status === 'rejected' ? 'This application was rejected. Contact SafarOS support if you believe this is incorrect.' : 'Complete the form and submit your documents for SafarOS review.'}</span>
+      {verification?.reviewNote && <p className="w-full rounded-md border bg-muted/30 p-3 text-sm"><strong>SafarOS review note:</strong> {verification.reviewNote}</p>}
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Registered business details</CardTitle></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1.5 sm:col-span-2"><Label>Legal business name *</Label><Input disabled={locked} value={form.legalBusinessName} onChange={(e) => setForm({ ...form, legalBusinessName: e.target.value })} placeholder="Exact name shown on registration documents" /></div>
+      <div className="space-y-1.5"><Label>Business type *</Label><Select disabled={locked} value={form.businessType} onValueChange={(v) => setForm({ ...form, businessType: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="sole_proprietorship">Sole proprietorship</SelectItem><SelectItem value="partnership">Partnership</SelectItem><SelectItem value="llp">Limited liability partnership</SelectItem><SelectItem value="private_limited_company">Private limited company</SelectItem><SelectItem value="public_limited_company">Public limited company</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
+      <div className="space-y-1.5"><Label>Country *</Label><Input disabled={locked} value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} /></div>
+      <div className="space-y-1.5"><Label>Registration / tax number (optional)</Label><Input disabled={locked} value={form.registrationNumber} onChange={(e) => setForm({ ...form, registrationNumber: e.target.value })} placeholder="Company registration number, GSTIN, etc." /></div>
+      <div className="space-y-1.5 sm:col-span-2"><Label>Registered business address *</Label><Textarea disabled={locked} rows={3} value={form.registeredAddress} onChange={(e) => setForm({ ...form, registeredAddress: e.target.value })} /></div>
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Business documents</CardTitle></CardHeader><CardContent className="space-y-3">
+      <p className="text-sm text-muted-foreground">Upload 1–3 official business documents (PDF, JPEG or PNG; maximum 3 MB each). Examples include a certificate of incorporation, business registration certificate, or tax registration document. Upload only documents you are authorized to share.</p>
+      {(verification?.documents || []).map((doc) => <div key={doc.id} className="flex items-center justify-between gap-3 rounded-md border p-3"><div className="min-w-0"><div className="truncate text-sm font-medium">{doc.fileName}</div><div className="text-xs text-muted-foreground">{(Number(doc.fileSize || 0) / 1024 / 1024).toFixed(2)} MB · Uploaded {new Date(doc.createdAt).toLocaleDateString()}</div></div>{!locked && <Button size="sm" variant="ghost" onClick={() => removeDocument(doc.id)}>Remove</Button>}</div>)}
+      {!locked && (verification?.documents?.length || 0) < 3 && <div><Input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" disabled={uploading} onChange={uploadFiles} /><p className="mt-1 text-xs text-muted-foreground">Each file uploads separately to keep the transfer reliable.</p></div>}
+      <div className="flex flex-wrap gap-2"><Button onClick={submit} disabled={saving || uploading || locked}>{saving ? 'Submitting…' : status === 'needs_information' ? 'Resubmit for review' : 'Submit to SafarOS'}</Button><Button variant="outline" onClick={load} disabled={saving || uploading}>Refresh status</Button></div>
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">Meta Business Verification — separate process</CardTitle></CardHeader><CardContent className="space-y-3">
+      <p className="text-sm text-muted-foreground">SafarOS cannot approve your Meta Business Verification. Open Meta Business Suite and complete verification for your own business portfolio. Meta reviews and decides the result independently.</p>
+      <a className="inline-flex items-center gap-1 text-sm font-medium text-violet-700 hover:underline" href="https://business.facebook.com/settings/security" target="_blank" rel="noreferrer">Open Meta Business Settings <ExternalLink className="h-3.5 w-3.5" /></a>
+      <div className="space-y-1.5"><Label>Meta verification status (self-reported)</Label><Select value={form.metaStatus} onValueChange={(v) => setForm({ ...form, metaStatus: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unknown">Not sure</SelectItem><SelectItem value="not_started">Not started</SelectItem><SelectItem value="in_progress">In progress</SelectItem><SelectItem value="verified">Verified</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></div>
+      <p className="text-xs text-muted-foreground">This status is reported by your agency and is not independently verified by Meta or SafarOS.</p>
+    </CardContent></Card>
+  </div>);
+}
+
+function StatusBadgePlaceholder({ status }) {
+  const styles = {
+    not_submitted: 'bg-muted text-muted-foreground border-border',
+    draft: 'bg-muted text-muted-foreground border-border',
+    pending_review: 'bg-blue-50 text-blue-700 border-blue-200',
+    needs_information: 'bg-amber-50 text-amber-700 border-amber-200',
+    approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    rejected: 'bg-rose-50 text-rose-700 border-rose-200',
+  };
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${styles[status] || styles.not_submitted}`}>{String(status).replace(/_/g, ' ')}</span>;
 }
 
 // ================================================================
