@@ -109,6 +109,15 @@ export async function POST(request) {
       return json({ document: { id: document.id, fileName, fileType, fileSize: bytes.length, createdAt: now } }, 201);
     }
 
+    if (body.action === 'remove') {
+      const documentId = String(body.documentId || '').trim();
+      if (!existing || !['draft', 'needs_information'].includes(existing.platformStatus || 'draft')) return err('Documents can only be removed from a draft or a submission awaiting more information', 409);
+      const removed = await docs.deleteOne({ agencyId, verificationId: existing.id, id: documentId });
+      if (!removed.deletedCount) return err('Document not found', 404);
+      await records.updateOne({ agencyId }, { $pull: { documentIds: documentId }, $set: { updatedAt: now } });
+      return json({ ok: true });
+    }
+
     if (body.action === 'submit') {
       const legalBusinessName = String(body.legalBusinessName || '').trim().slice(0, 180);
       const businessType = String(body.businessType || '').trim().slice(0, 60);
