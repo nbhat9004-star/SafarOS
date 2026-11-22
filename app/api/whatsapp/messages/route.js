@@ -35,12 +35,16 @@ export async function POST(request) {
   }
 
   const conversationId = String(body?.conversationId || '').trim();
+  const recipientWaId = String(body?.to || '').replace(/\D/g, '');
+  const recipientOptIn = body?.recipientOptIn === true;
   const text = String(body?.text || '').trim();
   const templateName = String(body?.templateName || '').trim().toLowerCase();
   const templateLanguage = String(body?.templateLanguage || 'en_US').trim();
   const templateParameters = Array.isArray(body?.templateParameters) ? body.templateParameters.map((value) => String(value ?? '').trim()) : [];
   const isTemplateMessage = Boolean(templateName);
-  if (!conversationId) return json({ error: 'Choose a WhatsApp conversation first' }, 400);
+  if (!conversationId && !recipientWaId) return json({ error: 'Choose a WhatsApp conversation or enter a recipient number' }, 400);
+  if (recipientWaId && !/^\d{7,15}$/.test(recipientWaId)) return json({ error: 'Enter a valid international phone number including its country code' }, 400);
+  if (recipientWaId && !recipientOptIn) return json({ error: 'Confirm that the recipient has agreed to receive WhatsApp messages from your agency.' }, 400);
   if (!isTemplateMessage && !text) return json({ error: 'Write a message before sending' }, 400);
   if (!isTemplateMessage && text.length > 4096) return json({ error: 'WhatsApp text messages cannot exceed 4,096 characters' }, 400);
   if (isTemplateMessage && (!/^[a-z0-9_]{1,512}$/.test(templateName) || !/^[a-z]{2}_[A-Z]{2}$/.test(templateLanguage))) return json({ error: 'Choose a valid approved WhatsApp template and language.' }, 400);
@@ -52,11 +56,57 @@ export async function POST(request) {
   try {
     db = await getDb();
     stage = 'conversation_lookup';
-    const conversation = await db.collection('whatsappConversations').findOne(
-      tenantFilter(session, { id: conversationId }),
-      { projection: { _id: 0, id: 1, waId: 1, connectionId: 1, serviceWindowExpiresAt: 1, lastInboundAt: 1 } }
-    );
-    if (!conversation) return json({ error: 'WhatsApp conversation not found' }, 404);
+    let conversation;
+    if (conversationId) {
+      conversation = await db.collection('whatsappConversations').findOne(
+        tenantFilter(session, { id: conversationId }),
+        { projection: { _id: 0, id: 1, waId: 1, connectionId: 1, serviceWindowExpiresAt: 1, lastInboundAt: 1 } }
+      );
+      if (!conversation) return json({ error: 'WhatsApp conversation not found' }, 404);
+    } else {
+      // A new outbound conversation is created only inside the authenticated
+      // agency and only against that agency's active Cloud API connection.
+      const activeConnection = await db.collection('whatsappConnections').findOne(
+        tenantFilter(session, { status: 'connected' }),
+        { projection: { _id: 0, id: 1, phoneNumberId: 1, status: 1 } }
+      );
+      if (!activeConnection?.id || !activeConnection.phoneNumberId) {
+        return json({ error: 'Connect this agency WhatsApp number before starting an outbound conversation.' }, 409);
+      }
+      const now = new Date().toISOString();
+      const contactCollection = db.collection('whatsappContacts');
+      await contactCollection.updateOne(
+        { agencyId: String(session.agencyId), waId: recipientWaId },
+        {
+          $set: { phone: recipientWaId, consentStatus: 'opt_in', optInRecordedAt: now, optInSource: 'agent_confirmation', updatedAt: now },
+          $setOnInsert: { id: randomUUID(), agencyId: String(session.agencyId), waId: recipientWaId, createdAt: now },
+        },
+        { upsert: true }
+      );
+      const contact = await contactCollection.findOne(
+        { agencyId: String(session.agencyId), waId: recipientWaId },
+        { projection: { _id: 0, id: 1 } }
+      );
+      if (!contact?.id) return json({ error: 'SafarOS could not create the recipient contact.' }, 500);
+      const conversationCollection = db.collection('whatsappConversations');
+      await conversationCollection.updateOne(
+        { agencyId: String(session.agencyId), connectionId: activeConnection.id, waId: recipientWaId },
+        {
+          $set: { contactId: contact.id, updatedAt: now },
+          $setOnInsert: {
+            id: randomUUID(), agencyId: String(session.agencyId), connectionId: activeConnection.id,
+            waId: recipientWaId, unreadCount: 0, assignedUserId: '', assignedUserName: '',
+            createdAt: now, status: 'open',
+          },
+        },
+        { upsert: true }
+      );
+      conversation = await conversationCollection.findOne(
+        { agencyId: String(session.agencyId), connectionId: activeConnection.id, waId: recipientWaId },
+        { projection: { _id: 0, id: 1, waId: 1, connectionId: 1, serviceWindowExpiresAt: 1, lastInboundAt: 1 } }
+      );
+      if (!conversation) return json({ error: 'SafarOS could not create the WhatsApp conversation.' }, 500);
+    }
 
     let approvedTemplate = null;
     if (isTemplateMessage) {
@@ -276,7 +326,7 @@ export async function POST(request) {
     }));
     const stageMessages = {
       database: 'SafarOS could not connect to its database while preparing the WhatsApp reply.',
-      conversation_lookup: 'SafarOS could not load this WhatsApp conversation.',
+      conversation_lookup: 'SafarOS could not load or create this WhatsApp conversation.',
       connection_lookup: 'SafarOS could not load the agency WhatsApp connection.',
       message_persistence: 'SafarOS could not save the outgoing message before sending.',
       meta_request: 'SafarOS could not complete the request to Meta.',
