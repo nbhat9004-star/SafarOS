@@ -2847,6 +2847,7 @@ function platformReadPerm(path) {
   if (path.startsWith('/platform/themes')) return 'themes:manage';
   if (path === '/platform/dashboard') return 'platform:dashboard';
   if (path.startsWith('/platform/agencies')) return 'agencies:read';
+  if (path.startsWith('/platform/business-verifications')) return 'agencies:read';
   if (path.startsWith('/platform/users')) return 'users:read';
   if (path.startsWith('/platform/subscriptions') || path === '/platform/billing') return 'subscriptions:read';
   if (path.startsWith('/platform/plans')) return 'plans:read';
@@ -3218,6 +3219,59 @@ async function platformGet(db, session, path, sp) {
       integrations: { connected: connectedIntegrations },
       ai: { activeProvider: (await aiRuntimeConfig(db)).provider, activeModel: (await aiRuntimeConfig(db)).model, providers: ['anthropic', 'openai', 'gemini'].map((p) => ({ provider: p, configured: aiProviderConfigured(p) })) },
     });
+  }
+
+  if (path === '/platform/business-verifications') {
+    const records = await db.collection('agencyBusinessVerifications').find({}, { projection: { _id: 0 } }).sort({ updatedAt: -1 }).limit(500).toArray();
+    const agencies = await db.collection('agencies').find({}, { projection: { _id: 0, id: 1, name: 1, email: 1, country: 1 } }).toArray();
+    const agencyMap = Object.fromEntries(agencies.map((a) => [String(a.id), a]));
+    const rows = await Promise.all(records.map(async (record) => {
+      const documentCount = await db.collection('agencyBusinessVerificationDocuments').countDocuments({ agencyId: String(record.agencyId), verificationId: String(record.id) });
+      const agency = agencyMap[String(record.agencyId)] || {};
+      return {
+        id: record.id, agencyId: record.agencyId, agencyName: agency.name || 'Unknown agency',
+        agencyEmail: agency.email || '', legalBusinessName: record.legalBusinessName || '',
+        businessType: record.businessType || '', country: record.country || '',
+        registrationNumber: record.registrationNumber || '', registeredAddress: record.registeredAddress || '',
+        platformStatus: record.platformStatus || 'draft', metaStatus: record.metaStatus || 'unknown',
+        submittedAt: record.submittedAt || null, updatedAt: record.updatedAt || record.createdAt || null,
+        reviewedAt: record.reviewedAt || null, reviewNote: record.reviewNote || '',
+        submissionAttempts: Number(record.submissionAttempts || 0), documentCount,
+      };
+    }));
+    const counts = Object.fromEntries(['draft','pending_review','needs_information','approved','rejected'].map((status) => [status, rows.filter((r) => r.platformStatus === status).length]));
+    return json({ verifications: rows, counts });
+  }
+
+  const verificationDocument = path.match(/^\/platform\/business-verifications\/([^/]+)\/documents\/([^/]+)\/download$/);
+  if (verificationDocument) {
+    const agencyId = verificationDocument[1], documentId = verificationDocument[2];
+    const document = await db.collection('agencyBusinessVerificationDocuments').findOne(
+      { agencyId, id: documentId },
+      { projection: { _id: 0 } }
+    );
+    if (!document?.data) return err('Business document not found', 404);
+    const bytes = Buffer.from(document.data, 'base64');
+    const safeName = String(document.fileName || 'business-document').replace(/[\r\n"]/g, '_');
+    return new NextResponse(bytes, { status: 200, headers: {
+      'Content-Type': document.fileType || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(safeName)}"`,
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    } });
+  }
+
+  const verificationDetail = path.match(/^\/platform\/business-verifications\/([^/]+)$/);
+  if (verificationDetail) {
+    const agencyId = verificationDetail[1];
+    const record = await db.collection('agencyBusinessVerifications').findOne({ agencyId }, { projection: { _id: 0 } });
+    if (!record) return err('Business verification record not found', 404);
+    const documents = await db.collection('agencyBusinessVerificationDocuments').find(
+      { agencyId, verificationId: record.id },
+      { projection: { _id: 0, data: 0 } }
+    ).sort({ createdAt: 1 }).toArray();
+    const agency = await db.collection('agencies').findOne({ id: agencyId }, { projection: { _id: 0, id: 1, name: 1, email: 1, country: 1 } });
+    return json({ verification: { ...record, agencyName: agency?.name || 'Unknown agency', agencyEmail: agency?.email || '', documents } });
   }
 
   const agDetail = path.match(/^\/platform\/agencies\/([^/]+)$/);
@@ -3643,6 +3697,34 @@ async function platformPost(db, session, path, body, request) {
 
 async function platformPut(db, session, path, body, request) {
   const now = new Date().toISOString();
+  const verificationReview = path.match(/^\/platform\/business-verifications\/([^/]+)$/);
+  if (verificationReview) {
+    if (!canPlatform(session.role, 'agencies:manage')) return err('forbidden', 403);
+    const agencyId = verificationReview[1];
+    const platformStatus = String(body.platformStatus || '');
+    if (!['needs_information', 'approved', 'rejected'].includes(platformStatus)) {
+      return err('Status must be needs_information, approved or rejected');
+    }
+    const reviewNote = str(body.reviewNote, 1200).trim();
+    if ((platformStatus === 'needs_information' || platformStatus === 'rejected') && !reviewNote) {
+      return err('Add a review note explaining what the agency needs to correct');
+    }
+    const existing = await db.collection('agencyBusinessVerifications').findOne({ agencyId });
+    if (!existing) return err('Business verification record not found', 404);
+    const updatedAt = new Date().toISOString();
+    await db.collection('agencyBusinessVerifications').updateOne({ agencyId }, { $set: {
+      platformStatus, reviewNote, reviewedAt: updatedAt, reviewedBy: String(session.adminId || ''),
+      updatedAt,
+    } });
+    await platformAudit(db, session, request, {
+      action: 'agency.business_verification.reviewed', targetType: 'agency_business_verification',
+      targetId: existing.id, agencyId,
+      metadata: { platformStatus, noteProvided: !!reviewNote },
+    });
+    const updated = await db.collection('agencyBusinessVerifications').findOne({ agencyId }, { projection: { _id: 0 } });
+    return json({ verification: updated });
+  }
+
   const themeEdit = path.match(/^\/platform\/themes\/([^/]+)$/);
   if (themeEdit) {
     if (!canPlatform(session.role, 'themes:manage')) return err('forbidden', 403);
