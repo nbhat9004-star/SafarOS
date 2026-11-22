@@ -144,7 +144,7 @@ export async function POST(request) {
       const set = {
         legalBusinessName, businessType, country, registrationNumber, registeredAddress,
         metaStatus, metaStatusSource: 'agency_reported',
-        platformStatus: 'pending_review', submittedAt: now, updatedAt: now,
+        platformStatus: 'pending_review', reviewNote: '', reviewedAt: null, reviewedBy: '', submittedAt: now, updatedAt: now,
         submittedBy: String(access.session.userId || ''),
       };
       await records.updateOne({ agencyId }, { $set: set, $inc: { submissionAttempts: 1 } });
