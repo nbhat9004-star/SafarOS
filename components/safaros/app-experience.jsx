@@ -8315,7 +8315,6 @@ function BusinessVerification({ session }) {
   };
   const status = verification?.platformStatus || 'not_submitted';
   const locked = ['pending_review', 'approved', 'rejected'].includes(status);
-  const metaLabel = { not_started: 'Not started', in_progress: 'In progress', verified: 'Verified (agency reported)', rejected: 'Rejected (agency reported)', unknown: 'Not sure' };
   if (loading) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
   if (!owner) return <Card><CardContent className="p-6 text-sm text-muted-foreground">Only the agency owner can submit legal business details and documents. Please ask your agency owner to complete this step.</CardContent></Card>;
   return (<div className="space-y-5" data-testid="agency-business-verification">
