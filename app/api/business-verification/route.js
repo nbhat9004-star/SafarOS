@@ -155,7 +155,9 @@ export async function POST(request) {
 
     return err('Unknown business verification action');
   } catch (error) {
-    console.error('[business-verification] agency submit failed:', String(error?.message || '').slice(0, 120));
+    const message = String(error?.message || '');
+    console.error('[business-verification] agency submit failed:', message.slice(0, 120));
+    if (message.includes('CREDENTIALS_ENCRYPTION_KEY')) return err('Secure document storage is not configured on this deployment. Please contact SafarOS support.', 503);
     return err('SafarOS could not save this business verification request', 500);
   }
 }
