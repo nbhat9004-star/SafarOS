@@ -7254,7 +7254,7 @@ function ChannelIntegrations({ session }) {
   };
 
   const registerWhatsAppPhone = async () => {
-    if (!/^\\d{6}$/.test(waPin.trim())) {
+    if (!/^\d{6}$/.test(waPin.trim())) {
       toast.error('Enter a six-digit two-step verification PIN.');
       return;
     }
@@ -7362,7 +7362,7 @@ function ChannelIntegrations({ session }) {
                 maxLength={6}
                 value={waPin}
                 placeholder="Enter six digits"
-                onChange={(e) => setWaPin(e.target.value.replace(/\\D/g, '').slice(0, 6))}
+                onChange={(e) => setWaPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
               />
             </div>
             <Button onClick={registerWhatsAppPhone} disabled={waSaving || waPin.length !== 6}>
