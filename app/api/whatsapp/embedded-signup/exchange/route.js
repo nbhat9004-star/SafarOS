@@ -132,7 +132,7 @@ export async function POST(request) {
     await graphPost(`${encodeURIComponent(wabaId)}/subscribed_apps`, accessToken);
     const existing = await connections.findOne(
       { agencyId: String(session.agencyId) },
-      { projection: { _id: 0, id: 1 } }
+      { projection: { _id: 0, id: 1, phoneNumberId: 1, phoneRegistrationStatus: 1, phoneRegisteredAt: 1 } }
     );
     const now = new Date().toISOString();
     const connection = {
@@ -150,6 +150,12 @@ export async function POST(request) {
         ? new Date(Date.now() + Number(tokenPayload.expires_in) * 1000).toISOString()
         : null,
       status: 'connected',
+      phoneRegistrationStatus: existing?.phoneNumberId === phoneNumberId && existing?.phoneRegistrationStatus === 'registered'
+        ? 'registered'
+        : 'pending',
+      ...(existing?.phoneNumberId === phoneNumberId && existing?.phoneRegistrationStatus === 'registered' && existing?.phoneRegisteredAt
+        ? { phoneRegisteredAt: existing.phoneRegisteredAt }
+        : {}),
       connectedAt: now,
       lastHealthCheckAt: now,
       lastErrorCode: '',
@@ -170,6 +176,8 @@ export async function POST(request) {
         displayPhoneNumber: connection.displayPhoneNumber,
         verifiedName: connection.verifiedName,
         qualityRating: connection.qualityRating,
+        phoneRegistrationStatus: connection.phoneRegistrationStatus,
+        phoneRegisteredAt: connection.phoneRegisteredAt || null,
         connectedAt: connection.connectedAt,
         lastHealthCheckAt: connection.lastHealthCheckAt,
       },

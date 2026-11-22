@@ -7073,6 +7073,7 @@ function ChannelIntegrations({ session }) {
   const [waConnection, setWaConnection] = useState(null);
   const [waMetaConfig, setWaMetaConfig] = useState(null);
   const [waForm, setWaForm] = useState({ wabaId: '', phoneNumberId: '', accessToken: '' });
+  const [waPin, setWaPin] = useState('');
   const [waSaving, setWaSaving] = useState(false);
   const canManage = can(session.user.role, 'communications:manage');
 
@@ -7252,6 +7253,33 @@ function ChannelIntegrations({ session }) {
     }
   };
 
+  const registerWhatsAppPhone = async () => {
+    if (!/^\d{6}$/.test(waPin.trim())) {
+      toast.error('Enter a six-digit two-step verification PIN.');
+      return;
+    }
+    setWaSaving(true);
+    try {
+      const result = await api('/whatsapp/connection/register', {
+        method: 'POST',
+        body: JSON.stringify({ pin: waPin.trim() }),
+      });
+      setWaConnection((current) => ({
+        ...(current || {}),
+        connected: true,
+        status: 'connected',
+        phoneRegistrationStatus: result.phoneRegistrationStatus || 'registered',
+        phoneRegisteredAt: result.phoneRegisteredAt || null,
+      }));
+      setWaPin('');
+      toast.success('WhatsApp phone number registered successfully with Meta.');
+    } catch (e) {
+      toast.error(String(e?.message || 'Unable to register the WhatsApp phone number.'));
+    } finally {
+      setWaSaving(false);
+    }
+  };
+
   const disconnectWhatsApp = async () => {
     if (!window.confirm('Disconnect this agency WhatsApp number from SafarOS?')) return;
     setWaSaving(true);
@@ -7315,6 +7343,33 @@ function ChannelIntegrations({ session }) {
             </div>
             <Button onClick={connectWhatsApp} disabled={waSaving}>{waSaving ? 'Verifying with Meta…' : 'Connect WhatsApp'}</Button>
           </div>}
+          {canManage && connected && waConnection?.phoneRegistrationStatus !== 'registered' && <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
+            <div className="space-y-1">
+              <div className="font-medium">Register WhatsApp phone number</div>
+              <p className="text-xs text-muted-foreground">
+                Meta requires this Cloud API number to be registered before messaging can work. Create a six-digit two-step verification PIN for this number. SafarOS sends the PIN to Meta for registration and does not store it. Save the PIN securely in your agency's password manager.
+              </p>
+              <Badge variant="outline">
+                {waConnection?.phoneRegistrationStatus === 'pending' ? 'Registration pending' : 'Registration not confirmed'}
+              </Badge>
+            </div>
+            <div className="space-y-1">
+              <Label>New six-digit two-step verification PIN</Label>
+              <Input
+                type="password"
+                inputMode="numeric"
+                autoComplete="new-password"
+                maxLength={6}
+                value={waPin}
+                placeholder="Enter six digits"
+                onChange={(e) => setWaPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              />
+            </div>
+            <Button onClick={registerWhatsAppPhone} disabled={waSaving || waPin.length !== 6}>
+              {waSaving ? 'Registering with Meta…' : 'Register phone number'}
+            </Button>
+          </div>}
+          {canManage && connected && waConnection?.phoneRegistrationStatus === 'registered' && <Badge variant="outline" className="w-fit text-emerald-700">Phone number registered with Meta</Badge>}
           {canManage && connected && <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={load} disabled={waSaving}>Refresh status</Button>
             <Button variant="destructive" onClick={disconnectWhatsApp} disabled={waSaving}>{waSaving ? 'Please wait…' : 'Disconnect WhatsApp'}</Button>

@@ -30,6 +30,8 @@ function safeConnectionView(connection) {
     displayPhoneNumber: String(connection.displayPhoneNumber || ''),
     verifiedName: String(connection.verifiedName || ''),
     qualityRating: String(connection.qualityRating || ''),
+    phoneRegistrationStatus: String(connection.phoneRegistrationStatus || 'unknown'),
+    phoneRegisteredAt: connection.phoneRegisteredAt || null,
     lastHealthCheckAt: connection.lastHealthCheckAt || null,
     connectedAt: connection.connectedAt || null,
     lastErrorCode: String(connection.lastErrorCode || ''),
@@ -174,7 +176,7 @@ export async function POST(request) {
     // those conversations appear disconnected even though the agency is connected.
     const existingConnection = await connections.findOne(
       { agencyId: String(session.agencyId) },
-      { projection: { _id: 0, id: 1 } }
+      { projection: { _id: 0, id: 1, phoneNumberId: 1, phoneRegistrationStatus: 1, phoneRegisteredAt: 1 } }
     );
     const connection = {
       id: existingConnection?.id || randomUUID(),
@@ -188,6 +190,12 @@ export async function POST(request) {
       encryptedAccessToken,
       tokenKeyVersion: 'v1',
       status: 'connected',
+      phoneRegistrationStatus: existingConnection?.phoneNumberId === phoneNumberId && existingConnection?.phoneRegistrationStatus === 'registered'
+        ? 'registered'
+        : 'pending',
+      ...(existingConnection?.phoneNumberId === phoneNumberId && existingConnection?.phoneRegistrationStatus === 'registered' && existingConnection?.phoneRegisteredAt
+        ? { phoneRegisteredAt: existingConnection.phoneRegisteredAt }
+        : {}),
       connectedAt: now,
       lastHealthCheckAt: now,
       lastErrorCode: '',
@@ -209,6 +217,8 @@ export async function POST(request) {
         displayPhoneNumber: connection.displayPhoneNumber,
         verifiedName: connection.verifiedName,
         qualityRating: connection.qualityRating,
+        phoneRegistrationStatus: connection.phoneRegistrationStatus,
+        phoneRegisteredAt: connection.phoneRegisteredAt || null,
         connectedAt: connection.connectedAt,
         lastHealthCheckAt: connection.lastHealthCheckAt,
       },
