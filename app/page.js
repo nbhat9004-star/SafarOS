@@ -45,67 +45,50 @@ function SectionHead({ eyebrow, title, sub, dark = false }) {
   );
 }
 
-/* ---------------------------------------------------- header */
-const NAV = [['Demo', 'demo'], ['Features', 'features'], ['Pricing', 'pricing'], ['Early access', 'early-access']];
+const SALES_WA_NUMBER = (process.env.NEXT_PUBLIC_SAFAROS_SALES_WHATSAPP || '').replace(/\D/g, '');
+const SALES_WA_MESSAGE = "Hi SafarOS! I want to unlock the next level for my travel agency. Please show me what SafarOS can do.";
+const SALES_WA_URL = SALES_WA_NUMBER
+  ? `https://wa.me/${SALES_WA_NUMBER}?text=${encodeURIComponent(SALES_WA_MESSAGE)}`
+  : `https://wa.me/?text=${encodeURIComponent(SALES_WA_MESSAGE)}`;
 
+function SalesCTA({ floating = false }) {
+  return (
+    <a
+      href={SALES_WA_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid={floating ? "unlock-agency-floating-cta" : "unlock-agency-cta"}
+      aria-label="Unlock My Agency — open SafarOS sales on WhatsApp"
+      className={floating
+        ? "fixed bottom-5 right-5 z-[70] inline-flex items-center gap-2 rounded-full border border-white/20 bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-[0_14px_45px_rgba(16,185,129,0.38)] transition hover:-translate-y-1 hover:bg-emerald-400 sm:bottom-7 sm:right-7 sm:px-5"
+        : "inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-900/25 transition hover:-translate-y-0.5 hover:bg-emerald-400"}
+    >
+      <MessageCircle className="h-4 w-4" />
+      <span>Unlock My Agency</span>
+      <ArrowRight className="h-4 w-4" />
+    </a>
+  );
+}
+
+/* ---------------------------------------------------- streamlined header — no navigation menu */
 function Header() {
   const { locale } = useLocalization();
   const isArabic = locale === 'ar';
-  const [scrolled, setScrolled] = useState(false);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 16);
-    onScroll(); window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-  const go = (id) => { setOpen(false); scrollToId(id); };
-
   return (
-    <>
-      <header className={`fixed inset-x-0 top-0 z-50 transition-colors duration-300 ${scrolled ? 'border-b border-white/10 bg-slate-950/90 backdrop-blur-xl' : 'bg-transparent'}`}>
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-          <a href="/" className="flex items-center gap-2 text-white" data-testid="nav-logo">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600 shadow-lg shadow-indigo-900/40"><Layers className="h-4 w-4" /></span>
-            <span className="text-base font-bold tracking-tight">SafarOS</span>
+    <header className="absolute inset-x-0 top-0 z-50">
+      <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-5 sm:px-8">
+        <a href="/" className="flex items-center gap-2.5 text-white" data-testid="nav-logo" aria-label="SafarOS home">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-400 to-violet-600 shadow-lg shadow-indigo-900/40"><Layers className="h-5 w-5" /></span>
+          <span className="text-lg font-bold tracking-tight">SafarOS</span>
+        </a>
+        <div className="flex items-center gap-3">
+          <a href="/login" data-testid="nav-signin" className="rounded-full px-3 py-2 text-sm font-semibold text-white/80 transition hover:text-white">Sign in</a>
+          <a href="/signup" data-testid="nav-signup" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-bold text-slate-950 shadow-lg transition hover:bg-white/90">
+            {isArabic ? 'ابدأ الآن' : 'Start free'} <ArrowRight className="h-4 w-4" />
           </a>
-          <nav className="hidden items-center gap-1 md:flex">
-            {NAV.map(([label, id]) => (
-              <button key={id} onClick={() => go(id)} data-testid={`nav-${id}`} className="rounded-full px-3.5 py-1.5 text-sm font-medium text-white/70 transition-colors hover:text-white">{label}</button>
-            ))}
-          </nav>
-          <div className="hidden items-center gap-2 md:flex">
-            <a href="/login" data-testid="nav-signin" className="px-3 py-1.5 text-sm font-semibold text-white/85 hover:text-white">Sign in</a>
-            <button onClick={() => go('early-access')} data-testid="nav-cta" className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-orange-900/30 transition hover:brightness-110">
-              {isArabic ? 'احصل على وصول مبكر' : 'Get early access'} <ArrowRight className="h-4 w-4" />
-            </button>
-          </div>
-          <button onClick={() => setOpen(true)} data-testid="nav-menu" className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-sm font-medium text-white md:hidden" aria-label="Open menu">
-            Menu <Menu className="h-4 w-4" />
-          </button>
         </div>
-      </header>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[60] flex flex-col bg-slate-950 md:hidden">
-            <div className="flex h-16 items-center justify-between border-b border-white/10 px-4">
-              <span className="flex items-center gap-2 text-white"><Layers className="h-5 w-5" /><span className="font-bold">SafarOS</span></span>
-              <button onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 text-white" aria-label="Close menu"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="flex-1 space-y-1 px-5 py-6">
-              {NAV.map(([label, id]) => (
-                <button key={id} onClick={() => go(id)} className="block w-full rounded-xl px-3 py-3 text-left text-lg font-medium text-white/90 hover:bg-white/5">{label}</button>
-              ))}
-            </div>
-            <div className="border-t border-white/10 p-5">
-              <button onClick={() => go('early-access')} className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 py-3 text-sm font-semibold text-slate-950">Get early access <ArrowRight className="h-4 w-4" /></button>
-              <a href="/login" className="mt-2 block py-2 text-center text-sm font-medium text-white/60">Sign in</a>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
+      </div>
+    </header>
   );
 }
 
@@ -139,6 +122,7 @@ function Hero() {
           <button onClick={() => scrollToId('early-access')} data-testid="hero-cta-btn" className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_10px_40px_rgba(251,146,60,0.35)] transition hover:brightness-110">
             Get early access <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </button>
+          <SalesCTA />
         </motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.8 }}
           className="mx-auto mt-10 flex max-w-xl flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
@@ -637,24 +621,22 @@ function EarlyAccess({ plan }) {
   );
 }
 
-/* ---------------------------------------------------- footer */
+/* ---------------------------------------------------- minimal footer — keep the page focused */
 function Footer() {
   return (
-    <footer className="border-t border-white/10 bg-slate-950 py-10">
-      <div className="mx-auto flex max-w-6xl flex-col items-center gap-5 px-6 text-center sm:flex-row sm:justify-between sm:text-left">
-        <div>
-          <div className="flex items-center justify-center gap-2 text-white sm:justify-start">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600"><Layers className="h-3.5 w-3.5" /></span>
-            <span className="font-bold">SafarOS</span>
-          </div>
-          <p className="mt-1.5 text-xs text-white/45">The operating system for travel businesses.</p>
+    <footer className="border-t border-white/10 bg-slate-950 py-9">
+      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 text-center sm:flex-row sm:text-left">
+        <div className="flex items-center gap-2 text-white">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600"><Layers className="h-3.5 w-3.5" /></span>
+          <span className="font-bold">SafarOS</span>
+          <span className="ml-1 text-xs text-white/40">The operating system for travel businesses.</span>
         </div>
-        <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-white/60">
-          {NAV.map(([l, id]) => <button key={id} onClick={() => scrollToId(id)} className="hover:text-white">{l}</button>)}
-          <a href="/login" className="hover:text-white">Sign in</a>
-        </nav>
+        <div className="flex items-center gap-4 text-sm text-white/55">
+          <a href="/login" className="transition hover:text-white">Sign in</a>
+          <a href="/signup" className="transition hover:text-white">Create your workspace</a>
+        </div>
       </div>
-      <div className="mx-auto mt-6 max-w-6xl px-6 text-center text-xs text-white/35 sm:text-left">© {new Date().getFullYear()} SafarOS. All rights reserved.</div>
+      <div className="mx-auto mt-5 max-w-6xl px-6 text-center text-xs text-white/30 sm:text-left">© {new Date().getFullYear()} SafarOS. All rights reserved.</div>
     </footer>
   );
 }
@@ -673,6 +655,7 @@ function App() {
       <Pricing onChoose={choose} />
       <EarlyAccess plan={plan} />
       <Footer />
+      <SalesCTA floating />
     </main>
   );
 }
