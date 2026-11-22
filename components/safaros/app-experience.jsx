@@ -6749,6 +6749,11 @@ function WhatsAppInboxPanel() {
   const [templateChoice, setTemplateChoice] = useState('');
   const [templateValues, setTemplateValues] = useState('');
   const [templateSending, setTemplateSending] = useState(false);
+  const [newMessageOpen, setNewMessageOpen] = useState(false);
+  const [newRecipient, setNewRecipient] = useState('');
+  const [newTemplateChoice, setNewTemplateChoice] = useState('');
+  const [newTemplateValues, setNewTemplateValues] = useState('');
+  const [newTemplateSending, setNewTemplateSending] = useState(false);
   const load = async () => {
     setLoading(true);
     try {
@@ -6775,6 +6780,7 @@ function WhatsAppInboxPanel() {
       const approved = (data.templates || []).filter((template) => String(template.status || '').toUpperCase() === 'APPROVED');
       setApprovedTemplates(approved);
       setTemplateChoice(approved[0]?.id || '');
+      setNewTemplateChoice(approved[0]?.id || '');
     }).catch(() => {});
   }, []);
   useEffect(() => { if (selected) { setDraft(''); openConversation(selected); } else { setMessages([]); } }, [selected]);
@@ -6852,10 +6858,71 @@ function WhatsAppInboxPanel() {
     } catch (e) { toast.error(e?.message || 'WhatsApp template could not be sent.'); }
     finally { setTemplateSending(false); }
   };
+  const sendNewTemplate = async () => {
+    const template = approvedTemplates.find((item) => item.id === newTemplateChoice);
+    const recipient = newRecipient.trim();
+    if (!recipient || !template || newTemplateSending) return;
+    const parameters = newTemplateValues.split(/\\r?\\n/).map((value) => value.trim()).filter(Boolean);
+    setNewTemplateSending(true);
+    try {
+      await api('/whatsapp/messages', {
+        method: 'POST',
+        body: JSON.stringify({
+          to: recipient,
+          templateName: template.name,
+          templateLanguage: template.language,
+          templateParameters: parameters,
+        }),
+      });
+      toast.success('WhatsApp template message sent');
+      setNewMessageOpen(false);
+      setNewRecipient('');
+      setNewTemplateValues('');
+      await load();
+    } catch (e) {
+      toast.error(e?.message || 'WhatsApp template could not be sent.');
+    } finally {
+      setNewTemplateSending(false);
+    }
+  };
   return <Card><CardContent className="space-y-3 p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div><div className="font-semibold flex items-center gap-2"><MessageSquare className="h-4 w-4" /> WhatsApp Inbox</div><p className="text-xs text-muted-foreground">Live WhatsApp conversations through Meta</p></div>
-      <div className="flex items-center gap-2"><Badge variant="outline">{rows.reduce((total, item) => total + Number(item.unreadCount || 0), 0)} unread</Badge><Button size="sm" variant="outline" onClick={load} disabled={loading}><RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh</Button></div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline">{rows.reduce((total, item) => total + Number(item.unreadCount || 0), 0)} unread</Badge>
+        <Dialog open={newMessageOpen} onOpenChange={setNewMessageOpen}>
+          <DialogTrigger asChild><Button size="sm" disabled={approvedTemplates.length === 0}><Plus className="mr-1 h-3.5 w-3.5" /> New message</Button></DialogTrigger>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Start a WhatsApp conversation</DialogTitle>
+              <DialogDescription>Enter a recipient's number with country code and choose an approved template. Meta requires a template to initiate a conversation outside the 24-hour customer service window.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>Recipient phone number</Label>
+                <Input type="tel" value={newRecipient} onChange={(event) => setNewRecipient(event.target.value)} placeholder="e.g. +971 50 123 4567" disabled={newTemplateSending} />
+                <p className="text-xs text-muted-foreground">Include the country code. Only message people who have agreed to receive WhatsApp messages from your agency.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Approved template</Label>
+                <Select value={newTemplateChoice} onValueChange={setNewTemplateChoice}>
+                  <SelectTrigger><SelectValue placeholder="Choose an approved template" /></SelectTrigger>
+                  <SelectContent>{approvedTemplates.map((template) => <SelectItem key={template.id} value={template.id}>{template.name} · {template.language}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Template body variables</Label>
+                <Textarea value={newTemplateValues} onChange={(event) => setNewTemplateValues(event.target.value)} placeholder="Enter one value per line in {{1}}, {{2}} order. Leave blank if the template has no variables." rows={3} disabled={newTemplateSending} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setNewMessageOpen(false)} disabled={newTemplateSending}>Cancel</Button>
+              <Button onClick={sendNewTemplate} disabled={newTemplateSending || !newRecipient.trim() || !newTemplateChoice}>{newTemplateSending ? 'Sending…' : 'Send template'}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Button size="sm" variant="outline" onClick={load} disabled={loading}><RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh</Button>
+      </div>
     </div>
     {loading ? <div className="h-24 rounded-lg bg-muted/40 animate-pulse" /> : rows.length === 0 ? (
       <div className="rounded-lg border border-dashed p-6 text-center"><div className="text-sm font-medium">No WhatsApp messages received yet</div><p className="mt-1 text-xs text-muted-foreground">New messages sent to your connected WhatsApp number will appear here.</p></div>
