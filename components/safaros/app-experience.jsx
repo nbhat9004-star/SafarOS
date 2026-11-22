@@ -7038,10 +7038,7 @@ function SupportTickets({ session }) {
 
 async function ensureMetaFacebookSdk(appId) {
   if (typeof window === 'undefined') throw new Error('WhatsApp signup must run in a browser.');
-  if (window.FB) {
-    window.FB.init({ appId, cookie: true, xfbml: false, version: 'v23.0' });
-    return window.FB;
-  }
+  if (window.FB) return window.FB;
   await new Promise((resolve, reject) => {
     window.fbAsyncInit = () => {
       try {
