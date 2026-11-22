@@ -79,7 +79,7 @@ export async function POST(request) {
         { agencyId: String(session.agencyId), waId: recipientWaId },
         {
           $set: { phone: recipientWaId, consentStatus: 'opt_in', optInRecordedAt: now, optInSource: 'agent_confirmation', updatedAt: now },
-          $setOnInsert: { id: randomUUID(), agencyId: String(session.agencyId), waId: recipientWaId, consentStatus: 'unknown', createdAt: now },
+          $setOnInsert: { id: randomUUID(), agencyId: String(session.agencyId), waId: recipientWaId, createdAt: now },
         },
         { upsert: true }
       );
