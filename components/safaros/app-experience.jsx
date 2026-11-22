@@ -259,10 +259,10 @@ const NAV = [
     ],
   },
   {
-    group: 'Communications',
+    group: 'Messages',
     items: [
-      { id: 'comm_inbox', label: 'Inbox', icon: MessageSquare },
-      { id: 'comm_conversations', label: 'Conversations', icon: Contact },
+      { id: 'comm_inbox', label: 'Messages', icon: MessageSquare },
+      { id: 'comm_conversations', label: 'Conversation history', icon: Contact },
       { id: 'comm_templates', label: 'Templates', icon: FileText },
       { id: 'comm_activity', label: 'Activity', icon: Activity },
     ],
@@ -302,7 +302,7 @@ const NAV = [
       { id: 'int_api', label: 'Developer API', icon: ShieldCheck },
     ],
   },
-  { id: 'copilot', label: 'Safar Intelligence', icon: Sparkles },
+  { id: 'copilot', label: 'Ask SafarOS', icon: Sparkles },
   { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck },
   {
     group: 'Data Tools',
@@ -330,7 +330,7 @@ const SECTION_TITLES = {
   fin_receivables: 'Customer Receivables', fin_payables: 'Supplier Payables',
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
   fin_payments: 'Payments',
-  comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
+  comm_inbox: 'Messages', comm_conversations: 'Conversation history', comm_templates: 'Templates', comm_activity: 'Communication Activity',
   copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access', business_verification: 'Business Verification',
   marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
@@ -348,7 +348,7 @@ function sectionGroupOf(id) {
   }
   // prefix groups (fin_, comm_, web_, an_, sub_, int_)
   const pref = String(id).split('_')[0];
-  const map = { fin: 'Finance', comm: 'Communications', web: 'Website', an: 'Analytics', sub: 'Subscription & Billing', int: 'Integrations' };
+  const map = { fin: 'Finance', comm: 'Messages', web: 'Website', an: 'Analytics', sub: 'Subscription & Billing', int: 'Integrations' };
   return map[pref] || 'Workspace';
 }
 
@@ -1441,6 +1441,59 @@ function KpiCard({ icon: Icon, label, value, tone = 'violet', hint, onClick }) {
   return onClick ? <button type="button" onClick={onClick} className="block w-full text-left">{inner}</button> : inner;
 }
 
+function AskSafarOSCard({ session }) {
+  const [input, setInput] = useState('');
+  const [reply, setReply] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
+
+  const ask = async (value = input) => {
+    const message = String(value || '').trim();
+    if (!message || busy) return;
+    setInput('');
+    setBusy(true);
+    setReply('');
+    try {
+      const result = await api('/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId, message }),
+      });
+      setConversationId(result.conversationId || conversationId);
+      setReply(result.reply || 'I could not find a response. Please try again.');
+    } catch (error) {
+      setReply(error?.message || 'SafarOS could not answer right now. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="overflow-hidden border-violet-200/80 bg-gradient-to-r from-white via-violet-50/70 to-indigo-50/80 shadow-sm dark:from-background dark:via-violet-950/20 dark:to-indigo-950/20">
+      <CardContent className="space-y-3 p-4 sm:p-5">
+        <div className="flex items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-sm"><Sparkles className="h-5 w-5" /></span>
+          <div>
+            <div className="font-semibold tracking-tight">Ask me anything</div>
+            <div className="text-xs text-muted-foreground">Your SafarOS business assistant</div>
+          </div>
+        </div>
+        <form onSubmit={(event) => { event.preventDefault(); ask(); }} className="flex items-center gap-2 rounded-full border border-violet-200 bg-background p-1.5 pl-4 shadow-sm dark:border-violet-900">
+          <Input aria-label="Ask SafarOS anything" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask SafarOS anything…" disabled={busy} className="h-10 border-0 bg-transparent shadow-none focus-visible:ring-0" />
+          <Button type="submit" size="icon" className="h-10 w-10 shrink-0 rounded-full bg-violet-600 hover:bg-violet-700" disabled={busy || !input.trim()} aria-label="Send question">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          </Button>
+        </form>
+        {reply && <div role="status" className="rounded-xl border border-violet-200/70 bg-background/80 px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap dark:border-violet-900">{reply}</div>}
+        <div className="flex flex-wrap gap-2">
+          {['Show today’s priorities', 'Which follow-ups are due?', 'Summarize recent activity'].map((prompt) => (
+            <button key={prompt} type="button" onClick={() => ask(prompt)} disabled={busy} className="rounded-full border border-violet-200/80 bg-background/80 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-violet-400 hover:text-foreground disabled:opacity-50 dark:border-violet-900">{prompt}</button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
   const { agency, user } = session;
   const role = user?.role;
@@ -1498,6 +1551,8 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
           {canCreateBooking && <Button size="sm" variant="outline" onClick={() => onGo('bookings')}><ClipboardList className="mr-1.5 h-4 w-4" /> New Booking</Button>}
         </div>
       </div>
+
+      {can(role, 'ai:use') && <AskSafarOSCard session={session} />}
 
       {/* Workspace launcher cards */}
       <div>
@@ -6991,10 +7046,10 @@ function Communications({ session, tab, onNav }) {
   const role = session.user.role;
   const canCreate = can(role, 'communications:create');
   const TABS = [
-    { id: 'inbox', label: 'Inbox', icon: MessageSquare },
-    { id: 'conversations', label: 'Conversations', icon: Contact },
-    { id: 'support', label: 'Support Tickets', icon: Ticket },
-    { id: 'integrations', label: 'Channel Integrations', icon: Plug },
+    { id: 'inbox', label: 'Messages', icon: MessageSquare },
+    { id: 'conversations', label: 'History', icon: Contact },
+    { id: 'support', label: 'Support', icon: Ticket },
+    { id: 'integrations', label: 'Channels', icon: Plug },
     { id: 'templates', label: 'Templates', icon: FileText },
     { id: 'activity', label: 'Activity', icon: Activity },
   ];
