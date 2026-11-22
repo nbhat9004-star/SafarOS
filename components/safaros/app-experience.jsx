@@ -7036,6 +7036,34 @@ function SupportTickets({ session }) {
   </div>;
 }
 
+async function ensureMetaFacebookSdk(appId) {
+  if (typeof window === 'undefined') throw new Error('WhatsApp signup must run in a browser.');
+  if (window.FB) {
+    window.FB.init({ appId, cookie: true, xfbml: false, version: 'v23.0' });
+    return window.FB;
+  }
+  await new Promise((resolve, reject) => {
+    window.fbAsyncInit = () => {
+      try {
+        window.FB.init({ appId, cookie: true, xfbml: false, version: 'v23.0' });
+        resolve();
+      } catch (error) { reject(error); }
+    };
+    let script = document.getElementById('facebook-jssdk');
+    if (!script) {
+      script = document.createElement('script');
+      script.id = 'facebook-jssdk';
+      script.src = 'https://connect.facebook.net/en_US/sdk.js';
+      script.async = true;
+      script.defer = true;
+      script.crossOrigin = 'anonymous';
+      script.onerror = () => reject(new Error('Meta login could not be loaded. Check your connection and try again.'));
+      document.head.appendChild(script);
+    }
+  });
+  return window.FB;
+}
+
 function ChannelIntegrations({ session }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -7043,6 +7071,7 @@ function ChannelIntegrations({ session }) {
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState({});
   const [waConnection, setWaConnection] = useState(null);
+  const [waMetaConfig, setWaMetaConfig] = useState(null);
   const [waForm, setWaForm] = useState({ wabaId: '', phoneNumberId: '', accessToken: '' });
   const [waSaving, setWaSaving] = useState(false);
   const canManage = can(session.user.role, 'communications:manage');
@@ -7055,12 +7084,14 @@ function ChannelIntegrations({ session }) {
   const load = async () => {
     setLoading(true);
     try {
-      const [integrations, connection] = await Promise.all([
+      const [integrations, connection, metaConfig] = await Promise.all([
         api('/communications/integrations'),
         api('/whatsapp/connection'),
+        api('/whatsapp/embedded-signup/config'),
       ]);
       setItems(integrations.integrations || []);
       setWaConnection(connection.connection || { connected: false, status: 'not_connected' });
+      setWaMetaConfig(metaConfig || { enabled: false });
     } catch (e) {
       toast.error(friendlyError(e));
     } finally {
@@ -7119,6 +7150,94 @@ function ChannelIntegrations({ session }) {
     }
   };
 
+  const connectWhatsAppWithMeta = async () => {
+    setWaSaving(true);
+    try {
+      if (!waMetaConfig?.enabled || !waMetaConfig?.appId || !waMetaConfig?.configurationId) {
+        throw new Error('Meta Embedded Signup is not configured yet. Ask the SafarOS administrator to add the Meta App ID and Configuration ID in Vercel.');
+      }
+      const { state } = await api('/whatsapp/embedded-signup/state', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const FB = await ensureMetaFacebookSdk(waMetaConfig.appId);
+      const signup = await new Promise((resolve, reject) => {
+        let authorizationCode = '';
+        let signupInfo = null;
+        let settled = false;
+        const cleanup = () => {
+          window.removeEventListener('message', onMessage);
+          window.clearTimeout(timeout);
+        };
+        const fail = (message) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new Error(message));
+        };
+        const finishIfReady = () => {
+          if (settled || !authorizationCode || !signupInfo?.waba_id || !signupInfo?.phone_number_id) return;
+          settled = true;
+          cleanup();
+          resolve({
+            code: authorizationCode,
+            wabaId: String(signupInfo.waba_id),
+            phoneNumberId: String(signupInfo.phone_number_id),
+            state,
+          });
+        };
+        const onMessage = (event) => {
+          if (!['https://www.facebook.com', 'https://web.facebook.com'].includes(event.origin)) return;
+          const payload = event.data;
+          if (!payload || payload.type !== 'WA_EMBEDDED_SIGNUP') return;
+          if (payload.event === 'FINISH') {
+            signupInfo = payload.data || {};
+            finishIfReady();
+          } else if (payload.event === 'CANCEL') {
+            fail('WhatsApp setup was cancelled before completion.');
+          } else if (payload.event === 'ERROR') {
+            fail('Meta reported an error during WhatsApp setup. Please try again.');
+          }
+        };
+        const timeout = window.setTimeout(() => {
+          fail('WhatsApp setup timed out. Please try again and complete every step in the Meta window.');
+        }, 180000);
+        window.addEventListener('message', onMessage);
+        try {
+          FB.login((response) => {
+            const code = response?.authResponse?.code;
+            if (code) {
+              authorizationCode = String(code);
+              finishIfReady();
+            } else if (response?.status !== 'connected') {
+              fail('Meta authorization was not completed. Please try again.');
+            }
+          }, {
+            config_id: waMetaConfig.configurationId,
+            auth_type: 'rerequest',
+            response_type: 'code',
+            override_default_response_type: true,
+            state,
+            extras: {},
+          });
+        } catch {
+          fail('Unable to open Meta WhatsApp signup. Check the Facebook Login for Business settings.');
+        }
+      });
+
+      const result = await api('/whatsapp/embedded-signup/exchange', {
+        method: 'POST',
+        body: JSON.stringify(signup),
+      });
+      setWaConnection(result.connection || { connected: true, status: 'connected' });
+      toast.success('WhatsApp Business connected to this agency.');
+    } catch (error) {
+      toast.error(String(error?.message || 'Unable to connect WhatsApp with Meta.'));
+    } finally {
+      setWaSaving(false);
+    }
+  };
+
   const disconnectWhatsApp = async () => {
     if (!window.confirm('Disconnect this agency WhatsApp number from SafarOS?')) return;
     setWaSaving(true);
@@ -7147,7 +7266,7 @@ function ChannelIntegrations({ session }) {
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
             <div className="min-w-0 flex-1">
               <div className="font-medium">WhatsApp Business</div>
-              <p className="text-sm text-muted-foreground">Connect this agency's own WhatsApp Business Account using its Meta access token and account IDs.</p>
+              <p className="text-sm text-muted-foreground">Connect this agency's own WhatsApp Business Account through Meta Embedded Signup, or use manual credentials for internal testing.</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Badge variant="outline">{connected ? 'Connected' : waConnection?.status === 'disconnected' ? 'Disconnected' : 'Not connected'}</Badge>
                 {connected && waConnection?.displayPhoneNumber && <span className="text-sm text-muted-foreground">{waConnection.displayPhoneNumber}</span>}
@@ -7155,6 +7274,17 @@ function ChannelIntegrations({ session }) {
               </div>
             </div>
           </div>
+          {canManage && !connected && <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+            <div className="space-y-1">
+              <div className="font-medium">Connect with Meta</div>
+              <p className="text-xs text-muted-foreground">Let your agency administrator securely select and authorize the agency's own WhatsApp Business Account in Meta.</p>
+            </div>
+            <Button onClick={connectWhatsAppWithMeta} disabled={waSaving || loading || !waMetaConfig?.enabled}>
+              {waSaving ? 'Opening Meta signup…' : 'Continue with Meta'}
+            </Button>
+            {!waMetaConfig?.enabled && <p className="text-xs text-amber-700">Embedded Signup needs META_APP_ID and META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID configured in Vercel. The App Secret must also be set server-side as META_APP_SECRET.</p>}
+            <div className="flex items-center gap-3 text-xs text-muted-foreground"><div className="h-px flex-1 bg-border" /><span>OR CONNECT MANUALLY</span><div className="h-px flex-1 bg-border" /></div>
+          </div>}
           {canManage && !connected && <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
             <div className="space-y-1">
               <Label>WhatsApp Business Account ID (WABA ID)</Label>
