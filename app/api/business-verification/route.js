@@ -118,6 +118,16 @@ export async function POST(request) {
       return json({ ok: true });
     }
 
+    if (body.action === 'meta_status') {
+      const metaStatus = ['not_started', 'in_progress', 'verified', 'rejected', 'unknown'].includes(body.metaStatus) ? body.metaStatus : '';
+      if (!metaStatus) return err('Choose a valid Meta verification status');
+      if (!existing) return err('Submit your business details to SafarOS before updating this status');
+      await records.updateOne({ agencyId }, { $set: {
+        metaStatus, metaStatusSource: 'agency_reported', metaStatusUpdatedAt: now, updatedAt: now,
+      } });
+      return json({ ok: true, metaStatus, metaStatusSource: 'agency_reported' });
+    }
+
     if (body.action === 'submit') {
       const legalBusinessName = String(body.legalBusinessName || '').trim().slice(0, 180);
       const businessType = String(body.businessType || '').trim().slice(0, 60);
