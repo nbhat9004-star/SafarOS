@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '@/lib/db';
 import { getSession } from '@/lib/auth';
 import { can } from '@/lib/rbac';
+import { encryptBusinessVerificationDocument } from '@/lib/business-verification-crypto';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,7 @@ function err(message, status = 400) { return json({ error: message }, status); }
 function safeRecord(record, documents = []) {
   if (!record) return null;
   const { _id, ...safe } = record;
-  return { ...safe, documents: documents.map(({ _id: ignored, data, ...doc }) => doc) };
+  return { ...safe, documents: documents.map(({ _id: ignored, data, encryptedData, ...doc }) => doc) };
 }
 function validFile(bytes, type) {
   if (type === 'application/pdf') return bytes.subarray(0, 5).toString('ascii') === '%PDF-';
@@ -93,7 +94,7 @@ export async function POST(request) {
       const verificationId = existing?.id || randomUUID();
       const document = {
         id: randomUUID(), verificationId, agencyId, fileName, fileType, fileSize: bytes.length,
-        data: bytes.toString('base64'), uploadedBy: String(access.session.userId || ''),
+        encryptedData: encryptBusinessVerificationDocument(bytes.toString('base64'), agencyId), uploadedBy: String(access.session.userId || ''),
         createdAt: now,
       };
       await docs.insertOne(document);
