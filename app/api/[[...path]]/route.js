@@ -2848,7 +2848,7 @@ function platformReadPerm(path) {
   if (path.startsWith('/platform/themes')) return 'themes:manage';
   if (path === '/platform/dashboard') return 'platform:dashboard';
   if (path.startsWith('/platform/agencies')) return 'agencies:read';
-  if (path.startsWith('/platform/business-verifications')) return 'agencies:read';
+  if (path.startsWith('/platform/business-verifications')) return 'agencies:manage';
   if (path.startsWith('/platform/users')) return 'users:read';
   if (path.startsWith('/platform/subscriptions') || path === '/platform/billing') return 'subscriptions:read';
   if (path.startsWith('/platform/plans')) return 'plans:read';
