@@ -107,6 +107,12 @@ async function publicPost(request, body, db) {
       await conversations.insertOne(conversation);
       return json({ conversationId: id, visitorToken: token, messages: [] }, 200, origin);
     }
+    const pageUpdate = { pageUrl: clean(body.pageUrl, 500), updatedAt: new Date().toISOString() };
+    const packageId = clean(body.packageId, 100);
+    const packageName = clean(body.packageName, 180);
+    if (packageId) pageUpdate.packageId = packageId;
+    if (packageName) pageUpdate.packageName = packageName;
+    await conversations.updateOne({ agencyId: agency.id, id: conversation.id }, { $set: pageUpdate });
     const history = await messages.find({ agencyId: agency.id, conversationId: conversation.id }, { projection: { _id: 0, id: 1, direction: 1, text: 1, createdAt: 1 } }).sort({ createdAt: 1 }).limit(100).toArray();
     return json({ conversationId: conversation.id, visitorToken, messages: history }, 200, origin);
   }
@@ -126,10 +132,17 @@ async function publicPost(request, body, db) {
       id: randomUUID(), agencyId: agency.id, conversationId: conversation.id,
       direction: 'inbound', text, source: 'website', createdAt: now,
     });
+    const conversationUpdate = {
+      lastMessagePreview: text.slice(0, 180), lastMessageAt: now, updatedAt: now,
+      pageUrl: clean(body.pageUrl, 500),
+    };
+    const packageId = clean(body.packageId, 100);
+    const packageName = clean(body.packageName, 180);
+    if (packageId) conversationUpdate.packageId = packageId;
+    if (packageName) conversationUpdate.packageName = packageName;
     await conversations.updateOne(
       { agencyId: agency.id, id: conversation.id },
-      { $set: { lastMessagePreview: text.slice(0, 180), lastMessageAt: now, updatedAt: now, pageUrl: clean(body.pageUrl, 500) },
-        $inc: { unreadCount: 1 } }
+      { $set: conversationUpdate, $inc: { unreadCount: 1 } }
     );
     return json({ success: true }, 200, origin);
   }
