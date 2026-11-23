@@ -1289,9 +1289,12 @@ async function commPut(db, session, path, body) {
     if (id === 'email' && config.supportEmail && !EMAIL_RE.test(config.supportEmail)) return err('Enter a valid support email address');
     if (id === 'whatsapp' && config.phoneNumber && !/^\+?[0-9 ()-]{7,25}$/.test(config.phoneNumber)) return err('Enter a valid WhatsApp phone number');
     if (!allowed[id].every((key) => Boolean(config[key]))) return err('Complete all required fields before saving this channel');
-    const doc = withAgency(session, { id, status: 'pending', config, updatedAt: now, updatedBy: session.userId });
+    // Website chat is activated only for the exact origin the agency configured.
+    // Every public request independently checks its Origin against this saved URL.
+    const status = id === 'website_chat' ? 'connected' : 'pending';
+    const doc = withAgency(session, { id, status, config, updatedAt: now, updatedBy: session.userId });
     await db.collection('communicationIntegrations').updateOne(tenantFilter(session, { id }), { $set: doc }, { upsert: true });
-    return json({ integration: { id, status: 'pending', config, updatedAt: now }, message: 'Saved as setup pending. Live traffic stays disabled until provider verification is implemented.' });
+    return json({ integration: { id, status, config, updatedAt: now }, message: id === 'website_chat' ? 'Website chat configured. Install the widget code on the approved domain to receive messages.' : 'Saved as setup pending. Provider verification is still required.' });
   }
   if (parts[2] === 'tickets' && parts[3]) {
     const id = parts[3];
