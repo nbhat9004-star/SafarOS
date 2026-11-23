@@ -11,6 +11,18 @@ export const dynamic = 'force-dynamic';
 
 const MAX_MESSAGE = 2000;
 const publicRate = new Map();
+let indexesPromise;
+async function ensureIndexes(db) {
+  if (!indexesPromise) {
+    indexesPromise = Promise.all([
+      db.collection('websiteChatConversations').createIndex({ agencyId: 1, id: 1 }, { unique: true, name: 'website_chat_agency_id_unique' }),
+      db.collection('websiteChatConversations').createIndex({ agencyId: 1, lastMessageAt: -1 }, { name: 'website_chat_agency_last_message' }),
+      db.collection('websiteChatConversations').createIndex({ agencyId: 1, visitorTokenHash: 1 }, { unique: true, name: 'website_chat_visitor_token_unique' }),
+      db.collection('websiteChatMessages').createIndex({ agencyId: 1, conversationId: 1, createdAt: 1 }, { name: 'website_chat_messages_timeline' }),
+    ]).catch((error) => { indexesPromise = null; throw error; });
+  }
+  return indexesPromise;
+}
 
 function json(data, status = 200, origin = '') {
   const headers = new Headers({ 'Cache-Control': 'no-store' });
@@ -59,6 +71,7 @@ async function publicPost(request, body, db) {
   const resolved = await publicAgency(db, slug, origin);
   if (resolved.error) return json({ error: resolved.error }, resolved.status, origin);
   const { agency } = resolved;
+  await ensureIndexes(db);
   const ip = clean(request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown', 80);
   const action = clean(body.action || 'start', 20);
   // Polling for replies should not consume the visitor's message-send allowance.
@@ -138,6 +151,7 @@ export async function GET(request) {
   if (!session?.agencyId) return json({ error: 'Authentication required' }, 401);
   if (!can(session.role, 'communications:read')) return json({ error: 'Forbidden' }, 403);
   const db = await getDb();
+  await ensureIndexes(db);
   const id = clean(new URL(request.url).searchParams.get('conversationId'), 80);
   if (id) {
     const conversation = await db.collection('websiteChatConversations').findOne(
@@ -181,6 +195,7 @@ export async function POST(request) {
   const text = clean(body.message, MAX_MESSAGE);
   if (!conversationId || !text) return json({ error: 'Choose a conversation and write a reply' }, 400);
   const db = await getDb();
+  await ensureIndexes(db);
   const conversation = await db.collection('websiteChatConversations').findOne(
     tenantFilter(session, { id: conversationId }), { projection: { _id: 0, id: 1 } }
   );
