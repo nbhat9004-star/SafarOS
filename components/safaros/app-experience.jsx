@@ -7128,7 +7128,6 @@ function ChannelIntegrations({ session }) {
   const [config, setConfig] = useState({});
   const [waConnection, setWaConnection] = useState(null);
   const [waMetaConfig, setWaMetaConfig] = useState(null);
-  const [waForm, setWaForm] = useState({ wabaId: '', phoneNumberId: '', accessToken: '' });
   const [waPin, setWaPin] = useState('');
   const [waSaving, setWaSaving] = useState(false);
   const canManage = can(session.user.role, 'communications:manage');
@@ -7174,36 +7173,6 @@ function ChannelIntegrations({ session }) {
       toast.error(friendlyError(e));
     } finally {
       setSaving(false);
-    }
-  };
-
-  const connectWhatsApp = async () => {
-    if (!/^\d{5,30}$/.test(waForm.wabaId.trim()) || !/^\d{5,30}$/.test(waForm.phoneNumberId.trim())) {
-      toast.error('Enter the numeric WABA ID and Phone Number ID from Meta.');
-      return;
-    }
-    if (waForm.accessToken.trim().length < 30) {
-      toast.error('Enter a valid Meta access token.');
-      return;
-    }
-    setWaSaving(true);
-    try {
-      const result = await api('/whatsapp/connection', {
-        method: 'POST',
-        body: JSON.stringify({
-          wabaId: waForm.wabaId.trim(),
-          phoneNumberId: waForm.phoneNumberId.trim(),
-          accessToken: waForm.accessToken.trim(),
-        }),
-      });
-      setWaConnection(result.connection || { connected: true, status: 'connected' });
-      setWaForm({ wabaId: '', phoneNumberId: '', accessToken: '' });
-      toast.success('WhatsApp Business connected to this agency.');
-    } catch (e) {
-      // Show the safe, server-authored connection error so setup failures can be diagnosed.
-      toast.error(String(e?.message || 'Unable to connect WhatsApp. Please try again.'));
-    } finally {
-      setWaSaving(false);
     }
   };
 
@@ -7364,7 +7333,7 @@ function ChannelIntegrations({ session }) {
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
             <div className="min-w-0 flex-1">
               <div className="font-medium">WhatsApp Business</div>
-              <p className="text-sm text-muted-foreground">Connect this agency's own WhatsApp Business Account through Meta Embedded Signup, or use manual credentials for internal testing.</p>
+              <p className="text-sm text-muted-foreground">Connect your agency's own WhatsApp Business number securely with Meta. No technical setup is required.</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Badge variant="outline">{connected ? 'Connected' : waConnection?.status === 'disconnected' ? 'Disconnected' : 'Not connected'}</Badge>
                 {connected && waConnection?.displayPhoneNumber && <span className="text-sm text-muted-foreground">{waConnection.displayPhoneNumber}</span>}
@@ -7374,50 +7343,32 @@ function ChannelIntegrations({ session }) {
           </div>
           {canManage && !connected && <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
             <div className="space-y-1">
-              <div className="font-medium">Connect with Meta</div>
-              <p className="text-xs text-muted-foreground">Let your agency administrator securely select and authorize the agency's own WhatsApp Business Account in Meta.</p>
+              <div className="font-medium">Connect your agency's WhatsApp</div>
+              <p className="text-xs text-muted-foreground">SafarOS will open Meta. Sign in, choose your business and WhatsApp number, and approve the connection.</p>
             </div>
             <Button onClick={connectWhatsAppWithMeta} disabled={waSaving || loading || !waMetaConfig?.enabled}>
-              {waSaving ? 'Opening Meta signup…' : 'Continue with Meta'}
+              {waSaving ? 'Connecting…' : 'Connect WhatsApp'}
             </Button>
-            {!waMetaConfig?.enabled && <p className="text-xs text-amber-700">Embedded Signup needs META_APP_ID and META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID configured in Vercel. The App Secret must also be set server-side as META_APP_SECRET.</p>}
-            <div className="flex items-center gap-3 text-xs text-muted-foreground"><div className="h-px flex-1 bg-border" /><span>OR CONNECT MANUALLY</span><div className="h-px flex-1 bg-border" /></div>
-          </div>}
-          {canManage && !connected && <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
-            <div className="space-y-1">
-              <Label>WhatsApp Business Account ID (WABA ID)</Label>
-              <Input inputMode="numeric" autoComplete="off" value={waForm.wabaId} placeholder="Enter WABA ID from Meta" onChange={(e) => setWaForm((v) => ({ ...v, wabaId: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>Phone Number ID</Label>
-              <Input inputMode="numeric" autoComplete="off" value={waForm.phoneNumberId} placeholder="Enter Phone Number ID from Meta" onChange={(e) => setWaForm((v) => ({ ...v, phoneNumberId: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>Meta access token</Label>
-              <Input type="password" autoComplete="new-password" value={waForm.accessToken} placeholder="Paste the Meta access token" onChange={(e) => setWaForm((v) => ({ ...v, accessToken: e.target.value }))} />
-              <p className="text-xs text-muted-foreground">Sent directly to SafarOS over HTTPS and encrypted before storage. It is never displayed again or saved in this form.</p>
-            </div>
-            <Button onClick={connectWhatsApp} disabled={waSaving}>{waSaving ? 'Verifying with Meta…' : 'Connect WhatsApp'}</Button>
-          </div>}
+            {!waMetaConfig?.enabled && <p className="text-xs text-amber-700">WhatsApp connection is being configured by SafarOS. Please contact SafarOS support if you need help.</p>}
           {canManage && connected && waConnection?.phoneRegistrationStatus !== 'registered' && <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
             <div className="space-y-1">
               <div className="font-medium">Register WhatsApp phone number</div>
               <p className="text-xs text-muted-foreground">
-                Meta requires this Cloud API number to be registered before messaging can work. Create a six-digit two-step verification PIN for this number. SafarOS sends the PIN to Meta for registration and does not store it. Save the PIN securely in your agency's password manager.
+                Meta requires this Cloud API number to be registered before messaging can work. Enter the six-digit WhatsApp two-step verification PIN for this number. If Meta asked you to create one during setup, use that PIN. SafarOS sends it securely to Meta and does not store it.
               </p>
               <Badge variant="outline">
                 {waConnection?.phoneRegistrationStatus === 'pending' ? 'Registration pending' : 'Registration not confirmed'}
               </Badge>
             </div>
             <div className="space-y-1">
-              <Label>New six-digit two-step verification PIN</Label>
+              <Label>WhatsApp security PIN</Label>
               <Input
                 type="password"
                 inputMode="numeric"
                 autoComplete="new-password"
                 maxLength={6}
                 value={waPin}
-                placeholder="Enter six digits"
+                placeholder="6-digit PIN"
                 onChange={(e) => setWaPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
               />
             </div>
@@ -7450,7 +7401,7 @@ function ChannelIntegrations({ session }) {
       {editing.fields.map((field) => <div key={field.key} className="space-y-1"><Label>{field.label}</Label><Input value={config[field.key] || ''} placeholder={field.placeholder} onChange={(e) => setConfig((v) => ({ ...v, [field.key]: e.target.value }))} /></div>)}
       <div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</Button><Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button></div>
     </CardContent></Card>}
-    <p className="text-xs text-muted-foreground">WhatsApp connections are verified against Meta before they are marked connected. Inbound webhook events, outbound messages, approved templates and delivery statuses are handled by the agency-scoped WhatsApp Hub. Embedded Signup availability for customer agencies remains subject to Meta's required app approvals.</p>
+    <p className="text-xs text-muted-foreground">Your agency connects its own WhatsApp number through Meta. SafarOS securely manages the connection, incoming messages, replies and delivery updates. Meta approval requirements still apply.</p>
   </div>;
 }
 
