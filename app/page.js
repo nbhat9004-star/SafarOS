@@ -593,6 +593,65 @@ function EarlyAccess({ plan }) {
 }
 
 /* ---------------------------------------------------- footer */
+/* ---------------------------------------------------- FAQs, contact and legal */
+function TrustAndLegal() {
+  const faqs = [
+    ['Who is SafarOS for?', 'SafarOS helps travel agencies and tour operators manage enquiries, quotations, itineraries, bookings, teams and customer communication.'],
+    ['Can we connect our own WhatsApp Business number?', 'Yes. Each agency connects its own eligible WhatsApp Business account through Meta authorisation. Meta eligibility, permissions and approval requirements apply.'],
+    ['Is there a free trial?', 'The Trial plan provides a 14-day evaluation period. Paid plan prices and limits are shown above.'],
+    ['How do we cancel?', 'Contact SafarOS support to request cancellation. Unless stated otherwise at purchase, cancellation prevents the next renewal and access generally continues through the paid period.'],
+    ['How do we contact support?', 'Use the WhatsApp contact link or the enquiry form on this page.'],
+  ];
+  return (
+    <>
+      <section id="faq" className="so-section bg-slate-50 py-20">
+        <div className="mx-auto max-w-5xl px-6"><SectionHead eyebrow="Help centre" title="Questions, answered." sub="Useful information before getting started." />
+          <div className="mx-auto mt-10 max-w-3xl divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white px-6">
+            {faqs.map(([q,a]) => <details key={q} className="group py-5"><summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left text-sm font-semibold text-slate-900">{q}<span className="text-xl text-orange-500">+</span></summary><p className="mt-3 text-sm leading-relaxed text-slate-600">{a}</p></details>)}
+          </div>
+        </div>
+      </section>
+      <section id="contact" className="so-section bg-white py-20">
+        <div className="mx-auto grid max-w-6xl gap-8 px-6 md:grid-cols-2 md:items-center">
+          <div><span className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-600">Contact SafarOS</span><h2 className="mt-3 text-3xl font-bold text-slate-900 sm:text-5xl">Let's make your agency run smoother.</h2><p className="mt-4 text-slate-600">Talk to our team about a demo, onboarding, subscriptions or support.</p>
+            <a href="https://wa.me/918899046675?text=Hello%20SafarOS%2C%20I%20would%20like%20to%20know%20more." target="_blank" rel="noopener noreferrer" className="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white"><MessageCircle className="h-4 w-4" /> WhatsApp: +91 88990 46675</a>
+          </div>
+          <div className="rounded-3xl bg-slate-950 p-8 text-white"><h3 className="text-xl font-bold">Request a demo</h3><p className="mt-2 text-sm text-white/65">Share your agency details in the enquiry form and our team will contact you.</p><button onClick={() => scrollToId('early-access')} className="mt-6 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-5 py-3 text-sm font-semibold text-slate-950">Go to enquiry form <ArrowRight className="ml-1 inline h-4 w-4" /></button></div>
+        </div>
+      </section>
+      <section id="terms" className="so-section bg-slate-50 py-16"><div className="mx-auto max-w-5xl px-6"><h2 className="text-3xl font-bold text-slate-900">Terms of Service</h2><p className="mt-2 text-xs text-slate-500">Last updated: 23 November 2026</p>
+        <div className="mt-7 grid gap-6 text-sm leading-relaxed text-slate-600 md:grid-cols-2">
+          <div><h3 className="font-semibold text-slate-900">Using SafarOS</h3><p className="mt-2">SafarOS is subscription software for travel businesses. By registering or using the service, you agree to these terms and must provide accurate account information and keep your credentials secure.</p></div>
+          <div><h3 className="font-semibold text-slate-900">Agency responsibilities</h3><p className="mt-2">Your agency is responsible for the accuracy and lawful use of customer, supplier, booking, itinerary and payment information entered into its workspace, including obtaining any required permissions to process personal data.</p></div>
+          <div><h3 className="font-semibold text-slate-900">Plans and third-party services</h3><p className="mt-2">Prices, billing intervals, trial periods and usage limits are displayed in the pricing section. Integrations such as Meta and WhatsApp are subject to the relevant third-party terms, approvals and availability.</p></div>
+          <div><h3 className="font-semibold text-slate-900">Availability and changes</h3><p className="mt-2">We may update the platform to improve functionality or security and may restrict access when reasonably necessary for security, legal compliance, misuse or non-payment. The service is provided on an as-available basis to the extent permitted by law.</p></div>
+          <div><h3 className="font-semibold text-slate-900">Applicable law</h3><p className="mt-2">These terms are subject to applicable laws of India, without limiting mandatory protections that may apply in the customer's jurisdiction. Liability that cannot legally be excluded remains unaffected.</p></div>
+          <div><h3 className="font-semibold text-slate-900">Questions</h3><p className="mt-2">For questions about these terms, contact Lafqa Ventures Pvt Ltd through the SafarOS contact details on this page.</p></div>
+        </div>
+      </div></section>
+      <section id="privacy" className="so-section bg-white py-16"><div className="mx-auto max-w-5xl px-6"><h2 className="text-3xl font-bold text-slate-900">Privacy Policy</h2><p className="mt-2 text-xs text-slate-500">Last updated: 23 November 2026</p>
+        <div className="mt-7 grid gap-6 text-sm leading-relaxed text-slate-600 md:grid-cols-2">
+          <div><h3 className="font-semibold text-slate-900">Information collected</h3><p className="mt-2">We may process account and workspace details, business contacts, team accounts, customer and supplier records, bookings, messages, usage information and support requests.</p></div>
+          <div><h3 className="font-semibold text-slate-900">How information is used</h3><p className="mt-2">Information is used to provide and secure SafarOS, operate agency workspaces, support communications, manage subscriptions, respond to enquiries and meet legal obligations. We do not sell personal information.</p></div>
+          <div><h3 className="font-semibold text-slate-900">Service providers</h3><p className="mt-2">Hosting, database, payment and communication providers may process information to help us operate the service. WhatsApp conversations are also subject to Meta's applicable policies.</p></div>
+          <div><h3 className="font-semibold text-slate-900">Security and retention</h3><p className="mt-2">We use reasonable technical and organisational safeguards, but no online service can guarantee absolute security. Information is retained as needed for service delivery, legal obligations and dispute resolution.</p></div>
+          <div><h3 className="font-semibold text-slate-900">Your choices</h3><p className="mt-2">You may request access, correction or deletion of personal information subject to legal requirements. Agencies are responsible for requests relating to customer information they control.</p></div>
+          <div><h3 className="font-semibold text-slate-900">Cookies and updates</h3><p className="mt-2">Essential cookies or local storage may be used for sign-in, preferences and security. Changes to this policy will be published on this page.</p></div>
+        </div>
+      </div></section>
+      <section id="refunds" className="so-section bg-slate-50 py-16"><div className="mx-auto max-w-5xl px-6"><h2 className="text-3xl font-bold text-slate-900">Refund & Cancellation Policy</h2><p className="mt-2 text-xs text-slate-500">Last updated: 23 November 2026</p>
+        <div className="mt-7 max-w-3xl space-y-4 text-sm leading-relaxed text-slate-600">
+          <p><b className="text-slate-900">Free trial:</b> The 14-day Trial plan does not incur a subscription fee.</p>
+          <p><b className="text-slate-900">Cancellation:</b> Contact SafarOS support to request cancellation. Unless stated otherwise at purchase, cancellation prevents the next renewal; access generally continues through the paid billing period. Unused time is not normally refunded.</p>
+          <p><b className="text-slate-900">Duplicate or failed payments:</b> If you are charged more than once for the same period, or payment is collected but the subscription is not activated, contact us with the transaction reference. Verified duplicate or incorrectly collected amounts will be refunded to the original payment method.</p>
+          <p><b className="text-slate-900">How to request a refund:</b> Contact us through the WhatsApp link on this page with your agency details, payment date and transaction reference. We will review the request and advise the outcome. Bank and payment-provider processing times may vary.</p>
+          <p>Nothing in this policy limits a consumer right or remedy that cannot be excluded under applicable law.</p>
+        </div>
+      </div></section>
+    </>
+  );
+}
+
 function Footer() {
   return (
     <footer className="border-t border-white/10 bg-slate-950 py-10">
