@@ -11,6 +11,9 @@ export async function GET(request) {
     window.__safarOSChatLoaded = true;
     var agencySlug = ${JSON.stringify(agency)};
     var endpoint = ${JSON.stringify(apiBase)};
+    var scriptTag = document.currentScript;
+    var packageId = scriptTag && scriptTag.dataset ? (scriptTag.dataset.packageId || '') : '';
+    var packageName = scriptTag && scriptTag.dataset ? (scriptTag.dataset.packageName || '') : '';
     var key = 'safaros-chat-' + agencySlug;
     var state = {};
     try { state = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch(e) {}
@@ -32,7 +35,7 @@ export async function GET(request) {
     function save(){try{localStorage.setItem(key,JSON.stringify(state));}catch(e){}}
     function addMessage(m){var el=document.createElement('div');el.className='sos-chat-msg '+(m.direction==='outbound'?'sos-chat-out':'sos-chat-in');el.textContent=m.text||'';body.appendChild(el);}
     function render(rows){body.textContent='';(rows||[]).forEach(addMessage);body.scrollTop=body.scrollHeight;}
-    async function call(payload){var res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({agencySlug:agencySlug,visitorId:state.visitorId||'',visitorToken:state.visitorToken||'',conversationId:state.conversationId||'',pageUrl:location.href},payload))});var data=await res.json().catch(function(){return {};});if(!res.ok)throw new Error(data.error||'Chat is temporarily unavailable');return data;}
+    async function call(payload){var res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({agencySlug:agencySlug,visitorId:state.visitorId||'',visitorToken:state.visitorToken||'',conversationId:state.conversationId||'',pageUrl:location.href,packageId:packageId,packageName:packageName},payload))});var data=await res.json().catch(function(){return {};});if(!res.ok)throw new Error(data.error||'Chat is temporarily unavailable');return data;}
     async function openChat(){box.style.display='block';launch.style.display='none';if(!state.visitorId)state.visitorId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())+Math.random().toString(16).slice(2);try{var data=await call({action:'start'});state.conversationId=data.conversationId;state.visitorToken=data.visitorToken||state.visitorToken;save();render(data.messages||[]);if(!data.messages||!data.messages.length){var welcome=document.createElement('div');welcome.className='sos-chat-note';welcome.textContent='Welcome! Send us your question and we’ll get back to you.';body.appendChild(welcome);}}catch(e){var error=document.createElement('div');error.className='sos-chat-note';error.textContent=e.message;body.appendChild(error);}}
     launch.addEventListener('click',openChat);
     close.addEventListener('click',function(){box.style.display='none';launch.style.display='block';});
