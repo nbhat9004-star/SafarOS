@@ -32,6 +32,7 @@ import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
 import SupplyHubWorkspace from '@/components/safaros/supply-hub-workspace';
 import SalesRescueWorkspace from '@/components/safaros/sales-rescue-workspace';
+import { WebsiteChatInbox, WebsiteChatEmbed } from '@/components/safaros/website-chat-inbox';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
@@ -6960,7 +6961,7 @@ function CommInbox({ activity, canCreate }) {
       {canCreate && !activity && <Button size="sm" onClick={() => setShow((v) => !v)}><Plus className="h-4 w-4 mr-1" /> Log</Button>}
     </div>
     {show && <CommForm onSaved={() => { setShow(false); load(); }} onCancel={() => setShow(false)} />}
-    {!activity && <WhatsAppInboxPanel />}
+    {!activity && <><WhatsAppInboxPanel /><WebsiteChatInbox /></>}
     {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
     {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No communications yet.{canCreate && !activity ? ' Log your first message above.' : ''}</CardContent></Card>}
     {!loading && rr.length > 0 && <div className="space-y-2">{rr.map((r) => <CommRow key={r.id} r={r} />)}</div>}
@@ -7385,6 +7386,7 @@ function ChannelIntegrations({ session }) {
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
           <div className="min-w-0 flex-1"><div className="font-medium">{d.name}</div><p className="text-sm text-muted-foreground">{d.detail}</p><div className="mt-2"><Badge variant="outline">{status === 'connected' ? 'Connected' : status === 'pending' ? 'Setup pending' : 'Not connected'}</Badge></div></div>
           <Button variant="outline" onClick={() => begin(d)}>{item?.config ? 'Edit details' : 'Configure'}</Button>
+          {d.id === 'website_chat' && item?.config?.websiteUrl && <WebsiteChatEmbed agencySlug={session?.agency?.slug || ''} />}
         </CardContent></Card>;
       })}
     </>}
@@ -7457,12 +7459,12 @@ function CopilotChat({ session }) {
       {diagnostic.checks?.error && <div>{diagnostic.checks.error}</div>}
     </div>}
     <div className="flex-1 min-h-0 overflow-auto space-y-3 p-3">
-      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask Ask SafarOS about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
+      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask SafarOS about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
       {messages.map((m, i) => (<div key={i} className={'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start')}><div className={'max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ' + (m.role === 'user' ? 'bg-primary text-primary-foreground' : m.error ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-muted')}>{m.text}</div></div>))}
       {busy && <div className="flex justify-start"><div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Thinking…</div></div>}
     </div>
     <div className="border-t p-2 flex gap-2">
-      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask Ask SafarOS…" disabled={busy} />
+      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask SafarOS…" disabled={busy} />
       <Button size="icon" onClick={() => send()} disabled={busy || !input.trim()}><Send className="h-4 w-4" /></Button>
     </div>
   </div>);
