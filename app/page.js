@@ -121,7 +121,7 @@ function Hero() {
       <div className="relative z-10 mx-auto max-w-4xl px-6 pb-24 pt-36 text-center sm:pb-32 sm:pt-44">
         <motion.span initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}
           className="so-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-white/85">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> {isArabic ? 'برنامج لوكالات السفر ومنظمي الرحلات' : 'Software for travel agencies & tour operators'}
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> {isArabic ? 'برنامج لوكالات السفر ومنظمي الرحلات' : 'Built for travel agencies across the Gulf · UAE · Saudi Arabia · Qatar · Oman · Bahrain · Kuwait'}
         </motion.span>
         <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.8, ease: EASE }}
           className="mx-auto mt-6 max-w-3xl text-balance text-4xl font-bold leading-[1.06] tracking-tight text-white sm:text-6xl" data-testid="hero-title">
@@ -129,7 +129,7 @@ function Hero() {
         </motion.h1>
         <motion.p initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.7, ease: EASE }}
           className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-white/75 sm:text-lg">
-          {isArabic ? 'الاستفسارات والعروض وخطط الرحلات والحجوزات والسائقون والمدفوعات — يساعدك SafarOS على إدارة كل رحلة من أول اتصال حتى الوصول.' : 'Enquiries, quotes, itineraries, bookings, drivers and payments — SafarOS keeps every trip moving, from the first call to the last drop-off.'}
+          {isArabic ? 'الاستفسارات والعروض وخطط الرحلات والحجوزات والسائقون والمدفوعات — يساعدك SafarOS على إدارة كل رحلة من أول اتصال حتى الوصول.' : 'Manage leads, WhatsApp enquiries, quotations, itineraries, bookings, drivers and payments in one workspace — built for the way Gulf travel agencies operate.'}
         </motion.p>
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38, duration: 0.7, ease: EASE }}
           className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -647,19 +647,66 @@ function Footer() {
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600"><Layers className="h-3.5 w-3.5" /></span>
             <span className="font-bold">SafarOS</span>
           </div>
-          <p className="mt-1.5 text-xs text-white/45">The operating system for travel businesses.</p>
+          <p className="mt-1.5 text-xs text-white/45">The all-in-one operating platform for Gulf travel agencies.</p>
         </div>
         <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-white/60">
           {NAV.map(([l, id]) => <button key={id} onClick={() => scrollToId(id)} className="hover:text-white">{l}</button>)}
           <a href="/login" className="hover:text-white">Sign in</a>
         </nav>
       </div>
-      <div className="mx-auto mt-6 max-w-6xl px-6 text-center text-xs text-white/35 sm:text-left">© {new Date().getFullYear()} SafarOS. All rights reserved.</div>
+      <div className="mx-auto mt-6 max-w-6xl px-6 text-center text-xs text-white/35 sm:text-left">© {new Date().getFullYear()} SafarOS. All rights reserved. <span className="mx-2">·</span> Powered by Lafqa Ventures Pvt Ltd.</div>
     </footer>
   );
 }
 
 /* ---------------------------------------------------- page */
+function SalesWhatsAppPopup() {
+  const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('safaros-sales-popup-dismissed') === '1') return;
+    } catch {}
+    const timer = window.setTimeout(() => setOpen(true), 9000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  const dismiss = () => {
+    setOpen(false);
+    setDismissed(true);
+    try { sessionStorage.setItem('safaros-sales-popup-dismissed', '1'); } catch {}
+  };
+  const message = encodeURIComponent("Hello SafarOS Sales, I would like to know more about SafarOS for my travel agency in the Gulf.");
+  const whatsapp = `https://wa.me/918899046675?text=${message}`;
+  return (
+    <>
+      <a href={whatsapp} target="_blank" rel="noopener noreferrer" aria-label="Chat with SafarOS sales on WhatsApp"
+        className="fixed bottom-5 right-5 z-[70] inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-xl shadow-emerald-950/30 transition hover:bg-emerald-700">
+        <MessageCircle className="h-5 w-5" /> <span>Chat with SafarOS</span>
+      </a>
+      <AnimatePresence>
+        {open && !dismissed && (
+          <motion.div initial={{ opacity: 0, y: 18, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12 }}
+            className="fixed bottom-20 right-5 z-[80] w-[min( calc(100vw - 2.5rem), 22rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
+            <div className="flex items-start justify-between bg-slate-950 p-4 text-white">
+              <div><p className="text-xs font-semibold uppercase tracking-wider text-amber-300">SafarOS Gulf Sales</p><h3 className="mt-1 text-lg font-bold">Planning to grow your agency?</h3></div>
+              <button onClick={dismiss} aria-label="Close sales popup" className="rounded-full p-1 text-white/70 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="p-4">
+              <p className="text-sm leading-relaxed text-slate-600">Talk directly with our team about managing enquiries, quotations, bookings and WhatsApp conversations in one place.</p>
+              <a href={whatsapp} target="_blank" rel="noopener noreferrer"
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700">
+                <MessageCircle className="h-4 w-4" /> Chat with our sales team
+              </a>
+              <button onClick={() => { dismiss(); scrollToId('early-access'); }} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Request a demo instead</button>
+              <p className="mt-3 text-center text-[11px] text-slate-400">WhatsApp sales: +91 88990 46675</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
 function App() {
   const { locale } = useLocalization();
   const [plan, setPlan] = useState('');
@@ -673,6 +720,7 @@ function App() {
       <Pricing onChoose={choose} />
       <EarlyAccess plan={plan} />
       <Footer />
+      <SalesWhatsAppPopup />
     </main>
   );
 }
