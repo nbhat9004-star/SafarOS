@@ -7167,7 +7167,7 @@ function ChannelIntegrations({ session }) {
     try {
       const d = await api('/communications/integrations/' + editing.id, { method: 'PUT', body: JSON.stringify({ config }) });
       setItems((old) => old.map((x) => x.id === editing.id ? d.integration : x).concat(old.some((x) => x.id === editing.id) ? [] : [d.integration]));
-      toast.success('Channel details saved. Provider verification is still required.');
+      toast.success(editing.id === 'website_chat' ? 'Website chat configured. Install the widget code below.' : 'Channel details saved. Provider verification is still required.');
       setEditing(null);
     } catch (e) {
       toast.error(friendlyError(e));
@@ -7382,7 +7382,7 @@ function ChannelIntegrations({ session }) {
       {definitions.map((d) => {
         const item = items.find((x) => x.id === d.id);
         const status = item?.status || 'not_connected';
-        return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+        return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-col sm:items-stretch">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
           <div className="min-w-0 flex-1"><div className="font-medium">{d.name}</div><p className="text-sm text-muted-foreground">{d.detail}</p><div className="mt-2"><Badge variant="outline">{status === 'connected' ? 'Connected' : status === 'pending' ? 'Setup pending' : 'Not connected'}</Badge></div></div>
           <Button variant="outline" onClick={() => begin(d)}>{item?.config ? 'Edit details' : 'Configure'}</Button>
