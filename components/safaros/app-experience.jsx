@@ -7140,16 +7140,30 @@ function ChannelIntegrations({ session }) {
   const load = async () => {
     setLoading(true);
     try {
-      const [integrations, connection, metaConfig] = await Promise.all([
+      // Load each channel resource independently. A failure in the inbox or
+      // integration list must not prevent Meta configuration from being read.
+      const [integrationsResult, connectionResult, metaConfigResult] = await Promise.allSettled([
         api('/communications/integrations'),
         api('/whatsapp/connection'),
         api('/whatsapp/embedded-signup/config'),
       ]);
-      setItems(integrations.integrations || []);
-      setWaConnection(connection.connection || { connected: false, status: 'not_connected' });
-      setWaMetaConfig(metaConfig || { enabled: false });
-    } catch (e) {
-      toast.error(friendlyError(e));
+      if (integrationsResult.status === 'fulfilled') {
+        setItems(integrationsResult.value.integrations || []);
+      } else {
+        toast.error(friendlyError(integrationsResult.reason));
+      }
+      if (connectionResult.status === 'fulfilled') {
+        setWaConnection(connectionResult.value.connection || { connected: false, status: 'not_connected' });
+      } else {
+        setWaConnection({ connected: false, status: 'not_connected' });
+        toast.error(friendlyError(connectionResult.reason));
+      }
+      if (metaConfigResult.status === 'fulfilled') {
+        setWaMetaConfig(metaConfigResult.value || { enabled: false });
+      } else {
+        setWaMetaConfig({ enabled: false, error: friendlyError(metaConfigResult.reason) });
+        toast.error('Unable to check the SafarOS Meta connection settings.');
+      }
     } finally {
       setLoading(false);
     }
@@ -7349,7 +7363,7 @@ function ChannelIntegrations({ session }) {
             <Button onClick={connectWhatsAppWithMeta} disabled={waSaving || loading || !waMetaConfig?.enabled}>
               {waSaving ? 'Connecting…' : 'Connect WhatsApp'}
             </Button>
-            {!waMetaConfig?.enabled && <p className="text-xs text-amber-700">WhatsApp connection is being configured by SafarOS. Please contact SafarOS support if you need help.</p>}
+            {!waMetaConfig?.enabled && <p className="text-xs text-amber-700">{waMetaConfig?.error || (waMetaConfig?.missing?.appId || waMetaConfig?.missing?.configurationId || waMetaConfig?.missing?.appSecret ? 'SafarOS Meta setup is incomplete. Please contact SafarOS support.' : 'WhatsApp connection is being configured by SafarOS. Please contact SafarOS support if you need help.')}</p>}
           </div>}
           {canManage && connected && waConnection?.phoneRegistrationStatus !== 'registered' && <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
             <div className="space-y-1">
