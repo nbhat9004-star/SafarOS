@@ -651,15 +651,15 @@ function Footer() {
     <>
       <footer className="border-t border-white/10 bg-slate-950 py-10">
         <div className="mx-auto max-w-6xl px-6">
-          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2 text-white"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600"><Layers className="h-3.5 w-3.5" /></span><span className="font-bold">SafarOS</span></div>
-            <div className="flex flex-wrap gap-x-5 gap-y-3 text-sm text-white/65">
+          <div className="flex flex-col items-center gap-6 text-center">
+            <div className="flex items-center justify-center gap-2 text-white"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600"><Layers className="h-3.5 w-3.5" /></span><span className="font-bold">SafarOS</span></div>
+            <nav aria-label="Footer navigation" className="flex w-full flex-wrap items-center justify-center gap-x-6 gap-y-3 text-center text-sm text-white/65">
               {Object.entries(panelTitles).map(([key, title]) => (
-                <button key={key} type="button" onClick={() => setActivePanel(key)} className="text-left transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400">{key === 'refunds' ? 'Refund Policy' : title}</button>
+                <button key={key} type="button" onClick={() => setActivePanel(key)} className="text-center transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400">{key === 'refunds' ? 'Refund Policy' : title}</button>
               ))}
-            </div>
+            </nav>
           </div>
-          <div className="mt-7 flex flex-col gap-2 border-t border-white/10 pt-5 text-xs text-white/40 sm:flex-row sm:justify-between"><span>© {new Date().getFullYear()} SafarOS. All rights reserved.</span><span>Powered by Lafqa Ventures Pvt Ltd.</span></div>
+          <div className="mt-7 flex flex-col items-center gap-2 border-t border-white/10 pt-5 text-center text-xs text-white/40"><span>© {new Date().getFullYear()} SafarOS. All rights reserved.</span><span>Powered by Lafqa Ventures Pvt Ltd.</span></div>
         </div>
       </footer>
 
