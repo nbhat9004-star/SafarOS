@@ -18,7 +18,7 @@ const IMG = {
 };
 
 const EASE = [0.22, 1, 0.36, 1];
-const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const inr = (n) => `AED ${Number(n || 0).toLocaleString('en-US')}`;
 const WARM = 'bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400 bg-clip-text text-transparent';
 
 const scrollToId = (id) => {
@@ -97,7 +97,7 @@ function Hero() {
         </motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.8 }}
           className="mx-auto mt-10 flex max-w-xl flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
-          {(isArabic ? ['تجربة مجانية لمدة 14 يوماً', `الأسعار بعملة ${currency}`, 'يعمل على الهاتف والكمبيوتر'] : ['14-day free trial', `Prices in ${currency}`, 'Works on phone & laptop']).map((t) => (
+          {(isArabic ? ['تجربة مجانية لمدة 14 يوماً', `الأسعار بعملة ${currency}`, 'يعمل على الهاتف والكمبيوتر'] : ['14-day free trial', `Prices in AED`, 'Works on phone & laptop']).map((t) => (
             <span key={t} className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-amber-400" />{t}</span>
           ))}
         </motion.div>
@@ -503,7 +503,7 @@ function Pricing({ onChoose }) {
             <b className="text-slate-900">What lifetime includes:</b> lifetime use of the licensed SafarOS software and free standard product updates, bug fixes and security updates while SafarOS is commercially maintained. <b className="text-slate-900">Separate costs:</b> hosting, server infrastructure, domain renewals, Meta/WhatsApp charges, AI and other third-party APIs, payment processing, ongoing managed support and new bespoke development. Licence is for one named company and one agreed branded deployment; it does not transfer SafarOS ownership or source-code rights.
           </div>
         </div>
-        <p className="mt-6 text-center text-xs text-slate-400">Subscription prices are in Indian Rupees. Legacy prices are in UAE Dirhams (AED). Taxes extra where applicable.</p>
+        <p className="mt-6 text-center text-xs text-slate-400">All prices are in UAE Dirhams (AED). Taxes extra where applicable.</p>
       </div>
     </section>
   );
@@ -622,7 +622,7 @@ function TrustAndLegal() {
   const faqs = [
     ['Who is SafarOS for?', 'SafarOS helps travel agencies and tour operators manage enquiries, quotations, itineraries, bookings, teams and customer communication.'],
     ['Can we connect our own WhatsApp Business number?', 'Yes. Each agency connects its own eligible WhatsApp Business account through Meta authorisation. Meta eligibility, permissions and approval requirements apply.'],
-    ['Is there a free trial?', 'The Trial plan provides a 14-day evaluation period. Subscription plans renew monthly or yearly.'],
+    ['Is there a free trial?', 'The Trial plan provides a 14-day evaluation period. Subscription plans are priced in AED and renew monthly or yearly.'],
     ['What is SafarOS Legacy?', 'SafarOS Legacy is a one-time white-label software licence for one named travel company and one agreed branded deployment. It includes lifetime software use and free standard product updates while SafarOS is commercially maintained. Hosting, domains, third-party usage charges, managed support and new bespoke development are separate.'],
     ['How do we cancel?', 'Contact SafarOS support to request cancellation. Unless stated otherwise at purchase, cancellation prevents the next renewal and access generally continues through the paid period.'],
     ['How do we contact support?', 'Use the WhatsApp contact link or the enquiry form on this page.'],
@@ -651,15 +651,15 @@ function Footer() {
     <>
       <footer className="border-t border-white/10 bg-slate-950 py-10">
         <div className="mx-auto max-w-6xl px-6">
-          <div className="flex flex-col items-center gap-6 text-center">
+          <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-6 text-center">
             <div className="flex items-center justify-center gap-2 text-white"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600"><Layers className="h-3.5 w-3.5" /></span><span className="font-bold">SafarOS</span></div>
-            <nav aria-label="Footer navigation" className="flex w-full flex-wrap items-center justify-center gap-x-6 gap-y-3 text-center text-sm text-white/65">
+            <nav aria-label="Footer navigation" className="mx-auto grid w-full max-w-3xl grid-cols-2 justify-items-center gap-x-4 gap-y-4 text-center text-sm text-white/65 sm:grid-cols-4">
               {Object.entries(panelTitles).map(([key, title]) => (
                 <button key={key} type="button" onClick={() => setActivePanel(key)} className="text-center transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400">{key === 'refunds' ? 'Refund Policy' : title}</button>
               ))}
             </nav>
           </div>
-          <div className="mt-7 flex flex-col items-center gap-2 border-t border-white/10 pt-5 text-center text-xs text-white/40"><span>© {new Date().getFullYear()} SafarOS. All rights reserved.</span><span>Powered by Lafqa Ventures Pvt Ltd.</span></div>
+          <div className="mt-7 flex w-full flex-col items-center justify-center gap-2 border-t border-white/10 pt-5 text-center text-xs text-white/40"><span>© {new Date().getFullYear()} SafarOS. All rights reserved.</span><span>Powered by Lafqa Ventures Pvt Ltd.</span></div>
         </div>
       </footer>
 
