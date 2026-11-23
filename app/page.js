@@ -479,7 +479,31 @@ function Pricing({ onChoose }) {
             );
           })}
         </div>
-        <p className="mt-6 text-center text-xs text-slate-400">Prices in Indian Rupees. Taxes extra where applicable.</p>
+        <div className="mt-16 border-t border-slate-200 pt-14">
+          <SectionHead eyebrow="One-time white-label licence" title="Your brand. Your platform. Pay once." sub="For established travel companies that want a dedicated SafarOS setup, lifetime software use and standard product updates — without a recurring SafarOS subscription." />
+          <div className="mt-10 grid gap-5 md:grid-cols-3">
+            {[
+              { id: 'legacy-standard', name: 'Legacy Standard', price: 'AED 14,999', desc: 'A branded SafarOS foundation for smaller operators.', items: ['Dedicated branded setup', 'Company logo and colour theme', 'Core CRM, packages and quotations', 'Booking management', 'Lifetime software licence', 'Free standard product updates'] },
+              { id: 'legacy-advanced', name: 'Legacy Advanced', price: 'AED 24,999', desc: 'A complete white-label setup for established travel companies.', popular: true, items: ['Everything in Standard', 'Custom domain and branded PWA', 'Broader operational modules', 'WhatsApp and website chat setup', 'Agreed workflow configuration', 'Initial data migration assistance', 'Administrator training and handover', 'Lifetime software licence and standard updates'] },
+              { id: 'legacy-enterprise', name: 'Legacy Enterprise', price: 'From AED 39,999', desc: 'For larger operators with complex requirements.', items: ['Everything in Advanced', 'Multi-branch or complex setup', 'Additional integration scoping', 'Advanced workflow configuration', 'Dedicated implementation plan', 'Bespoke development quoted separately'] },
+            ].map((p) => (
+              <div key={p.id} className={`relative flex h-full flex-col rounded-2xl border p-6 ${p.popular ? 'border-amber-400 bg-slate-950 text-white shadow-xl ring-2 ring-amber-300' : 'border-slate-200 bg-white text-slate-900'}`} data-testid={`plan-card-${p.id}`}>
+                {p.popular && <span className="absolute -top-3 left-6 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-3 py-1 text-[11px] font-bold text-slate-950">Recommended</span>}
+                <h3 className="text-lg font-bold">{p.name}</h3>
+                <p className={`mt-2 min-h-[48px] text-sm ${p.popular ? 'text-white/65' : 'text-slate-500'}`}>{p.desc}</p>
+                <div className="mt-5"><span className="text-3xl font-bold tracking-tight" data-testid={`plan-price-${p.id}`}>{p.price}</span><p className={`mt-1 text-xs ${p.popular ? 'text-white/50' : 'text-slate-400'}`}>One-time licence and setup fee</p></div>
+                <ul className="mt-6 flex-1 space-y-2.5 text-sm">
+                  {p.items.map((item) => <li key={item} className="flex items-start gap-2"><Check className={`mt-0.5 h-4 w-4 shrink-0 ${p.popular ? 'text-amber-400' : 'text-orange-500'}`} /><span className={p.popular ? 'text-white/85' : 'text-slate-700'}>{item}</span></li>)}
+                </ul>
+                <button onClick={() => onChoose(p.id)} data-testid={`plan-cta-${p.id}`} className={`mt-7 inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${p.popular ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 hover:brightness-110' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>Enquire about {p.name} <ArrowRight className="h-4 w-4" /></button>
+              </div>
+            ))}
+          </div>
+          <div className="mx-auto mt-6 max-w-4xl rounded-2xl bg-slate-50 p-5 text-xs leading-relaxed text-slate-600">
+            <b className="text-slate-900">What lifetime includes:</b> lifetime use of the licensed SafarOS software and free standard product updates, bug fixes and security updates while SafarOS is commercially maintained. <b className="text-slate-900">Separate costs:</b> hosting, server infrastructure, domain renewals, Meta/WhatsApp charges, AI and other third-party APIs, payment processing, ongoing managed support and new bespoke development. Licence is for one named company and one agreed branded deployment; it does not transfer SafarOS ownership or source-code rights.
+          </div>
+        </div>
+        <p className="mt-6 text-center text-xs text-slate-400">Subscription prices are in Indian Rupees. Legacy prices are in UAE Dirhams (AED). Taxes extra where applicable.</p>
       </div>
     </section>
   );
@@ -487,7 +511,7 @@ function Pricing({ onChoose }) {
 
 /* ---------------------------------------------------- early access form */
 const TEAM_SIZES = ['1', '2-5', '6-20', '21-50', '50+'];
-const PLAN_OPTIONS = [['not_sure', 'Not sure yet'], ...PLAN_CATALOG.map((p) => [p.id, p.name])];
+const PLAN_OPTIONS = [['not_sure', 'Not sure yet'], ...PLAN_CATALOG.map((p) => [p.id, p.name]), ['legacy-standard', 'SafarOS Legacy Standard — AED 14,999 one-time'], ['legacy-advanced', 'SafarOS Legacy Advanced — AED 24,999 one-time'], ['legacy-enterprise', 'SafarOS Legacy Enterprise — from AED 39,999 one-time']];
 const EMPTY = { name: '', email: '', phone: '', agencyName: '', city: '', teamSize: '', interestedPlan: 'not_sure', message: '', website: '' };
 
 function Field({ label, required, children }) {
@@ -598,7 +622,8 @@ function TrustAndLegal() {
   const faqs = [
     ['Who is SafarOS for?', 'SafarOS helps travel agencies and tour operators manage enquiries, quotations, itineraries, bookings, teams and customer communication.'],
     ['Can we connect our own WhatsApp Business number?', 'Yes. Each agency connects its own eligible WhatsApp Business account through Meta authorisation. Meta eligibility, permissions and approval requirements apply.'],
-    ['Is there a free trial?', 'The Trial plan provides a 14-day evaluation period. Paid plan prices and limits are shown above.'],
+    ['Is there a free trial?', 'The Trial plan provides a 14-day evaluation period. Subscription plans renew monthly or yearly.'],
+    ['What is SafarOS Legacy?', 'SafarOS Legacy is a one-time white-label software licence for one named travel company and one agreed branded deployment. It includes lifetime software use and free standard product updates while SafarOS is commercially maintained. Hosting, domains, third-party usage charges, managed support and new bespoke development are separate.'],
     ['How do we cancel?', 'Contact SafarOS support to request cancellation. Unless stated otherwise at purchase, cancellation prevents the next renewal and access generally continues through the paid period.'],
     ['How do we contact support?', 'Use the WhatsApp contact link or the enquiry form on this page.'],
   ];
@@ -658,9 +683,9 @@ function Footer() {
             {activePanel === 'terms' && (
               <div className="grid gap-5 text-sm leading-relaxed sm:grid-cols-2">
                 <p className="text-xs text-slate-500 sm:col-span-2">Last updated: 23 November 2026</p>
-                <div><h3 className="font-semibold text-slate-950">Using SafarOS</h3><p className="mt-2">SafarOS is subscription software for travel businesses. By registering or using the service, you agree to these terms and must provide accurate account information and keep your credentials secure.</p></div>
+                <div><h3 className="font-semibold text-slate-950">Using SafarOS</h3><p className="mt-2">SafarOS is offered through recurring subscriptions and the separate SafarOS Legacy one-time white-label licence. By registering or using the service, you agree to these terms and must provide accurate account information and keep your credentials secure.</p></div>
                 <div><h3 className="font-semibold text-slate-950">Agency responsibilities</h3><p className="mt-2">Your agency is responsible for the accuracy and lawful use of customer, supplier, booking, itinerary and payment information entered into its workspace, including obtaining any required permissions to process personal data.</p></div>
-                <div><h3 className="font-semibold text-slate-950">Plans and third-party services</h3><p className="mt-2">Prices, billing intervals, trial periods and usage limits are displayed in the pricing section. Integrations such as Meta and WhatsApp are subject to the relevant third-party terms, approvals and availability.</p></div>
+                <div><h3 className="font-semibold text-slate-950">Plans and third-party services</h3><p className="mt-2">Subscription prices, billing intervals, trial periods and usage limits are displayed in the pricing section. SafarOS Legacy is a one-time licence for one named company and one agreed branded deployment; it includes lifetime software use and free standard product updates while SafarOS is commercially maintained. Hosting, infrastructure, domain renewals, Meta/WhatsApp charges, AI and other third-party usage, managed support and new bespoke development are not included unless separately agreed in writing. The licence does not transfer SafarOS ownership or source-code rights. Integrations are subject to third-party terms, approvals and availability.</p></div>
                 <div><h3 className="font-semibold text-slate-950">Availability and changes</h3><p className="mt-2">We may update the platform to improve functionality or security and may restrict access when reasonably necessary for security, legal compliance, misuse or non-payment. The service is provided on an as-available basis to the extent permitted by law.</p></div>
                 <div><h3 className="font-semibold text-slate-950">Applicable law</h3><p className="mt-2">These terms are subject to applicable laws of India, without limiting mandatory protections that may apply in the customer's jurisdiction. Liability that cannot legally be excluded remains unaffected.</p></div>
                 <div><h3 className="font-semibold text-slate-950">Questions</h3><p className="mt-2">For questions about these terms, contact Lafqa Ventures Pvt Ltd through the SafarOS contact details provided here.</p></div>
@@ -683,6 +708,7 @@ function Footer() {
               <div className="space-y-4 text-sm leading-relaxed">
                 <p className="text-xs text-slate-500">Last updated: 23 November 2026</p>
                 <p><b className="text-slate-950">Free trial:</b> The 14-day Trial plan does not incur a subscription fee.</p>
+                <p><b className="text-slate-950">SafarOS Legacy:</b> Legacy is a one-time licence and setup purchase. Any refund eligibility, cancellation of implementation, work already completed, and applicable statutory rights will be governed by the signed order and applicable law. Hosting and third-party services may be billed separately by their providers.</p>
                 <p><b className="text-slate-950">Cancellation:</b> Contact SafarOS support to request cancellation. Unless stated otherwise at purchase, cancellation prevents the next renewal; access generally continues through the paid billing period. Unused time is not normally refunded.</p>
                 <p><b className="text-slate-950">Duplicate or failed payments:</b> If you are charged more than once for the same period, or payment is collected but the subscription is not activated, contact us with the transaction reference. Verified duplicate or incorrectly collected amounts will be refunded to the original payment method.</p>
                 <p><b className="text-slate-950">How to request a refund:</b> Contact us through the WhatsApp link above with your agency details, payment date and transaction reference. We will review the request and advise the outcome. Bank and payment-provider processing times may vary.</p>
