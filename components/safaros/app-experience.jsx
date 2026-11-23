@@ -7350,6 +7350,7 @@ function ChannelIntegrations({ session }) {
               {waSaving ? 'Connecting…' : 'Connect WhatsApp'}
             </Button>
             {!waMetaConfig?.enabled && <p className="text-xs text-amber-700">WhatsApp connection is being configured by SafarOS. Please contact SafarOS support if you need help.</p>}
+          </div>}
           {canManage && connected && waConnection?.phoneRegistrationStatus !== 'registered' && <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
             <div className="space-y-1">
               <div className="font-medium">Register WhatsApp phone number</div>
