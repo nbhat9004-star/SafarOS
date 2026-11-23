@@ -12,8 +12,10 @@ export async function GET(request) {
     var agencySlug = ${JSON.stringify(agency)};
     var endpoint = ${JSON.stringify(apiBase)};
     var scriptTag = document.currentScript;
-    var packageId = scriptTag && scriptTag.dataset ? (scriptTag.dataset.packageId || '') : '';
-    var packageName = scriptTag && scriptTag.dataset ? (scriptTag.dataset.packageName || '') : '';
+    var pageParts = location.pathname.split('/').filter(Boolean);
+    var packageContext = /package|tour/i.test(location.pathname) ? (pageParts[pageParts.length - 1] || '') : '';
+    var packageId = (scriptTag && scriptTag.dataset && scriptTag.dataset.packageId) || packageContext;
+    var packageName = (scriptTag && scriptTag.dataset && scriptTag.dataset.packageName) || (packageContext ? document.title : '');
     var key = 'safaros-chat-' + agencySlug;
     var state = {};
     try { state = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch(e) {}
