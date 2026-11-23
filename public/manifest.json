@@ -1,11 +1,24 @@
 {
-  "name": "SafarOS — B2B OS for Travel Agencies",
+  "name": "SafarOS — Travel Agency Operating Platform",
   "short_name": "SafarOS",
-  "description": "Multi-tenant operating system for travel agencies.",
+  "description": "One workspace for Gulf travel agencies to manage enquiries, quotations, itineraries, bookings, fleet and customer communication.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#ffffff",
-  "theme_color": "#7c3aed"
+  "background_color": "#080d1b",
+  "theme_color": "#0b1224",
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/safaros-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
 }
