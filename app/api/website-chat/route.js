@@ -60,9 +60,11 @@ async function publicPost(request, body, db) {
   if (resolved.error) return json({ error: resolved.error }, resolved.status, origin);
   const { agency } = resolved;
   const ip = clean(request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown', 80);
-  if (!rateAllowed(agency.id + ':' + hash(ip))) return json({ error: 'Please wait a moment before sending another message.' }, 429, origin);
-
   const action = clean(body.action || 'start', 20);
+  // Polling for replies should not consume the visitor's message-send allowance.
+  if (action !== 'history' && !rateAllowed(agency.id + ':' + hash(ip))) {
+    return json({ error: 'Please wait a moment before sending another message.' }, 429, origin);
+  }
   const visitorToken = clean(body.visitorToken, 128);
   const conversationId = clean(body.conversationId, 80);
   const visitorId = clean(body.visitorId, 100);
