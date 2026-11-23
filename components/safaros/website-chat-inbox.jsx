@@ -130,7 +130,7 @@ export function WebsiteChatEmbed({ agencySlug }) {
     catch { toast.error('Copy failed. Select and copy the code manually.'); }
   };
   if (!agencySlug) return null;
-  return <div className="mt-3 rounded-lg border bg-muted/20 p-3 space-y-2">
+  return <div className="mt-3 w-full rounded-lg border bg-muted/20 p-3 space-y-2">
     <div className="text-sm font-medium">Install your website chat widget</div>
     <p className="text-xs text-muted-foreground">Copy this code and paste it just before the closing &lt;/body&gt; tag on your agency website.</p>
     <code className="block break-all rounded-md bg-background p-3 text-[11px]">{snippet || 'Preparing your installation code…'}</code>
