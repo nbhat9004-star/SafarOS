@@ -26,6 +26,10 @@ const scrollToId = (id) => {
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
+const openSalesChat = (message = '') => {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('safaros:open-sales-chat', { detail: { message } }));
+};
+
 function Reveal({ children, delay = 0, className = '' }) {
   return (
     <motion.div className={className} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
@@ -45,62 +49,81 @@ function SectionHead({ eyebrow, title, sub, dark = false }) {
   );
 }
 
-/* ---------------------------------------------------- header */
+/* ---------------------------------------------------- single-page header */
 function Header() {
-  const { locale } = useLocalization();
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-slate-950/85 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
         <a href="/" className="flex items-center gap-2 text-white" aria-label="SafarOS home">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600 shadow-lg shadow-indigo-900/40"><Layers className="h-4 w-4" /></span>
-          <span className="text-base font-bold tracking-tight">SafarOS</span>
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-900/40"><Layers className="h-5 w-5" /></span>
+          <span className="text-xl font-extrabold tracking-tight">Safar<span className="text-amber-400">OS</span></span>
         </a>
         <div className="flex items-center gap-3">
-          <a href="/login" className="text-sm font-semibold text-white/80 hover:text-white">Sign in</a>
-          <button onClick={() => scrollToId('early-access')} className="rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2 text-sm font-semibold text-slate-950">Get started <ArrowRight className="ml-1 inline h-4 w-4" /></button>
+          <a href="/login" className="text-sm font-semibold text-white/80 transition hover:text-white">Sign in</a>
+          <button type="button" onClick={() => openSalesChat('Hello SafarOS, I would like to speak with your team.')} className="rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-lg shadow-orange-500/20 transition hover:brightness-110">Talk to our team <ArrowRight className="ml-1 inline h-4 w-4" /></button>
         </div>
       </div>
     </header>
   );
 }
 
-/* ---------------------------------------------------- hero */
+/* ---------------------------------------------------- Gulf-focused hero */
 function Hero() {
-  const { locale, currency } = useLocalization();
+  const { locale } = useLocalization();
   const isArabic = locale === 'ar';
+  const kpis = [{ label: 'Enquiries', value: '128', tone: 'from-blue-600 to-blue-500' }, { label: 'Bookings', value: '64', tone: 'from-emerald-600 to-teal-500' }, { label: 'Customers', value: '842', tone: 'from-violet-600 to-purple-500' }, { label: 'Revenue', value: 'AED 48.5K', tone: 'from-amber-500 to-orange-500' }];
+  const modules = [{ icon: MessageCircle, label: 'Customer conversations' }, { icon: CalendarCheck, label: 'Bookings & reservations' }, { icon: Users, label: 'CRM & lead management' }, { icon: Layers, label: 'Packages & itineraries' }, { icon: Wallet, label: 'Payments & invoicing' }, { icon: LayoutDashboard, label: 'Reports & insights' }, { icon: Truck, label: 'Agency operations' }, { icon: Bot, label: 'AI Copilot' }];
   return (
-    <section className="relative overflow-hidden bg-slate-950">
-      <img src={IMG.hero} alt="Desert dunes at golden hour" fetchPriority="high" className="absolute inset-0 h-full w-full object-cover" />
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-950/60 via-slate-950/35 to-slate-950" />
-      <div className="absolute inset-0 bg-gradient-to-tr from-indigo-950/50 via-transparent to-orange-900/20" />
-      <div className="relative z-10 mx-auto max-w-4xl px-6 pb-24 pt-36 text-center sm:pb-32 sm:pt-44">
-        <motion.span initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}
-          className="so-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-white/85">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> {isArabic ? 'برنامج لوكالات السفر ومنظمي الرحلات' : 'Built for travel agencies across the Gulf · UAE · Saudi Arabia · Qatar · Oman · Bahrain · Kuwait'}
-        </motion.span>
-        <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.8, ease: EASE }}
-          className="mx-auto mt-6 max-w-3xl text-balance text-4xl font-bold leading-[1.06] tracking-tight text-white sm:text-6xl" data-testid="hero-title">
-          {isArabic ? <>أدر وكالة السفر بالكامل <span className={WARM}>من مكان واحد.</span></> : <>Run your whole travel agency <span className={WARM}>from one place.</span></>}
-        </motion.h1>
-        <motion.p initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.7, ease: EASE }}
-          className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-white/75 sm:text-lg">
-          {isArabic ? 'الاستفسارات والعروض وخطط الرحلات والحجوزات والسائقون والمدفوعات — يساعدك SafarOS على إدارة كل رحلة من أول اتصال حتى الوصول.' : 'Manage leads, WhatsApp enquiries, quotations, itineraries, bookings, drivers and payments in one workspace — built for the way Gulf travel agencies operate.'}
-        </motion.p>
-        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38, duration: 0.7, ease: EASE }}
-          className="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <button onClick={() => scrollToId('demo')} data-testid="hero-demo-btn" className="group inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-white/90">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-white"><Play className="h-3 w-3 fill-current" /></span> {isArabic ? 'شاهد العرض التوضيحي' : 'Watch the demo'}
-          </button>
-          <button onClick={() => scrollToId('early-access')} data-testid="hero-cta-btn" className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_10px_40px_rgba(251,146,60,0.35)] transition hover:brightness-110">
-            Get early access <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </button>
-        </motion.div>
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.8 }}
-          className="mx-auto mt-10 flex max-w-xl flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
-          {(isArabic ? ['تجربة مجانية لمدة 14 يوماً', `الأسعار بعملة ${currency}`, 'يعمل على الهاتف والكمبيوتر'] : ['14-day free trial', `Prices in AED`, 'Works on phone & laptop']).map((t) => (
-            <span key={t} className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-amber-400" />{t}</span>
-          ))}
-        </motion.div>
+    <section className="relative isolate overflow-hidden bg-[#0b1228] pt-24 text-white">
+      <img src={IMG.hero} alt="Gulf city skyline at sunset" fetchPriority="high" className="absolute inset-0 h-full w-full object-cover opacity-35" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_75%_20%,rgba(249,115,22,.28),transparent_35%),linear-gradient(110deg,#0b1228_8%,rgba(11,18,40,.94)_48%,rgba(11,18,40,.55))]" />
+      <div className="relative mx-auto grid max-w-7xl items-center gap-10 px-5 pb-12 pt-14 sm:px-8 lg:grid-cols-[.95fr_1.05fr] lg:gap-12 lg:pb-16 lg:pt-20">
+        <div className="relative z-10">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/90 backdrop-blur">
+            <span className="h-2 w-2 rounded-full bg-amber-400" /> Built for travel agencies across the Gulf
+          </span>
+          <h1 className="mt-6 max-w-2xl text-balance text-4xl font-extrabold leading-[1.04] tracking-tight sm:text-5xl lg:text-[3.65rem]" data-testid="hero-title">
+            {isArabic ? <>أدر وكالة السفر بالكامل <span className={WARM}>من مكان واحد.</span></> : <>Run, manage and grow your travel agency <span className={WARM}>from one powerful workspace.</span></>}
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-relaxed text-white/75 sm:text-lg">
+            Enquiries, bookings, customers, operations and payments — a modern travel agency operating system built for the UAE, Saudi Arabia, Qatar, Oman, Bahrain and Kuwait.
+          </p>
+          <div className="mt-7 flex flex-wrap gap-3">
+            <button type="button" onClick={() => openSalesChat('Hello SafarOS, I would like to arrange a demo.')} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-6 py-3.5 text-sm font-extrabold text-slate-950 shadow-[0_12px_36px_rgba(249,115,22,.3)] transition hover:brightness-110"><MessageCircle className="h-4 w-4" /> Talk to our team <ArrowRight className="h-4 w-4" /></button>
+            <button type="button" onClick={() => scrollToId('demo')} className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/15"><Play className="h-4 w-4" /> Watch product demo</button>
+          </div>
+          <div className="mt-5 flex items-center gap-2 text-xs text-emerald-200"><span className="h-2 w-2 rounded-full bg-emerald-400" /> Speak directly with our sales & support team on WhatsApp</div>
+          <div className="mt-8 flex flex-wrap gap-x-5 gap-y-3 text-xs font-medium text-white/65">
+            {[['Zap','Quick to get started'],['Globe','Cloud based'],['Smartphone','Works on mobile'],['CheckCircle2','Secure agency workspaces']].map(([name,label]) => { const Ic = {Zap:Sparkles,Globe,Smartphone,CheckCircle2}[name]; return <span key={label} className="inline-flex items-center gap-1.5"><Ic className="h-4 w-4 text-amber-300" />{label}</span>; })}
+          </div>
+        </div>
+        <div className="relative mx-auto w-full max-w-2xl">
+          <div className="absolute -inset-8 rounded-[2rem] bg-gradient-to-br from-indigo-500/25 via-transparent to-orange-400/20 blur-2xl" />
+          <div className="relative overflow-hidden rounded-[1.6rem] border border-white/20 bg-[#111d38]/95 p-3 shadow-[0_30px_90px_rgba(0,0,0,.5)] backdrop-blur-xl sm:p-4">
+            <div className="flex items-center justify-between border-b border-white/10 px-2 pb-3">
+              <div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600"><Layers className="h-4 w-4"/></span><span className="font-bold">Safar<span className="text-amber-400">OS</span></span></div>
+              <div className="flex items-center gap-2 text-[10px] text-white/50"><span className="h-2 w-2 rounded-full bg-emerald-400"/> Sample workspace <span className="ml-2 rounded-full bg-white/10 px-2 py-1">Demo</span></div>
+            </div>
+            <div className="grid min-h-[300px] grid-cols-[92px_1fr] gap-3 pt-3 sm:grid-cols-[118px_1fr]">
+              <div className="space-y-2 border-r border-white/10 pr-2 text-[10px] text-white/60">
+                {[[LayoutDashboard,'Dashboard'],[Users,'Enquiries'],[CalendarCheck,'Bookings'],[Users,'Customers'],[Layers,'Packages'],[MessageCircle,'WhatsApp'],[LayoutDashboard,'Reports']].map(([Ic,label],i)=><div key={label} className={'flex items-center gap-2 rounded-lg px-2 py-2 '+(i===0?'bg-indigo-600/70 text-white':'')}><Ic className="h-3.5 w-3.5 shrink-0"/><span>{label}</span></div>)}
+              </div>
+              <div className="min-w-0">
+                <div className="mb-3"><div className="text-sm font-bold sm:text-base">Good morning!</div><div className="text-[10px] text-white/55">Your agency at a glance</div></div>
+                <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+                  {kpis.map((k)=> <div key={k.label} className={'rounded-xl bg-gradient-to-br '+k.tone+' p-2.5 shadow-lg'}><div className="text-[9px] text-white/75">{k.label}</div><div className="mt-1 text-base font-extrabold sm:text-lg">{k.value}</div></div>)}
+                </div>
+                <div className="mt-3 rounded-xl border border-white/10 bg-[#0b1530] p-3">
+                  <div className="flex items-center justify-between"><span className="text-xs font-semibold">Business overview</span><span className="text-[9px] text-white/45">Illustrative data</span></div>
+                  <svg viewBox="0 0 520 150" className="mt-3 h-28 w-full" role="img" aria-label="Illustrative upward trend chart"><defs><linearGradient id="safaros-chart-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#8b5cf6" stopOpacity=".45"/><stop offset="100%" stopColor="#8b5cf6" stopOpacity="0"/></linearGradient></defs><path d="M0 118 C45 110 55 70 105 85 S170 118 220 70 S290 95 340 48 S410 65 460 24 L520 12 L520 150 L0 150Z" fill="url(#safaros-chart-fill)"/><path d="M0 118 C45 110 55 70 105 85 S170 118 220 70 S290 95 340 48 S410 65 460 24 L520 12" fill="none" stroke="#a78bfa" strokeWidth="3" strokeLinecap="round"/></svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="relative mx-auto grid max-w-7xl grid-cols-2 gap-2 px-5 pb-10 sm:grid-cols-4 sm:px-8 lg:grid-cols-8">
+        {modules.map(({icon:Icon,label})=><div key={label} className="flex min-h-[66px] flex-col items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.045] px-2 py-3 text-center text-[10px] font-semibold text-white/80 sm:text-[11px]"><Icon className="h-5 w-5 text-violet-300"/>{label}</div>)}
       </div>
     </section>
   );
@@ -509,111 +532,45 @@ function Pricing({ onChoose }) {
   );
 }
 
-/* ---------------------------------------------------- early access form */
-const TEAM_SIZES = ['1', '2-5', '6-20', '21-50', '50+'];
-const PLAN_OPTIONS = [['not_sure', 'Not sure yet'], ...PLAN_CATALOG.map((p) => [p.id, p.name]), ['legacy-standard', 'SafarOS Legacy Standard — AED 14,999 one-time'], ['legacy-advanced', 'SafarOS Legacy Advanced — AED 24,999 one-time'], ['legacy-enterprise', 'SafarOS Legacy Enterprise — from AED 39,999 one-time']];
-const EMPTY = { name: '', email: '', phone: '', agencyName: '', city: '', teamSize: '', interestedPlan: 'not_sure', message: '', website: '' };
-
-function Field({ label, required, children }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs font-semibold text-slate-700">{label}{required && <span className="text-orange-600"> *</span>}</span>
-      {children}
-    </label>
-  );
+/* ---------------------------------------------------- simple operating flow */
+function HowItWorks() {
+  const steps = [{icon:Users,title:'Connect your agency',text:'Set up your account, team and agency workspace.'},{icon:Layers,title:'Run your operations',text:'Manage enquiries, quotations, itineraries, bookings and payments.'},{icon:Sparkles,title:'Grow with clarity',text:'Keep customers organised and understand your business performance.'}];
+  return <section className="bg-slate-50 py-14 sm:py-16"><div className="mx-auto max-w-6xl px-5 sm:px-8"><SectionHead eyebrow="Get started" title="How SafarOS works." sub="A simple path from scattered tools to one connected workspace."/><div className="mt-10 grid gap-6 md:grid-cols-3">{steps.map((step,i)=>{const Ic=step.icon;return <Reveal key={step.title} delay={i*.08}><div className="flex h-full items-start gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700"><Ic className="h-6 w-6"/></span><div><div className="text-xs font-bold uppercase tracking-widest text-orange-600">Step {i+1}</div><h3 className="mt-1 font-bold text-slate-950">{step.title}</h3><p className="mt-1 text-sm leading-relaxed text-slate-600">{step.text}</p></div></div></Reveal>})}</div></div></section>;
 }
-const inputCls = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100';
 
-function EarlyAccess({ plan }) {
-  const [f, setF] = useState(EMPTY);
-  const [state, setState] = useState('idle'); // idle | sending | done
-  const [error, setError] = useState('');
-  useEffect(() => { if (plan) setF((p) => ({ ...p, interestedPlan: plan })); }, [plan]);
-  const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+function TrustStrip() {
+  const items=[['Secure workspaces','Agency data stays scoped to its workspace',CheckCircle2],['Cloud based','Access your workspace online',Globe],['Mobile ready','Designed for phone and desktop',Smartphone],['Human support','Speak directly with our team',MessageCircle]];
+  return <section className="border-y border-slate-200 bg-white py-7"><div className="mx-auto grid max-w-6xl grid-cols-2 gap-5 px-5 sm:px-8 md:grid-cols-4">{items.map(([title,sub,Ic])=><div key={title} className="flex items-center gap-3"><Ic className="h-6 w-6 shrink-0 text-indigo-600"/><div><div className="text-sm font-bold text-slate-900">{title}</div><div className="text-[11px] text-slate-500">{sub}</div></div></div>)}</div></section>;
+}
 
-  const submit = async (e) => {
-    e.preventDefault();
-    setError('');
-    if (!f.name.trim()) return setError('Please enter your name.');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(f.email.trim())) return setError('Please enter a valid email address.');
-    setState('sending');
-    try {
-      const res = await fetch('/api/early-access', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Something went wrong. Please try again.');
-      setState('done');
-    } catch (ex) {
-      setError(ex?.message || 'Something went wrong. Please try again.');
-      setState('idle');
-    }
-  };
+/* ---------------------------------------------------- direct sales and support CTA */
+function SalesCTA() {
+  return <section id="early-access" className="relative overflow-hidden bg-slate-950 py-16 text-white sm:py-20"><div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,rgba(249,115,22,.2),transparent_45%),radial-gradient(ellipse_at_15%_20%,rgba(99,102,241,.25),transparent_40%)]"/><div className="relative mx-auto flex max-w-5xl flex-col items-center px-5 text-center sm:px-8"><span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-xs font-semibold text-amber-200">Personal product walkthrough</span><h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight sm:text-5xl">Ready to run your agency from <span className={WARM}>one workspace?</span></h2><p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/65 sm:text-base">No long enquiry forms. Tell our team what your agency needs and get a conversation started directly on WhatsApp.</p><button type="button" onClick={()=>openSalesChat('Hello SafarOS, I would like a personal product walkthrough for my travel agency.')} className="mt-7 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-7 py-3.5 text-sm font-extrabold text-slate-950 shadow-xl shadow-orange-500/20 transition hover:brightness-110"><MessageCircle className="h-4 w-4"/> Chat with our team <ArrowRight className="h-4 w-4"/></button></div></section>;
+}
 
-  return (
-    <section id="early-access" className="so-section relative overflow-hidden bg-slate-950 py-20 sm:py-28">
-      <img src={IMG.form} alt="Road trip at sunset" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-50" />
-      <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/90 to-slate-950/60" />
-      <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-6 lg:grid-cols-2">
-        <Reveal>
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Early access</span>
-          <h2 className="mt-3 text-balance text-3xl font-bold tracking-tight text-white sm:text-5xl">Be one of the first agencies on <span className={WARM}>SafarOS.</span></h2>
-          <p className="mt-4 max-w-lg text-base leading-relaxed text-white/70 sm:text-lg">Tell us a little about your agency. We&apos;ll reach out to set up your workspace and give you a personal walkthrough.</p>
-          <ul className="mt-7 space-y-3 text-sm text-white/80">
-            {['Free help moving your clients and suppliers in', 'A guided demo for your team', 'Early-bird pricing locked in for your agency'].map((t) => (
-              <li key={t} className="flex items-center gap-3"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-400/15 text-amber-300"><Check className="h-3.5 w-3.5" /></span>{t}</li>
-            ))}
-          </ul>
-        </Reveal>
-
-        <Reveal delay={0.1}>
-          <div className="rounded-3xl bg-white p-6 shadow-2xl sm:p-8" data-testid="early-access-card">
-            <AnimatePresence mode="wait">
-              {state === 'done' ? (
-                <motion.div key="done" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4, ease: EASE }} className="py-10 text-center" data-testid="early-access-success">
-                  <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><CheckCircle2 className="h-7 w-7" /></span>
-                  <h3 className="mt-5 text-2xl font-bold text-slate-900">You&apos;re on the list!</h3>
-                  <p className="mx-auto mt-2 max-w-sm text-sm text-slate-600">Thanks, {f.name.split(' ')[0] || 'there'}. Our team will contact you at <b>{f.email}</b> shortly.</p>
-                  <div className="mt-6 flex flex-wrap justify-center gap-3">
-                    <a href="/signup" className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">Start free trial now <ArrowRight className="h-4 w-4" /></a>
-                    <button onClick={() => { setF(EMPTY); setState('idle'); }} className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-900">Send another</button>
-                  </div>
-                </motion.div>
-              ) : (
-                <motion.form key="form" onSubmit={submit} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4" noValidate data-testid="early-access-form">
-                  <div className="flex items-center gap-2 text-slate-900"><MessageCircle className="h-5 w-5 text-orange-500" /><h3 className="text-lg font-bold">Request early access</h3></div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Your name" required><input className={inputCls} value={f.name} onChange={set('name')} placeholder="Full name" data-testid="ea-name" /></Field>
-                    <Field label="Work email" required><input type="email" className={inputCls} value={f.email} onChange={set('email')} placeholder="you@agency.com" data-testid="ea-email" /></Field>
-                    <Field label="Phone / WhatsApp"><input className={inputCls} value={f.phone} onChange={set('phone')} placeholder="+91" data-testid="ea-phone" /></Field>
-                    <Field label="Agency name"><input className={inputCls} value={f.agencyName} onChange={set('agencyName')} placeholder="Your agency" data-testid="ea-agency" /></Field>
-                    <Field label="City"><input className={inputCls} value={f.city} onChange={set('city')} placeholder="e.g. Srinagar" data-testid="ea-city" /></Field>
-                    <Field label="Team size">
-                      <select className={inputCls} value={f.teamSize} onChange={set('teamSize')} data-testid="ea-team">
-                        <option value="">Select</option>
-                        {TEAM_SIZES.map((t) => <option key={t} value={t}>{t} {t === '1' ? 'person' : 'people'}</option>)}
-                      </select>
-                    </Field>
-                  </div>
-                  <Field label="Plan you're interested in">
-                    <select className={inputCls} value={f.interestedPlan} onChange={set('interestedPlan')} data-testid="ea-plan">
-                      {PLAN_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Anything you'd like us to know?"><textarea rows={3} className={`${inputCls} resize-none`} value={f.message} onChange={set('message')} placeholder="Tell us how you work today…" data-testid="ea-message" /></Field>
-                  <input type="text" tabIndex={-1} autoComplete="off" value={f.website} onChange={set('website')} className="hidden" aria-hidden="true" />
-                  {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600" data-testid="ea-error">{error}</p>}
-                  <button type="submit" disabled={state === 'sending'} data-testid="ea-submit"
-                    className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-orange-500/25 transition hover:brightness-110 disabled:opacity-70">
-                    {state === 'sending' ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</> : <>Request early access <ArrowRight className="h-4 w-4" /></>}
-                  </button>
-                  <p className="text-center text-[11px] text-slate-400">We only use your details to contact you about SafarOS.</p>
-                </motion.form>
-              )}
-            </AnimatePresence>
-          </div>
-        </Reveal>
-      </div>
-    </section>
-  );
+function SalesChat() {
+  const [open,setOpen]=useState(false);
+  const [draft,setDraft]=useState('');
+  const [dismissed,setDismissed]=useState(false);
+  useEffect(()=>{
+    const onOpen=(event)=>{setOpen(true);setDismissed(false);if(event?.detail?.message)setDraft(event.detail.message);};
+    window.addEventListener('safaros:open-sales-chat',onOpen);
+    let timer;
+    try { if(!sessionStorage.getItem('safaros-sales-chat-dismissed')) timer=setTimeout(()=>setOpen(true),10000); } catch {}
+    return ()=>{window.removeEventListener('safaros:open-sales-chat',onOpen);if(timer)clearTimeout(timer);};
+  },[]);
+  const whatsapp=(message)=>'https://wa.me/918899046675?text='+encodeURIComponent(message||'Hello SafarOS, I would like to know more about your travel agency platform.');
+  const options=[['See a live demo','I would like to see a live SafarOS demo.'],['Pricing and plans','Please share SafarOS pricing and available plans.'],['WhatsApp integration','I would like to know how agency WhatsApp integration works.'],['Talk to sales','I would like to speak with your sales team.'],['Customer support','I need help from SafarOS support.']];
+  const close=()=>{setOpen(false);setDismissed(true);try{sessionStorage.setItem('safaros-sales-chat-dismissed','1');}catch{}};
+  return <div className="fixed bottom-4 right-4 z-[90] sm:bottom-6 sm:right-6">
+    {open&&<div className="mb-3 flex w-[min(370px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-[0_24px_80px_rgba(2,6,23,.35)]" role="dialog" aria-label="SafarOS sales and support chat">
+      <div className="flex items-center justify-between bg-gradient-to-r from-[#14213d] to-[#243b68] p-4 text-white"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15"><MessageCircle className="h-5 w-5"/></span><div><div className="text-sm font-bold">SafarOS Sales & Support</div><div className="text-[11px] text-emerald-200">Continue with our team on WhatsApp</div></div></div><button type="button" onClick={close} aria-label="Close chat" className="rounded-full p-1 text-white/80 hover:bg-white/10"><X className="h-5 w-5"/></button></div>
+      <div className="space-y-3 bg-slate-50 p-4"><div className="max-w-[92%] rounded-2xl rounded-tl-sm bg-white p-3 text-sm leading-relaxed shadow-sm">Hello! Welcome to SafarOS 👋<br/>How can our team help your travel agency today?</div><div className="space-y-2">{options.map(([label,message])=><a key={label} href={whatsapp(message)} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-800 transition hover:border-indigo-300 hover:bg-indigo-50">{label}<ArrowRight className="h-3.5 w-3.5 text-indigo-600"/></a>)}</div></div>
+      <form onSubmit={(e)=>{e.preventDefault();if(draft.trim())window.open(whatsapp(draft.trim()),'_blank','noopener,noreferrer');}} className="flex gap-2 border-t border-slate-200 bg-white p-3"><input value={draft} onChange={(e)=>setDraft(e.target.value)} placeholder="Write your message..." aria-label="Your message" className="min-w-0 flex-1 rounded-full border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-indigo-400"/><button type="submit" aria-label="Send message on WhatsApp" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white hover:bg-indigo-700"><Send className="h-4 w-4"/></button></form>
+      <div className="bg-white px-4 pb-3 text-center text-[10px] text-slate-400">WhatsApp sales channel · +91 88990 46675</div>
+    </div>}
+    <button type="button" onClick={()=>{setOpen((v)=>!v);setDismissed(false);}} className="ml-auto flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-3 text-sm font-bold text-white shadow-xl shadow-emerald-900/20 transition hover:brightness-110"><MessageCircle className="h-4 w-4"/>{open?'Close chat':'Chat with SafarOS'}</button>
+  </div>;
 }
 
 /* ---------------------------------------------------- footer */
@@ -675,8 +632,8 @@ function Footer() {
               <div className="space-y-5">
                 <p>Talk to our team about a demo, onboarding, subscriptions or support.</p>
                 <a href="https://wa.me/918899046675?text=Hello%20SafarOS%2C%20I%20would%20like%20to%20know%20more." target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white"><MessageCircle className="h-4 w-4" /> WhatsApp: +91 88990 46675</a>
-                <p className="text-sm text-slate-500">For a product walkthrough, use the Get early access enquiry form on this page.</p>
-                <button type="button" onClick={() => { closePanel(); setTimeout(() => scrollToId('early-access'), 80); }} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">Request a demo <ArrowRight className="ml-1 inline h-4 w-4" /></button>
+                <p className="text-sm text-slate-500">For a product walkthrough, open the SafarOS sales and support chat on this page.</p>
+                <button type="button" onClick={() => { closePanel(); setTimeout(() => openSalesChat('Hello SafarOS, I would like to request a product demo.'), 80); }} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">Request a demo <ArrowRight className="ml-1 inline h-4 w-4" /></button>
               </div>
             )}
 
@@ -726,17 +683,20 @@ function Footer() {
 function App() {
   const { locale } = useLocalization();
   const [plan, setPlan] = useState('');
-  const choose = (id) => { setPlan(id); scrollToId('early-access'); };
+  const choose = (id) => openSalesChat('Hello SafarOS, I am interested in the ' + id.replaceAll('-', ' ') + ' plan. Please share the details.');
   return (
     <main className="so-font overflow-x-hidden bg-slate-950" lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
       <Header />
       <Hero />
       <Demo />
       <Features />
+      <HowItWorks />
       <Pricing onChoose={choose} />
-      <EarlyAccess plan={plan} />
+      <TrustStrip />
+      <SalesCTA />
       <TrustAndLegal />
       <Footer />
+      <SalesChat />
     </main>
   );
 }
