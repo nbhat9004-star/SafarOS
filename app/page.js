@@ -551,9 +551,9 @@ function SalesCTA() {
 function SalesChat() {
   const [open,setOpen]=useState(false);
   const [draft,setDraft]=useState('');
-  const [dismissed,setDismissed]=useState(false);
+
   useEffect(()=>{
-    const onOpen=(event)=>{setOpen(true);setDismissed(false);if(event?.detail?.message)setDraft(event.detail.message);};
+    const onOpen=(event)=>{setOpen(true);if(event?.detail?.message)setDraft(event.detail.message);};
     window.addEventListener('safaros:open-sales-chat',onOpen);
     let timer;
     try { if(!sessionStorage.getItem('safaros-sales-chat-dismissed')) timer=setTimeout(()=>setOpen(true),10000); } catch {}
@@ -561,7 +561,7 @@ function SalesChat() {
   },[]);
   const whatsapp=(message)=>'https://wa.me/918899046675?text='+encodeURIComponent(message||'Hello SafarOS, I would like to know more about your travel agency platform.');
   const options=[['See a live demo','I would like to see a live SafarOS demo.'],['Pricing and plans','Please share SafarOS pricing and available plans.'],['WhatsApp integration','I would like to know how agency WhatsApp integration works.'],['Talk to sales','I would like to speak with your sales team.'],['Customer support','I need help from SafarOS support.']];
-  const close=()=>{setOpen(false);setDismissed(true);try{sessionStorage.setItem('safaros-sales-chat-dismissed','1');}catch{}};
+  const close=()=>{setOpen(false);try{sessionStorage.setItem('safaros-sales-chat-dismissed','1');}catch{}};
   return <div className="fixed bottom-4 right-4 z-[90] sm:bottom-6 sm:right-6">
     {open&&<div className="mb-3 flex w-[min(370px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-[0_24px_80px_rgba(2,6,23,.35)]" role="dialog" aria-label="SafarOS sales and support chat">
       <div className="flex items-center justify-between bg-gradient-to-r from-[#14213d] to-[#243b68] p-4 text-white"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15"><MessageCircle className="h-5 w-5"/></span><div><div className="text-sm font-bold">SafarOS Sales & Support</div><div className="text-[11px] text-emerald-200">Continue with our team on WhatsApp</div></div></div><button type="button" onClick={close} aria-label="Close chat" className="rounded-full p-1 text-white/80 hover:bg-white/10"><X className="h-5 w-5"/></button></div>
@@ -569,7 +569,7 @@ function SalesChat() {
       <form onSubmit={(e)=>{e.preventDefault();if(draft.trim())window.open(whatsapp(draft.trim()),'_blank','noopener,noreferrer');}} className="flex gap-2 border-t border-slate-200 bg-white p-3"><input value={draft} onChange={(e)=>setDraft(e.target.value)} placeholder="Write your message..." aria-label="Your message" className="min-w-0 flex-1 rounded-full border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-indigo-400"/><button type="submit" aria-label="Send message on WhatsApp" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white hover:bg-indigo-700"><Send className="h-4 w-4"/></button></form>
       <div className="bg-white px-4 pb-3 text-center text-[10px] text-slate-400">WhatsApp sales channel · +91 88990 46675</div>
     </div>}
-    <button type="button" onClick={()=>{setOpen((v)=>!v);setDismissed(false);}} className="ml-auto flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-3 text-sm font-bold text-white shadow-xl shadow-emerald-900/20 transition hover:brightness-110"><MessageCircle className="h-4 w-4"/>{open?'Close chat':'Chat with SafarOS'}</button>
+    <button type="button" onClick={()=>{setOpen((v)=>!v);}} className="ml-auto flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-3 text-sm font-bold text-white shadow-xl shadow-emerald-900/20 transition hover:brightness-110"><MessageCircle className="h-4 w-4"/>{open?'Close chat':'Chat with SafarOS'}</button>
   </div>;
 }
 
@@ -682,7 +682,6 @@ function Footer() {
 /* ---------------------------------------------------- page *//* ---------------------------------------------------- page */
 function App() {
   const { locale } = useLocalization();
-  const [plan, setPlan] = useState('');
   const choose = (id) => openSalesChat('Hello SafarOS, I am interested in the ' + id.replaceAll('-', ' ') + ' plan. Please share the details.');
   return (
     <main className="so-font overflow-x-hidden bg-slate-950" lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
