@@ -103,7 +103,7 @@ export default function Safar3DScene(){
    resize();onScroll();raf=window.requestAnimationFrame(render);
   }catch(error){console.error('SafarOS 3D scene unavailable:',error);}
   window.addEventListener('resize',resize);window.addEventListener('scroll',onScroll,{passive:true});
-  return()=>{disposed=true;cancelAnimationFrame(raf);window.removeEventListener('resize',resize);window.removeEventListener('scroll',onScroll);buffers.forEach(buffer=>gl.deleteBuffer(buffer));if(program)gl.deleteProgram(program);gl.getExtension('WEBGL_lose_context')?.loseContext();};
+  return()=>{disposed=true;cancelAnimationFrame(raf);window.removeEventListener('resize',resize);window.removeEventListener('scroll',onScroll);buffers.forEach(buffer=>gl.deleteBuffer(buffer));if(program)gl.deleteProgram(program);};
  },[]);
  return <canvas ref={canvasRef} className="safar-3d-canvas" aria-label="Real-time 3D scene showing an aeroplane, train and touring car moving through a mountain valley"/>;
 }
