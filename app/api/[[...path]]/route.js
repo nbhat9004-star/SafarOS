@@ -2961,23 +2961,72 @@ async function testProviderConnection(provider, values = {}) {
     if (provider === 'whatsapp_cloud') {
       const appId = String(values.appId || '').trim();
       const appSecret = String(values.appSecret || '');
+      const wabaId = String(values.platformWabaId || '').trim();
+      const phoneNumberId = String(values.platformPhoneNumberId || '').trim();
+      const systemUserToken = String(values.systemUserAccessToken || '').trim();
+      const expectedPhone = '+918899046675';
       const version = String(values.graphApiVersion || process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
       if (!appId || !appSecret) return { ok: false, message: 'Meta App ID and App Secret are required.' };
       if (!/^\d{5,30}$/.test(appId)) return { ok: false, message: 'Enter a valid numeric Meta App ID.' };
       if (!/^v\d+\.\d+$/.test(version)) return { ok: false, message: 'Graph API version must look like v23.0.' };
+      if (!/^\d{5,30}$/.test(wabaId) || !/^\d{5,30}$/.test(phoneNumberId) || systemUserToken.length < 30) {
+        return { ok: false, message: 'Add the SafarOS platform WABA ID, Phone Number ID and permanent System User Access Token to complete the live-number check.' };
+      }
+
       const appAccessToken = appId + '|' + appSecret;
-      const r = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(appId)}?fields=id,name`, {
+      const appResponse = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(appId)}?fields=id,name`, {
         headers: { Authorization: `Bearer ${appAccessToken}` },
         cache: 'no-store',
         signal: AbortSignal.timeout(15000),
       });
-      if (r.ok) {
-        const data = await r.json().catch(() => ({}));
-        return { ok: String(data.id || '') === appId, message: String(data.id || '') === appId
-          ? 'SafarOS Meta app credentials are valid. Agency WhatsApp numbers and tokens remain separately managed.'
-          : 'Meta responded, but the returned App ID did not match.' };
+      const appData = await appResponse.json().catch(() => ({}));
+      if (!appResponse.ok || String(appData.id || '') !== appId) {
+        return { ok: false, message: `Meta app credential check failed (HTTP ${appResponse.status}). Verify the App ID and App Secret.` };
       }
-      return { ok: false, message: `Meta app credential check failed (HTTP ${r.status}). Verify the App ID and App Secret.` };
+
+      const debugParams = new URLSearchParams({ input_token: systemUserToken });
+      const debugResponse = await fetch(`https://graph.facebook.com/${version}/debug_token?${debugParams.toString()}`, {
+        headers: { Authorization: `Bearer ${appAccessToken}` },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15000),
+      });
+      const debugPayload = await debugResponse.json().catch(() => ({}));
+      const tokenData = debugPayload?.data || {};
+      if (!debugResponse.ok || debugPayload?.error || tokenData.is_valid !== true) {
+        return { ok: false, message: 'Meta rejected the platform System User Access Token. Generate a new token with WhatsApp Business Management and Messaging permissions.' };
+      }
+      const scopes = Array.isArray(tokenData.scopes) ? tokenData.scopes : [];
+      const missingScopes = ['whatsapp_business_management', 'whatsapp_business_messaging'].filter((scope) => !scopes.includes(scope));
+      if (missingScopes.length) {
+        return { ok: false, message: 'The platform token is missing required WhatsApp permissions: ' + missingScopes.join(', ') + '.' };
+      }
+      if (Number(tokenData.expires_at || 0) > 0 && Number(tokenData.expires_at) * 1000 < Date.now() + 7 * 24 * 60 * 60 * 1000) {
+        return { ok: false, message: 'The platform token expires within seven days. Replace it with a long-lived System User token before connecting the live number.' };
+      }
+
+      const phoneParams = new URLSearchParams({ fields: 'id,display_phone_number,verified_name,quality_rating' });
+      const phoneResponse = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(wabaId)}/phone_numbers?${phoneParams.toString()}`, {
+        headers: { Authorization: `Bearer ${systemUserToken}` },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15000),
+      });
+      const phonePayload = await phoneResponse.json().catch(() => ({}));
+      if (!phoneResponse.ok || phonePayload?.error) {
+        return { ok: false, message: 'Meta could not read the platform WhatsApp numbers for this WABA. Check the System User asset assignment and WhatsApp Business Management permission.' };
+      }
+      const phone = (Array.isArray(phonePayload.data) ? phonePayload.data : []).find((item) => String(item.id) === phoneNumberId);
+      if (!phone) return { ok: false, message: 'The configured Phone Number ID was not found inside the SafarOS platform WABA.' };
+      const normalizedPhone = String(phone.display_phone_number || '').replace(/\D/g, '');
+      if (normalizedPhone !== expectedPhone.replace(/\D/g, '')) {
+        return { ok: false, message: 'The configured Meta Phone Number ID belongs to a different number. SafarOS expects +91 88990 46675.' };
+      }
+      return {
+        ok: true,
+        message: 'Live SafarOS WhatsApp number verified: ' + String(phone.display_phone_number || '+91 88990 46675') +
+          (phone.verified_name ? ' · ' + String(phone.verified_name) : '') +
+          (phone.quality_rating ? ' · Quality: ' + String(phone.quality_rating) : '') +
+          '. Platform token is valid and long-lived. Agency WhatsApp credentials remain separate.',
+      };
     }
     if (provider === 'openweather') {
       const key = values.apiKey || '';
