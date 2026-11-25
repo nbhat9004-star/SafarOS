@@ -1,11 +1,19 @@
 {
-  "name": "SafarOS — B2B OS for Travel Agencies",
+  "name": "SafarOS — Travel Agency Operating System",
   "short_name": "SafarOS",
-  "description": "Multi-tenant operating system for travel agencies.",
+  "description": "The all-in-one operating system for modern travel agencies.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#ffffff",
-  "theme_color": "#7c3aed"
+  "background_color": "#07132f",
+  "theme_color": "#101a4b",
+  "icons": [
+    {
+      "src": "/safaros-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }

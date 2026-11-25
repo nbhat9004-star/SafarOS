@@ -8,6 +8,7 @@ import {
   Mountain, Send, Loader2, CheckCircle2, LayoutDashboard, Clock, Phone, MessageCircle,
 } from 'lucide-react';
 import { PLAN_CATALOG } from '@/lib/plans';
+import CinematicHero from '@/components/safaros/cinematic-hero';
 import { useLocalization } from '@/components/safaros/localization-provider';
 
 /* ---------------------------------------------------- imagery */
@@ -46,110 +47,31 @@ function SectionHead({ eyebrow, title, sub, dark = false }) {
   );
 }
 
-/* ---------------------------------------------------- header */
-const NAV = [['Demo', 'demo'], ['Features', 'features'], ['Pricing', 'pricing'], ['Early access', 'early-access'], ['FAQ','/faq'], ['Contact us','/contact'], ['Privacy','/privacy-policy']];
-const NAV_AR = [['العرض التوضيحي','demo'],['المميزات','features'],['الأسعار','pricing'],['التسجيل المبكر','early-access'],['الأسئلة الشائعة','/faq'],['اتصل بنا','/contact'],['الخصوصية','/privacy-policy']];
+/* ---------------------------------------------------- single-page header */
+const NAV = [['Why SafarOS', 'demo'], ['Features', 'features'], ['How it works', 'demo'], ['Pricing', 'pricing'], ['Customers', 'early-access']];
+const NAV_AR = [['لماذا SafarOS','demo'],['المميزات','features'],['كيف يعمل','demo'],['الأسعار','pricing'],['العملاء','early-access']];
 
 function Header() {
   const { locale } = useLocalization();
   const isArabic = locale === 'ar';
-  const [scrolled, setScrolled] = useState(false);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 16);
-    onScroll(); window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-  const go = (id) => { setOpen(false); if (id.startsWith('/')) { window.location.href = id; return; } scrollToId(id); };
-
   return (
-    <>
-      <header className={`fixed inset-x-0 top-0 z-50 transition-colors duration-300 ${scrolled ? 'border-b border-white/10 bg-slate-950/90 backdrop-blur-xl' : 'bg-transparent'}`}>
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-          <a href="/" className="flex items-center gap-2 text-white" data-testid="nav-logo">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600 shadow-lg shadow-indigo-900/40"><Layers className="h-4 w-4" /></span>
-            <span className="text-base font-bold tracking-tight">SafarOS</span>
-          </a>
-          <nav className="hidden items-center gap-1 md:flex">
-            {(isArabic ? NAV_AR : NAV).map(([label, id]) => (
-              <button key={id} onClick={() => go(id)} data-testid={`nav-${id}`} className="rounded-full px-3.5 py-1.5 text-sm font-medium text-white/70 transition-colors hover:text-white">{label}</button>
-            ))}
-          </nav>
-          <div className="hidden items-center gap-2 md:flex">
-            <a href="/login" data-testid="nav-signin" className="px-3 py-1.5 text-sm font-semibold text-white/85 hover:text-white">{isArabic?'تسجيل الدخول':'Sign in'}</a>
-            <button onClick={() => go('early-access')} data-testid="nav-cta" className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-orange-900/30 transition hover:brightness-110">
-              {isArabic ? 'احصل على وصول مبكر' : 'Get early access'} <ArrowRight className="h-4 w-4" />
-            </button>
-          </div>
-          <button onClick={() => setOpen(true)} data-testid="nav-menu" className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-sm font-medium text-white md:hidden" aria-label="Open menu">
-            {isArabic?'القائمة':'Menu'} <Menu className="h-4 w-4" />
-          </button>
-        </div>
-      </header>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[60] flex flex-col bg-slate-950 md:hidden">
-            <div className="flex h-16 items-center justify-between border-b border-white/10 px-4">
-              <span className="flex items-center gap-2 text-white"><Layers className="h-5 w-5" /><span className="font-bold">SafarOS</span></span>
-              <button onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 text-white" aria-label="Close menu"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="flex-1 space-y-1 px-5 py-6">
-              {(isArabic ? NAV_AR : NAV).map(([label, id]) => (
-                <button key={id} onClick={() => go(id)} className="block w-full rounded-xl px-3 py-3 text-left text-lg font-medium text-white/90 hover:bg-white/5">{label}</button>
-              ))}
-            </div>
-            <div className="border-t border-white/10 p-5">
-              <button onClick={() => go('early-access')} className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 py-3 text-sm font-semibold text-slate-950">{isArabic?'احصل على وصول مبكر':'Get early access'} <ArrowRight className="h-4 w-4" /></button>
-              <a href="/login" className="mt-2 block py-2 text-center text-sm font-medium text-white/60">{isArabic?'تسجيل الدخول':'Sign in'}</a>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
-  );
-}
-
-/* ---------------------------------------------------- hero */
-function Hero() {
-  const { locale, currency } = useLocalization();
-  const isArabic = locale === 'ar';
-  return (
-    <section className="relative overflow-hidden bg-slate-950">
-      <img src={IMG.hero} alt="Desert dunes at golden hour" fetchPriority="high" className="absolute inset-0 h-full w-full object-cover" />
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-950/60 via-slate-950/35 to-slate-950" />
-      <div className="absolute inset-0 bg-gradient-to-tr from-indigo-950/50 via-transparent to-orange-900/20" />
-      <div className="relative z-10 mx-auto max-w-4xl px-6 pb-24 pt-36 text-center sm:pb-32 sm:pt-44">
-        <motion.span initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}
-          className="so-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-white/85">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> {isArabic ? 'برنامج لوكالات السفر ومنظمي الرحلات' : 'Software for travel agencies & tour operators'}
-        </motion.span>
-        <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.8, ease: EASE }}
-          className="mx-auto mt-6 max-w-3xl text-balance text-4xl font-bold leading-[1.06] tracking-tight text-white sm:text-6xl" data-testid="hero-title">
-          {isArabic ? <>أدر وكالة السفر بالكامل <span className={WARM}>من مكان واحد.</span></> : <>Run your whole travel agency <span className={WARM}>from one place.</span></>}
-        </motion.h1>
-        <motion.p initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.7, ease: EASE }}
-          className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-white/75 sm:text-lg">
-          {isArabic ? 'الاستفسارات والعروض وخطط الرحلات والحجوزات والسائقون والمدفوعات — يساعدك SafarOS على إدارة كل رحلة من أول اتصال حتى الوصول.' : 'Enquiries, quotes, itineraries, bookings, drivers and payments — SafarOS keeps every trip moving, from the first call to the last drop-off.'}
-        </motion.p>
-        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38, duration: 0.7, ease: EASE }}
-          className="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <button onClick={() => scrollToId('demo')} data-testid="hero-demo-btn" className="group inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-white/90">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-white"><Play className="h-3 w-3 fill-current" /></span> {isArabic ? 'شاهد العرض التوضيحي' : 'Watch the demo'}
-          </button>
-          <button onClick={() => scrollToId('early-access')} data-testid="hero-cta-btn" className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_10px_40px_rgba(251,146,60,0.35)] transition hover:brightness-110">
-            {isArabic ? 'احصل على وصول مبكر' : 'Get early access'} <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </button>
-        </motion.div>
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.8 }}
-          className="mx-auto mt-10 flex max-w-xl flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
-          {(isArabic ? ['تجربة مجانية لمدة 14 يوماً', `الأسعار بعملة ${currency}`, 'يعمل على الهاتف والكمبيوتر'] : ['14-day free trial', `Prices in ${currency}`, 'Works on phone & laptop']).map((t) => (
-            <span key={t} className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-amber-400" />{t}</span>
+    <header className="safar-wow-header fixed inset-x-0 top-0 z-50">
+      <div className="mx-auto flex h-[76px] max-w-[1440px] items-center justify-between px-4 sm:px-7 lg:px-10">
+        <a href="/" className="flex shrink-0 items-center gap-2.5 text-white" data-testid="nav-logo" aria-label="SafarOS home">
+          <span className="safar-wow-mark"><Layers className="h-5 w-5" /></span>
+          <span className="text-[21px] font-extrabold tracking-[-.045em]">SafarOS<span className="ml-0.5 align-top text-[10px]">™</span></span>
+        </a>
+        <nav className="hidden items-center gap-1 xl:flex" aria-label="Main navigation">
+          {(isArabic ? NAV_AR : NAV).map(([label,id]) => (
+            <a key={id+label} href={`#${id}`} className="rounded-full px-3.5 py-2 text-[13px] font-semibold text-white/75 transition hover:bg-white/10 hover:text-white">{label}</a>
           ))}
-        </motion.div>
+        </nav>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <a href="/login" data-testid="nav-signin" className="hidden rounded-full border border-white/30 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10 sm:inline-flex">{isArabic?'تسجيل الدخول':'Login'}</a>
+          <a href="/signup" data-testid="nav-cta" className="safar-wow-cta px-4 py-2.5 text-xs sm:px-5 sm:text-sm">{isArabic?'ابدأ مجاناً':'Start Free Trial'} <ArrowRight className="h-4 w-4"/></a>
+        </div>
       </div>
-    </section>
+    </header>
   );
 }
 
@@ -695,7 +617,7 @@ function App() {
   return (
     <main className="so-font overflow-x-hidden bg-slate-950" lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
       <Header />
-      <Hero />
+      <CinematicHero />
       <Demo />
       <Features />
       <Pricing onChoose={choose} />
