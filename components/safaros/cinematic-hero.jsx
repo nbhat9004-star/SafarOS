@@ -2,7 +2,8 @@
 
 import { useRef } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { ArrowRight, Play, Plane, TrainFront, CarFront, MessageCircle, Bot, CalendarDays, Users, ChartNoAxesCombined, Sparkles } from 'lucide-react';
+import { ArrowRight, Play, MessageCircle, Bot, CalendarDays, Users, ChartNoAxesCombined, Sparkles } from 'lucide-react';
+import Safar3DScene from '@/components/safaros/safar-3d-scene';
 
 const EASE = [0.22, 1, 0.36, 1];
 
@@ -10,6 +11,7 @@ function VehicleScene() {
   return (
     <div className="safar-cinema-scene" aria-label="Animated travel scene with an airplane, train and car">
       <div className="safar-cinema-sky" />
+      <Safar3DScene />
       <div className="safar-cinema-stars" />
       <div className="safar-cinema-cloud cloud-one" />
       <div className="safar-cinema-cloud cloud-two" />
