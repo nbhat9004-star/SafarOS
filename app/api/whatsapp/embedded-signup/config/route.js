@@ -15,9 +15,17 @@ export async function GET(request) {
   const appId = String(process.env.META_APP_ID || '').trim();
   const configurationId = String(process.env.META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID || '').trim();
   const appSecretConfigured = Boolean(String(process.env.META_APP_SECRET || '').trim());
+  const validAppId = /^\d{5,30}$/.test(appId);
+  const validConfigurationId = /^\d{5,30}$/.test(configurationId);
+
   return NextResponse.json({
-    enabled: /^\d{5,30}$/.test(appId) && /^\d{5,30}$/.test(configurationId),
-    appId: /^\d{5,30}$/.test(appId) ? appId : '',
-    configurationId: /^\d{5,30}$/.test(configurationId) ? configurationId : '',
+    enabled: validAppId && validConfigurationId && appSecretConfigured,
+    appId: validAppId ? appId : '',
+    configurationId: validConfigurationId ? configurationId : '',
+    missing: {
+      appId: !validAppId,
+      configurationId: !validConfigurationId,
+      appSecret: !appSecretConfigured,
+    },
   });
 }

@@ -32,6 +32,7 @@ import { useSync } from '@/lib/offline/useSync';
 import InventoryWorkspace from '@/components/safaros/inventory-workspace';
 import SupplyHubWorkspace from '@/components/safaros/supply-hub-workspace';
 import SalesRescueWorkspace from '@/components/safaros/sales-rescue-workspace';
+import { WebsiteChatInbox, WebsiteChatEmbed } from '@/components/safaros/website-chat-inbox';
 import MarketplaceWorkspace from '@/components/safaros/marketplace-workspace';
 import {
   Building2, Users, Contact, ShieldCheck, LayoutDashboard, LogOut, Plus,
@@ -259,10 +260,10 @@ const NAV = [
     ],
   },
   {
-    group: 'Communications',
+    group: 'Messages',
     items: [
-      { id: 'comm_inbox', label: 'Inbox', icon: MessageSquare },
-      { id: 'comm_conversations', label: 'Conversations', icon: Contact },
+      { id: 'comm_inbox', label: 'Messages', icon: MessageSquare },
+      { id: 'comm_conversations', label: 'Conversation history', icon: Contact },
       { id: 'comm_templates', label: 'Templates', icon: FileText },
       { id: 'comm_activity', label: 'Activity', icon: Activity },
     ],
@@ -302,7 +303,7 @@ const NAV = [
       { id: 'int_api', label: 'Developer API', icon: ShieldCheck },
     ],
   },
-  { id: 'copilot', label: 'Safar Intelligence', icon: Sparkles },
+  { id: 'copilot', label: 'Ask SafarOS', icon: Sparkles },
   { id: 'portal_admin', label: 'Customer Portal', icon: ShieldCheck },
   {
     group: 'Data Tools',
@@ -330,8 +331,8 @@ const SECTION_TITLES = {
   fin_receivables: 'Customer Receivables', fin_payables: 'Supplier Payables',
   fin_expenses: 'Expenses', fin_invoices: 'Invoices', fin_reports: 'Reports',
   fin_payments: 'Payments',
-  comm_inbox: 'Communications', comm_conversations: 'Conversations', comm_templates: 'Templates', comm_activity: 'Communication Activity',
-  copilot: 'Safar Intelligence', portal_admin: 'Customer Portal Access', business_verification: 'Business Verification',
+  comm_inbox: 'Messages', comm_conversations: 'Conversation history', comm_templates: 'Templates', comm_activity: 'Communication Activity',
+  copilot: 'Ask SafarOS', portal_admin: 'Customer Portal Access', business_verification: 'Business Verification',
   marketplace: 'SafarCurated Marketplace', web_dashboard: 'Website', web_settings: 'Website Settings', web_appearance: 'Appearance', web_pages: 'Website Pages', web_seo: 'SEO & Search', web_preview: 'Website Preview',
   an_overview: 'Analytics Overview', an_sales: 'Sales Analytics', an_crm: 'CRM Analytics', an_finance: 'Finance Analytics', an_operations: 'Operations Analytics',
   sub_overview: 'Subscription', sub_plans: 'Plans', sub_usage: 'Usage & Limits', sub_billing: 'Billing History', sub_history: 'Subscription Change Log',
@@ -348,7 +349,7 @@ function sectionGroupOf(id) {
   }
   // prefix groups (fin_, comm_, web_, an_, sub_, int_)
   const pref = String(id).split('_')[0];
-  const map = { fin: 'Finance', comm: 'Communications', web: 'Website', an: 'Analytics', sub: 'Subscription & Billing', int: 'Integrations' };
+  const map = { fin: 'Finance', comm: 'Messages', web: 'Website', an: 'Analytics', sub: 'Subscription & Billing', int: 'Integrations' };
   return map[pref] || 'Workspace';
 }
 
@@ -423,7 +424,7 @@ const MOBILE_NAV = [
     { id: 'discover', label: 'Supplier Discovery' }, { id: 'suppliers', label: 'Saved Suppliers' },
   ] },
   { id: 'aitools', label: 'AI & Tools', icon: Sparkles, items: [
-    { id: 'copilot', label: 'Safar Intelligence' }, { id: 'an_overview', label: 'Analytics' },
+    { id: 'copilot', label: 'Ask SafarOS' }, { id: 'an_overview', label: 'Analytics' },
   ] },
   { id: 'more', label: 'More', icon: LayoutGrid, items: [
     { id: 'marketplace', label: 'SafarCurated Marketplace' }, { id: 'int_overview', label: 'Integrations' }, { id: 'data_import', label: 'Import Data' }, { id: 'data_export', label: 'Export Data' }, { id: 'sub_overview', label: 'Subscription' }, { id: 'team', label: 'Team' }, { id: 'settings', label: 'Settings' },
@@ -469,7 +470,7 @@ const DESKTOP_WORKSPACES = [
   { id: 'discover', label: 'Discover', icon: Compass, direct: 'discover' },
   { id: 'more', label: 'More', icon: LayoutGrid, subtitle: 'Communications, tools & settings', tiles: [
     { id: 'comm_inbox', label: 'Communications', desc: 'Inbox, templates & logs', icon: MessageSquare, tone: 'sky' },
-    { id: 'copilot', label: 'Safar Intelligence', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
+    { id: 'copilot', label: 'Ask SafarOS', desc: 'Your AI travel assistant', icon: Sparkles, tone: 'violet' },
     { id: 'an_overview', label: 'Analytics', desc: 'Business insights & reports', icon: Gauge, tone: 'emerald' },
     { id: 'travelrules', label: 'Travel Intelligence', desc: 'Rules & surcharges', icon: MapPin, tone: 'violet' },
     { id: 'documents', label: 'Document Vault', desc: 'Secure document storage', icon: FileText, tone: 'sky' },
@@ -1441,6 +1442,59 @@ function KpiCard({ icon: Icon, label, value, tone = 'violet', hint, onClick }) {
   return onClick ? <button type="button" onClick={onClick} className="block w-full text-left">{inner}</button> : inner;
 }
 
+function AskSafarOSCard({ session }) {
+  const [input, setInput] = useState('');
+  const [reply, setReply] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
+
+  const ask = async (value = input) => {
+    const message = String(value || '').trim();
+    if (!message || busy) return;
+    setInput('');
+    setBusy(true);
+    setReply('');
+    try {
+      const result = await api('/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId, message }),
+      });
+      setConversationId(result.conversationId || conversationId);
+      setReply(result.reply || 'I could not find a response. Please try again.');
+    } catch (error) {
+      setReply(error?.message || 'SafarOS could not answer right now. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="overflow-hidden border-violet-200/80 bg-gradient-to-r from-white via-violet-50/70 to-indigo-50/80 shadow-sm dark:from-background dark:via-violet-950/20 dark:to-indigo-950/20">
+      <CardContent className="space-y-3 p-4 sm:p-5">
+        <div className="flex items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-sm"><Sparkles className="h-5 w-5" /></span>
+          <div>
+            <div className="font-semibold tracking-tight">Ask me anything</div>
+            <div className="text-xs text-muted-foreground">Your SafarOS business assistant</div>
+          </div>
+        </div>
+        <form onSubmit={(event) => { event.preventDefault(); ask(); }} className="flex items-center gap-2 rounded-full border border-violet-200 bg-background p-1.5 pl-4 shadow-sm dark:border-violet-900">
+          <Input aria-label="Ask SafarOS anything" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask SafarOS anything…" disabled={busy} className="h-10 border-0 bg-transparent shadow-none focus-visible:ring-0" />
+          <Button type="submit" size="icon" className="h-10 w-10 shrink-0 rounded-full bg-violet-600 hover:bg-violet-700" disabled={busy || !input.trim()} aria-label="Send question">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          </Button>
+        </form>
+        {reply && <div role="status" className="rounded-xl border border-violet-200/70 bg-background/80 px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap dark:border-violet-900">{reply}</div>}
+        <div className="flex flex-wrap gap-2">
+          {['Show today’s priorities', 'Which follow-ups are due?', 'Summarize recent activity'].map((prompt) => (
+            <button key={prompt} type="button" onClick={() => ask(prompt)} disabled={busy} className="rounded-full border border-violet-200/80 bg-background/80 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-violet-400 hover:text-foreground disabled:opacity-50 dark:border-violet-900">{prompt}</button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
   const { agency, user } = session;
   const role = user?.role;
@@ -1499,6 +1553,8 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
         </div>
       </div>
 
+      {can(role, 'ai:use') && <AskSafarOSCard session={session} />}
+
       {/* Workspace launcher cards */}
       <div>
         <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground/60">Workspaces</div>
@@ -1509,7 +1565,7 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
             { label: 'Operations', desc: 'Trips & suppliers', icon: Truck, tone: 'emerald', go: 'ws:operations' },
             { label: 'Finance', desc: 'Money & invoices', icon: Wallet, tone: 'amber', go: 'ws:finance' },
             { label: 'Discover', desc: 'Find suppliers', icon: Compass, tone: 'rose', go: 'discover' },
-            { label: 'Safar Intelligence', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
+            { label: 'Ask SafarOS', desc: 'Ask anything', icon: Sparkles, tone: 'violet', go: 'copilot' },
           ].map((w) => {
             const Icon = w.icon;
             return (
@@ -1602,7 +1658,7 @@ function Overview({ session, onGo = () => {}, onNavigate = () => {} }) {
                     { label: 'Bookings', icon: ClipboardList, go: 'bookings' },
                     { label: 'Packages', icon: Package, go: 'packages' },
                     { label: 'Payments', icon: Banknote, go: 'fin_payments' },
-                    { label: 'Safar Intelligence', icon: Sparkles, go: 'copilot' },
+                    { label: 'Ask SafarOS', icon: Sparkles, go: 'copilot' },
                   ].map((q) => {
                     const Icon = q.icon;
                     return (
@@ -6905,7 +6961,7 @@ function CommInbox({ activity, canCreate }) {
       {canCreate && !activity && <Button size="sm" onClick={() => setShow((v) => !v)}><Plus className="h-4 w-4 mr-1" /> Log</Button>}
     </div>
     {show && <CommForm onSaved={() => { setShow(false); load(); }} onCancel={() => setShow(false)} />}
-    {!activity && <WhatsAppInboxPanel />}
+    {!activity && <><WhatsAppInboxPanel /><WebsiteChatInbox /></>}
     {loading && <div className="h-24 rounded-lg border bg-muted/30 animate-pulse" />}
     {!loading && rows.length === 0 && <Card><CardContent className="px-6 py-12 text-center text-sm text-muted-foreground">No communications yet.{canCreate && !activity ? ' Log your first message above.' : ''}</CardContent></Card>}
     {!loading && rr.length > 0 && <div className="space-y-2">{rr.map((r) => <CommRow key={r.id} r={r} />)}</div>}
@@ -6991,10 +7047,10 @@ function Communications({ session, tab, onNav }) {
   const role = session.user.role;
   const canCreate = can(role, 'communications:create');
   const TABS = [
-    { id: 'inbox', label: 'Inbox', icon: MessageSquare },
-    { id: 'conversations', label: 'Conversations', icon: Contact },
-    { id: 'support', label: 'Support Tickets', icon: Ticket },
-    { id: 'integrations', label: 'Channel Integrations', icon: Plug },
+    { id: 'inbox', label: 'Messages', icon: MessageSquare },
+    { id: 'conversations', label: 'History', icon: Contact },
+    { id: 'support', label: 'Support', icon: Ticket },
+    { id: 'integrations', label: 'Channels', icon: Plug },
     { id: 'templates', label: 'Templates', icon: FileText },
     { id: 'activity', label: 'Activity', icon: Activity },
   ];
@@ -7072,7 +7128,6 @@ function ChannelIntegrations({ session }) {
   const [config, setConfig] = useState({});
   const [waConnection, setWaConnection] = useState(null);
   const [waMetaConfig, setWaMetaConfig] = useState(null);
-  const [waForm, setWaForm] = useState({ wabaId: '', phoneNumberId: '', accessToken: '' });
   const [waPin, setWaPin] = useState('');
   const [waSaving, setWaSaving] = useState(false);
   const canManage = can(session.user.role, 'communications:manage');
@@ -7085,16 +7140,30 @@ function ChannelIntegrations({ session }) {
   const load = async () => {
     setLoading(true);
     try {
-      const [integrations, connection, metaConfig] = await Promise.all([
+      // Load each channel resource independently. A failure in the inbox or
+      // integration list must not prevent Meta configuration from being read.
+      const [integrationsResult, connectionResult, metaConfigResult] = await Promise.allSettled([
         api('/communications/integrations'),
         api('/whatsapp/connection'),
         api('/whatsapp/embedded-signup/config'),
       ]);
-      setItems(integrations.integrations || []);
-      setWaConnection(connection.connection || { connected: false, status: 'not_connected' });
-      setWaMetaConfig(metaConfig || { enabled: false });
-    } catch (e) {
-      toast.error(friendlyError(e));
+      if (integrationsResult.status === 'fulfilled') {
+        setItems(integrationsResult.value.integrations || []);
+      } else {
+        toast.error(friendlyError(integrationsResult.reason));
+      }
+      if (connectionResult.status === 'fulfilled') {
+        setWaConnection(connectionResult.value.connection || { connected: false, status: 'not_connected' });
+      } else {
+        setWaConnection({ connected: false, status: 'not_connected' });
+        toast.error(friendlyError(connectionResult.reason));
+      }
+      if (metaConfigResult.status === 'fulfilled') {
+        setWaMetaConfig(metaConfigResult.value || { enabled: false });
+      } else {
+        setWaMetaConfig({ enabled: false, error: friendlyError(metaConfigResult.reason) });
+        toast.error('Unable to check the SafarOS Meta connection settings.');
+      }
     } finally {
       setLoading(false);
     }
@@ -7112,42 +7181,12 @@ function ChannelIntegrations({ session }) {
     try {
       const d = await api('/communications/integrations/' + editing.id, { method: 'PUT', body: JSON.stringify({ config }) });
       setItems((old) => old.map((x) => x.id === editing.id ? d.integration : x).concat(old.some((x) => x.id === editing.id) ? [] : [d.integration]));
-      toast.success('Channel details saved. Provider verification is still required.');
+      toast.success(editing.id === 'website_chat' ? 'Website chat configured. Install the widget code below.' : 'Channel details saved. Provider verification is still required.');
       setEditing(null);
     } catch (e) {
       toast.error(friendlyError(e));
     } finally {
       setSaving(false);
-    }
-  };
-
-  const connectWhatsApp = async () => {
-    if (!/^\d{5,30}$/.test(waForm.wabaId.trim()) || !/^\d{5,30}$/.test(waForm.phoneNumberId.trim())) {
-      toast.error('Enter the numeric WABA ID and Phone Number ID from Meta.');
-      return;
-    }
-    if (waForm.accessToken.trim().length < 30) {
-      toast.error('Enter a valid Meta access token.');
-      return;
-    }
-    setWaSaving(true);
-    try {
-      const result = await api('/whatsapp/connection', {
-        method: 'POST',
-        body: JSON.stringify({
-          wabaId: waForm.wabaId.trim(),
-          phoneNumberId: waForm.phoneNumberId.trim(),
-          accessToken: waForm.accessToken.trim(),
-        }),
-      });
-      setWaConnection(result.connection || { connected: true, status: 'connected' });
-      setWaForm({ wabaId: '', phoneNumberId: '', accessToken: '' });
-      toast.success('WhatsApp Business connected to this agency.');
-    } catch (e) {
-      // Show the safe, server-authored connection error so setup failures can be diagnosed.
-      toast.error(String(e?.message || 'Unable to connect WhatsApp. Please try again.'));
-    } finally {
-      setWaSaving(false);
     }
   };
 
@@ -7308,7 +7347,7 @@ function ChannelIntegrations({ session }) {
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
             <div className="min-w-0 flex-1">
               <div className="font-medium">WhatsApp Business</div>
-              <p className="text-sm text-muted-foreground">Connect this agency's own WhatsApp Business Account through Meta Embedded Signup, or use manual credentials for internal testing.</p>
+              <p className="text-sm text-muted-foreground">Connect your agency's own WhatsApp Business number securely with Meta. No technical setup is required.</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Badge variant="outline">{connected ? 'Connected' : waConnection?.status === 'disconnected' ? 'Disconnected' : 'Not connected'}</Badge>
                 {connected && waConnection?.displayPhoneNumber && <span className="text-sm text-muted-foreground">{waConnection.displayPhoneNumber}</span>}
@@ -7318,50 +7357,33 @@ function ChannelIntegrations({ session }) {
           </div>
           {canManage && !connected && <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
             <div className="space-y-1">
-              <div className="font-medium">Connect with Meta</div>
-              <p className="text-xs text-muted-foreground">Let your agency administrator securely select and authorize the agency's own WhatsApp Business Account in Meta.</p>
+              <div className="font-medium">Connect your agency's WhatsApp</div>
+              <p className="text-xs text-muted-foreground">SafarOS will open Meta. Sign in, choose your business and WhatsApp number, and approve the connection.</p>
             </div>
             <Button onClick={connectWhatsAppWithMeta} disabled={waSaving || loading || !waMetaConfig?.enabled}>
-              {waSaving ? 'Opening Meta signup…' : 'Continue with Meta'}
+              {waSaving ? 'Connecting…' : 'Connect WhatsApp'}
             </Button>
-            {!waMetaConfig?.enabled && <p className="text-xs text-amber-700">Embedded Signup needs META_APP_ID and META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID configured in Vercel. The App Secret must also be set server-side as META_APP_SECRET.</p>}
-            <div className="flex items-center gap-3 text-xs text-muted-foreground"><div className="h-px flex-1 bg-border" /><span>OR CONNECT MANUALLY</span><div className="h-px flex-1 bg-border" /></div>
-          </div>}
-          {canManage && !connected && <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
-            <div className="space-y-1">
-              <Label>WhatsApp Business Account ID (WABA ID)</Label>
-              <Input inputMode="numeric" autoComplete="off" value={waForm.wabaId} placeholder="Enter WABA ID from Meta" onChange={(e) => setWaForm((v) => ({ ...v, wabaId: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>Phone Number ID</Label>
-              <Input inputMode="numeric" autoComplete="off" value={waForm.phoneNumberId} placeholder="Enter Phone Number ID from Meta" onChange={(e) => setWaForm((v) => ({ ...v, phoneNumberId: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>Meta access token</Label>
-              <Input type="password" autoComplete="new-password" value={waForm.accessToken} placeholder="Paste the Meta access token" onChange={(e) => setWaForm((v) => ({ ...v, accessToken: e.target.value }))} />
-              <p className="text-xs text-muted-foreground">Sent directly to SafarOS over HTTPS and encrypted before storage. It is never displayed again or saved in this form.</p>
-            </div>
-            <Button onClick={connectWhatsApp} disabled={waSaving}>{waSaving ? 'Verifying with Meta…' : 'Connect WhatsApp'}</Button>
+            {!waMetaConfig?.enabled && <p className="text-xs text-amber-700">{waMetaConfig?.error || (waMetaConfig?.missing?.appId || waMetaConfig?.missing?.configurationId || waMetaConfig?.missing?.appSecret ? 'SafarOS Meta setup is incomplete. Please contact SafarOS support.' : 'WhatsApp connection is being configured by SafarOS. Please contact SafarOS support if you need help.')}</p>}
           </div>}
           {canManage && connected && waConnection?.phoneRegistrationStatus !== 'registered' && <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
             <div className="space-y-1">
               <div className="font-medium">Register WhatsApp phone number</div>
               <p className="text-xs text-muted-foreground">
-                Meta requires this Cloud API number to be registered before messaging can work. Create a six-digit two-step verification PIN for this number. SafarOS sends the PIN to Meta for registration and does not store it. Save the PIN securely in your agency's password manager.
+                Meta requires this Cloud API number to be registered before messaging can work. Enter the six-digit WhatsApp two-step verification PIN for this number. If Meta asked you to create one during setup, use that PIN. SafarOS sends it securely to Meta and does not store it.
               </p>
               <Badge variant="outline">
                 {waConnection?.phoneRegistrationStatus === 'pending' ? 'Registration pending' : 'Registration not confirmed'}
               </Badge>
             </div>
             <div className="space-y-1">
-              <Label>New six-digit two-step verification PIN</Label>
+              <Label>WhatsApp security PIN</Label>
               <Input
                 type="password"
                 inputMode="numeric"
                 autoComplete="new-password"
                 maxLength={6}
                 value={waPin}
-                placeholder="Enter six digits"
+                placeholder="6-digit PIN"
                 onChange={(e) => setWaPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
               />
             </div>
@@ -7381,10 +7403,11 @@ function ChannelIntegrations({ session }) {
       {definitions.map((d) => {
         const item = items.find((x) => x.id === d.id);
         const status = item?.status || 'not_connected';
-        return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+        return <Card key={d.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-col sm:items-stretch">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Plug className="h-5 w-5" /></div>
           <div className="min-w-0 flex-1"><div className="font-medium">{d.name}</div><p className="text-sm text-muted-foreground">{d.detail}</p><div className="mt-2"><Badge variant="outline">{status === 'connected' ? 'Connected' : status === 'pending' ? 'Setup pending' : 'Not connected'}</Badge></div></div>
           <Button variant="outline" onClick={() => begin(d)}>{item?.config ? 'Edit details' : 'Configure'}</Button>
+          {d.id === 'website_chat' && item?.config?.websiteUrl && <WebsiteChatEmbed agencySlug={session?.agency?.slug || ''} />}
         </CardContent></Card>;
       })}
     </>}
@@ -7393,7 +7416,7 @@ function ChannelIntegrations({ session }) {
       {editing.fields.map((field) => <div key={field.key} className="space-y-1"><Label>{field.label}</Label><Input value={config[field.key] || ''} placeholder={field.placeholder} onChange={(e) => setConfig((v) => ({ ...v, [field.key]: e.target.value }))} /></div>)}
       <div className="flex gap-2"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</Button><Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button></div>
     </CardContent></Card>}
-    <p className="text-xs text-muted-foreground">WhatsApp connections are verified against Meta before they are marked connected. Inbound webhook events, outbound messages, approved templates and delivery statuses are handled by the agency-scoped WhatsApp Hub. Embedded Signup availability for customer agencies remains subject to Meta's required app approvals.</p>
+    <p className="text-xs text-muted-foreground">Your agency connects its own WhatsApp number through Meta. SafarOS securely manages the connection, incoming messages, replies and delivery updates. Meta approval requirements still apply.</p>
   </div>;
 }
 
@@ -7436,7 +7459,7 @@ function CopilotChat({ session }) {
       setConv(d.conversationId);
       setMessages((m) => [...m, { role: 'assistant', text: d.reply }]);
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', text: e.message || 'Safar Intelligence could not complete the request.', error: true }]);
+      setMessages((m) => [...m, { role: 'assistant', text: e.message || 'Ask SafarOS could not complete the request.', error: true }]);
     } finally { setBusy(false); }
   };
   return (<div className="flex flex-col h-full min-h-0">
@@ -7457,19 +7480,19 @@ function CopilotChat({ session }) {
       {diagnostic.checks?.error && <div>{diagnostic.checks.error}</div>}
     </div>}
     <div className="flex-1 min-h-0 overflow-auto space-y-3 p-3">
-      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask Safar Intelligence about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
+      {messages.length === 0 && (<div className="space-y-3"><div className="flex items-start gap-2 text-sm text-muted-foreground"><Bot className="mt-0.5 h-4 w-4 shrink-0" /> <span>Ask SafarOS about your agency data or get drafting help. I only use your agency&apos;s data and never perform actions without your confirmation.</span></div><div className="flex flex-wrap gap-2">{COPILOT_SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-full border px-3 py-1 text-xs hover:bg-accent">{s}</button>)}</div></div>)}
       {messages.map((m, i) => (<div key={i} className={'flex ' + (m.role === 'user' ? 'justify-end' : 'justify-start')}><div className={'max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ' + (m.role === 'user' ? 'bg-primary text-primary-foreground' : m.error ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-muted')}>{m.text}</div></div>))}
       {busy && <div className="flex justify-start"><div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">Thinking…</div></div>}
     </div>
     <div className="border-t p-2 flex gap-2">
-      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask Safar Intelligence…" disabled={busy} />
+      <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Ask SafarOS…" disabled={busy} />
       <Button size="icon" onClick={() => send()} disabled={busy || !input.trim()}><Send className="h-4 w-4" /></Button>
     </div>
   </div>);
 }
 
 function CopilotWorkspace({ session }) {
-  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Safar Intelligence</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
+  return (<Card className="h-[calc(100vh-10rem)] overflow-hidden flex flex-col"><CardHeader className="border-b py-3"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-5 w-5 text-violet-600" /> Ask SafarOS</CardTitle><CardDescription>Business summaries, CRM assistance and drafting — grounded only in your agency data.</CardDescription></CardHeader><CardContent className="p-0 flex-1 min-h-0"><CopilotChat session={session} /></CardContent></Card>);
 }
 
 function CopilotFab({ session }) {
@@ -7477,8 +7500,8 @@ function CopilotFab({ session }) {
   const role = session && session.user && session.user.role;
   if (role && !can(role, 'ai:use')) return null;
   return (<>
-    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Safar Intelligence">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
-    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Safar Intelligence</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
+    <button onClick={() => setOpen((o) => !o)} className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition" aria-label="Open Ask SafarOS">{open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}</button>
+    {open && <div className="fixed bottom-24 right-5 z-40 flex h-[70vh] w-[92vw] max-w-sm flex-col overflow-hidden rounded-xl border bg-background shadow-2xl"><div className="flex items-center justify-between border-b px-3 py-2"><span className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" /> Ask SafarOS</span><button onClick={() => setOpen(false)} aria-label="Close"><X className="h-4 w-4" /></button></div><div className="flex-1 min-h-0"><CopilotChat session={session} /></div></div>}
   </>);
 }
 
