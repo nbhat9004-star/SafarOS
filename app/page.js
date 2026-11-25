@@ -8,6 +8,7 @@ import {
   Mountain, Send, Loader2, CheckCircle2, LayoutDashboard, Clock, Phone, MessageCircle,
 } from 'lucide-react';
 import { PLAN_CATALOG } from '@/lib/plans';
+import CinematicHero from '@/components/safaros/cinematic-hero';
 import { useLocalization } from '@/components/safaros/localization-provider';
 
 /* ---------------------------------------------------- imagery */
@@ -695,7 +696,7 @@ function App() {
   return (
     <main className="so-font overflow-x-hidden bg-slate-950" lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
       <Header />
-      <Hero />
+      <CinematicHero />
       <Demo />
       <Features />
       <Pricing onChoose={choose} />
