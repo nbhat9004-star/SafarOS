@@ -243,3 +243,95 @@ html { scroll-behavior: smooth; }
 .so-kpi { transition: transform .25s cubic-bezier(.22,1,.36,1), box-shadow .25s ease, border-color .25s ease; }
 .so-kpi:hover { transform: translateY(-2px); box-shadow: 0 12px 28px -14px rgba(79,70,229,0.4); }
 /* ===================================================================================== */
+
+/* ===================== SafarOS cinematic travel film ===================== */
+.safar-cinema-hero{position:relative;isolation:isolate;min-height:940px;overflow:hidden;background:#05091c;color:#fff;padding:138px 24px 120px}
+.safar-cinema-world{position:absolute;inset:-8% -4% 0;z-index:-3;transform-origin:center top;will-change:transform}
+.safar-cinema-scene{position:absolute;inset:0;overflow:hidden;background:linear-gradient(180deg,#080d2c 0%,#18275a 43%,#f18b9b 68%,#101a3d 100%)}
+.safar-cinema-sky{position:absolute;inset:0;background:radial-gradient(ellipse at 75% 30%,#7b4bd455,transparent 30%),radial-gradient(ellipse at 20% 46%,#ff9b9a44,transparent 30%),linear-gradient(180deg,transparent 55%,#101a35 100%)}
+.safar-cinema-stars{position:absolute;inset:0;background-image:radial-gradient(#fff 1px,transparent 1.8px),radial-gradient(#8ceaff 1px,transparent 1.8px);background-size:83px 83px,137px 137px;background-position:0 0,38px 22px;opacity:.5;animation:safar-stars 24s linear infinite}
+.safar-cinema-cloud{position:absolute;width:38vw;height:100px;border-radius:50%;filter:blur(24px);background:#ffb7cb38;animation:safar-cloud 34s linear infinite}
+.cloud-one{top:23%;left:-30%}.cloud-two{top:38%;left:-60%;animation-delay:-16s;opacity:.65}
+.safar-cinema-mountain{position:absolute;left:-5%;right:-5%;bottom:22%;height:44%;clip-path:polygon(0 65%,8% 42%,14% 58%,23% 18%,32% 62%,43% 12%,51% 57%,61% 23%,72% 63%,82% 16%,91% 54%,100% 28%,100% 100%,0 100%);background:linear-gradient(145deg,#d5e7ff 0%,#6077ad 22%,#1b2b5a 65%,#0b1635 100%);filter:drop-shadow(0 0 20px #92aaff44)}
+.mountain-back{bottom:28%;opacity:.65;transform:scale(1.12);background:linear-gradient(150deg,#c4d6ff,#344875 48%,#101b3d)}
+.mountain-front{height:36%;bottom:18%;clip-path:polygon(0 45%,9% 22%,18% 55%,30% 8%,41% 58%,54% 18%,67% 52%,78% 12%,90% 48%,100% 20%,100% 100%,0 100%);background:linear-gradient(160deg,#233b6e,#0b1939 75%)}
+.safar-cinema-lake{position:absolute;left:0;right:0;bottom:0;height:27%;background:linear-gradient(180deg,#152c55,#061329);border-top:1px solid #a9cfff66}
+.safar-cinema-lake:after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(177deg,transparent 0 13px,#83d8ff19 14px 15px,transparent 16px 26px);animation:safar-water 8s linear infinite}
+.safar-cinema-village{position:absolute;bottom:25%;left:5%;display:flex;align-items:flex-end;gap:9px}
+.safar-cinema-village i{display:block;width:45px;height:28px;background:linear-gradient(180deg,#263b65,#0a142d);clip-path:polygon(50% 0,100% 38%,92% 38%,92% 100%,8% 100%,8% 38%,0 38%);filter:drop-shadow(0 0 9px #ffb86b);border-bottom:3px solid #ffc77c}
+.safar-cinema-flight-path{position:absolute;inset:8% 0 auto;width:100%;height:48%;overflow:visible}
+.safar-plane{animation:safar-plane-flight 17s linear infinite;filter:drop-shadow(0 0 12px #5de9ff)}
+.safar-rail-bridge{position:absolute;right:-4%;bottom:27%;width:61%;height:9px;background:linear-gradient(90deg,#657da9,#d7e8ff,#526d9d);transform:skewY(-7deg);box-shadow:0 8px 20px #050b1b}
+.safar-rail-bridge span{position:relative;display:inline-block;width:10%;height:100px;margin-right:1%;border-left:5px solid #637ba5;border-right:5px solid #637ba5;top:4px;opacity:.8}
+.safar-moving-train{position:absolute;right:-55%;bottom:31%;display:flex;align-items:flex-end;gap:4px;animation:safar-train-run 22s linear infinite;filter:drop-shadow(0 0 13px #41d9ff88)}
+.train-engine,.train-car{position:relative;width:130px;height:43px;border-radius:9px 15px 4px 4px;background:linear-gradient(180deg,#eff8ff 0 15%,#4ec8f4 16% 28%,#132b5b 29% 88%,#a9d9ff 89%);border:1px solid #d2f3ff;box-shadow:inset 0 -5px 0 #10244a}
+.train-engine{border-radius:20px 12px 4px 4px;width:145px}
+.train-engine:before{content:"";position:absolute;right:4px;top:9px;width:18px;height:16px;border-radius:3px;background:#b9efff;box-shadow:0 0 12px #8ceaff}
+.train-car b{position:relative;display:inline-block;width:20px;height:12px;margin:8px 3px 0 8px;background:#9beaff;border-radius:2px;box-shadow:0 0 8px #6be5ff}
+.train-engine i,.train-car i{position:absolute;bottom:-7px;width:14px;height:14px;border:3px solid #b8d9f4;border-radius:50%;background:#111b35;animation:safar-wheel .5s linear infinite}
+.train-engine i:first-of-type,.train-car i:first-of-type{left:20px}.train-engine i:last-of-type,.train-car i:last-of-type{right:20px}
+.safar-road{position:absolute;right:-12%;bottom:-8%;width:76%;height:47%;border:22px solid #111c39;border-top-color:#8c9fca;border-left-color:#52668f;border-radius:50% 0 0 0;transform:rotate(-8deg);box-shadow:0 -5px 20px #72cfff55,inset 0 5px 10px #000}
+.safar-road:before{content:"";position:absolute;inset:-12px;border:2px dashed #c9d9ff99;border-bottom:0;border-right:0;border-radius:50% 0 0 0}
+.road-lights{position:absolute;inset:-18px;border-top:3px solid #8c5cff;filter:drop-shadow(0 0 9px #8c5cff);border-radius:50% 0 0 0}
+.safar-moving-car{position:absolute;right:24%;bottom:16%;width:150px;height:76px;animation:safar-car-drive 10s ease-in-out infinite;filter:drop-shadow(0 12px 14px #030817)}
+.car-shadow{position:absolute;bottom:1px;left:10px;width:130px;height:15px;background:#020613;filter:blur(8px);border-radius:50%}
+.car-body{position:absolute;left:8px;bottom:10px;width:132px;height:40px;border-radius:27px 36px 13px 13px;background:linear-gradient(180deg,#e7f1ff,#677fae 42%,#182b51 80%);border:1px solid #d8e9ff;box-shadow:inset 0 -5px 0 #0b1730}
+.car-body:before{content:"";position:absolute;left:34px;top:-20px;width:70px;height:28px;border-radius:35px 35px 5px 5px;background:linear-gradient(135deg,#8bb9e7,#162d55);border:1px solid #c8e5ff}
+.car-window{position:absolute;left:43px;top:-15px;width:53px;height:18px;background:linear-gradient(120deg,#b7eaff,#1c3964);border-radius:20px 20px 3px 3px;z-index:1}
+.car-headlight{position:absolute;right:-3px;top:20px;width:14px;height:8px;background:#d9faff;box-shadow:0 0 19px 8px #6deaff88;border-radius:50%}
+.car-wheel{position:absolute;bottom:-11px;width:26px;height:26px;border:5px solid #b8c7df;border-radius:50%;background:#080e20;z-index:2;animation:safar-wheel .7s linear infinite}
+.wheel-a{left:22px}.wheel-b{right:22px}
+.safar-cinema-reflection{position:absolute;bottom:0;left:0;right:0;height:23%;background:linear-gradient(180deg,transparent,#060c1caa);pointer-events:none}
+.safar-cinema-vignette{position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,#05091cf2 0%,#05091cbb 38%,#05091c25 75%),linear-gradient(180deg,#05091c66 0%,transparent 28%,#05091c55 75%,#05091c 100%)}
+.safar-cinema-content{position:relative;z-index:3;max-width:680px;margin:0 auto 0 max(5vw,calc((100vw - 1240px)/2));will-change:transform}
+.safar-cinema-kicker{display:inline-flex;align-items:center;gap:9px;padding:9px 14px;border:1px solid #8b74ff88;border-radius:999px;background:#15163eaa;color:#d9d4ff;font-size:11px;font-weight:700;letter-spacing:.16em}
+.safar-cinema-content h1{margin:27px 0 18px;font-size:clamp(42px,6vw,78px);font-weight:850;line-height:.99;letter-spacing:-.055em;text-shadow:0 4px 30px #030817}
+.safar-cinema-content h1 span{background:linear-gradient(90deg,#8eeaff,#9a8bff 52%,#ed9cff);background-clip:text;color:transparent}
+.safar-cinema-content p{max-width:540px;color:#d1d8f3;font-size:18px;line-height:1.7}
+.safar-cinema-actions{display:flex;flex-wrap:wrap;gap:13px;margin-top:30px}
+.safar-cinema-primary,.safar-cinema-secondary{display:inline-flex;align-items:center;justify-content:center;gap:10px;border-radius:999px;padding:14px 22px;font-size:14px;font-weight:750;transition:transform .25s,box-shadow .25s}
+.safar-cinema-primary{background:linear-gradient(100deg,#8b5cf6,#536dff 55%,#20c9ed);color:#fff;box-shadow:0 0 32px #744cff66}
+.safar-cinema-secondary{border:1px solid #b9c9ff77;background:#111b3a99;color:#fff;backdrop-filter:blur(12px)}
+.safar-cinema-primary:hover,.safar-cinema-secondary:hover{transform:translateY(-3px);box-shadow:0 10px 35px #665cff66}
+.safar-cinema-proof{display:flex;flex-wrap:wrap;gap:20px;margin-top:24px;color:#c3cce8;font-size:12px}
+.safar-cinema-proof span{display:flex;align-items:center;gap:7px}.safar-cinema-proof i,.safar-dash-live i{width:7px;height:7px;border-radius:50%;background:#48f2ce;box-shadow:0 0 12px #48f2ce}
+.safar-cinema-dashboard{position:relative;z-index:4;width:min(820px,82vw);margin:64px auto 0 max(5vw,calc((100vw - 1240px)/2));padding:18px;border:1px solid #8e8cff88;border-radius:24px;background:linear-gradient(135deg,#0d1740dd,#101a3ddd);box-shadow:0 25px 90px #020716aa,0 0 55px #7754ff33;backdrop-filter:blur(20px);transform:perspective(1200px) rotateX(4deg)}
+.safar-dash-top{display:flex;align-items:center;justify-content:space-between;padding:4px 4px 16px;border-bottom:1px solid #9cb4ff24}
+.safar-dash-brand{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:800}.safar-dash-brand small{margin-left:8px;color:#8595c6;font-size:9px;letter-spacing:.14em}
+.safar-dash-mark{display:grid;width:28px;height:28px;place-items:center;border-radius:9px;background:linear-gradient(135deg,#28d6ef,#9d63ff);color:#07122b}
+.safar-dash-live{display:flex;align-items:center;gap:8px;color:#aebce3;font-size:9px;letter-spacing:.12em}
+.safar-dash-modules{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding-top:15px}
+.safar-dash-modules>div{display:flex;min-height:106px;flex-direction:column;justify-content:center;gap:7px;padding:13px;border:1px solid #8399e633;border-radius:14px;background:#ffffff08}
+.safar-dash-modules svg{width:20px;height:20px;color:#76dcff}.safar-dash-modules span{font-size:12px;font-weight:750;color:#f5f7ff}.safar-dash-modules b{font-size:10px;line-height:1.35;font-weight:450;color:#aebce3}
+.safar-cinema-scroll{position:absolute;z-index:5;bottom:28px;left:50%;display:flex;align-items:center;gap:12px;transform:translateX(-50%);color:#c6d0f2;font-size:9px;letter-spacing:.2em;white-space:nowrap}
+.safar-cinema-scroll span{width:1px;height:28px;background:linear-gradient(180deg,#9b7cff,transparent);animation:safar-scroll-cue 1.5s ease-in-out infinite}
+@keyframes safar-plane-flight{0%{transform:translate(-12%,18%) scale(.7)}45%{transform:translate(48%,0) scale(1)}100%{transform:translate(115%,-15%) scale(.82)}}
+@keyframes safar-train-run{0%{right:-55%}100%{right:110%}}
+@keyframes safar-car-drive{0%,100%{transform:translate(0,0) rotate(-2deg)}50%{transform:translate(-95px,-28px) rotate(1deg)}}
+@keyframes safar-wheel{to{transform:rotate(360deg)}}
+@keyframes safar-cloud{0%{transform:translateX(0)}100%{transform:translateX(150vw)}}
+@keyframes safar-stars{to{background-position:83px 83px,174px 159px}}
+@keyframes safar-water{to{background-position:0 52px}}
+@keyframes safar-scroll-cue{50%{opacity:.25;transform:translateY(7px)}}
+@media(max-width:760px){
+ .safar-cinema-hero{min-height:880px;padding:116px 20px 100px}
+ .safar-cinema-content{margin:0 auto;text-align:center}
+ .safar-cinema-kicker{font-size:9px;letter-spacing:.1em}
+ .safar-cinema-content h1{font-size:clamp(39px,11vw,58px)}
+ .safar-cinema-content p{margin-inline:auto;font-size:15px}
+ .safar-cinema-actions,.safar-cinema-proof{justify-content:center}
+ .safar-cinema-dashboard{width:100%;margin:54px auto 0;padding:12px;border-radius:18px}
+ .safar-dash-modules{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .safar-dash-modules>div{min-height:82px;padding:10px}
+ .safar-dash-modules>div:last-child{display:none}
+ .safar-dash-live{font-size:0}
+ .safar-cinema-vignette{background:linear-gradient(180deg,#05091caa 0%,#05091c55 45%,#05091c99 100%)}
+ .safar-moving-car{right:12%;bottom:12%;transform:scale(.72)}
+ .safar-moving-train{bottom:27%;transform:scale(.7);transform-origin:right bottom}
+ .safar-rail-bridge{bottom:25%}
+ .safar-road{width:100%;right:-30%;height:38%}
+ .safar-cinema-scroll{bottom:16px;font-size:8px}
+}
+@media(prefers-reduced-motion:reduce){
+ .safar-cinema-stars,.safar-cinema-cloud,.safar-plane,.safar-moving-train,.safar-moving-car,.car-wheel,.train-engine i,.train-car i,.safar-cinema-lake:after,.safar-cinema-scroll span{animation:none!important}
+}
