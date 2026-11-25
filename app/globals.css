@@ -684,3 +684,14 @@ main.so-font footer nav{color:#d2dcf5!important}
  .safar-wow-stats small{font-size:8px}
 }
 @media(prefers-reduced-motion:reduce){.safar-wow-hero *{animation:none!important;transition:none!important}}
+
+/* Final specificity pass: keep the new header and dark sections above legacy overrides */
+main.so-font .safar-wow-header{background:linear-gradient(180deg,rgba(7,16,47,.96),rgba(7,16,47,.78))!important;border-bottom:1px solid rgba(189,195,255,.13)!important;box-shadow:0 8px 28px rgba(2,8,28,.16)!important;backdrop-filter:blur(18px)!important}
+main.so-font .safar-wow-header>div{height:76px!important;max-width:1440px!important}
+main.so-font .safar-wow-header [data-testid="nav-logo"]{color:#fff!important}
+main.so-font .safar-wow-header [data-testid="nav-logo"] .safar-wow-mark{background:linear-gradient(140deg,#7f5cff,#bd54ff)!important;box-shadow:0 0 25px #8d4fff70!important}
+main.so-font .safar-wow-header [data-testid="nav-cta"]{display:inline-flex!important;background:linear-gradient(105deg,#a84dff,#6f52ff 52%,#bd54ff)!important;color:#fff!important;box-shadow:0 0 24px #9d48ff70,0 8px 25px #6e4cff45!important;border-radius:999px!important}
+main.so-font .safar-wow-header [data-testid="nav-signin"]{color:#fff!important;border-color:rgba(255,255,255,.3)!important}
+main.so-font #demo .text-white,main.so-font #features .text-white,main.so-font #pricing .text-white,main.so-font #early-access .text-white{color:#fff!important}
+main.so-font #demo .text-white\/65,main.so-font #demo .text-white\/70,main.so-font #features .text-white\/65,main.so-font #features .text-white\/70,main.so-font #pricing .text-white\/65,main.so-font #early-access .text-white\/70{color:#c0cbe7!important}
+@media(max-width:1023px){main.so-font .safar-wow-header [data-testid="nav-cta"]{display:inline-flex!important}main.so-font .safar-wow-header [data-testid="nav-signin"]{display:none!important}}
