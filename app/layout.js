@@ -1,9 +1,11 @@
 import './globals.css'
 import { Providers } from './providers'
 
+export const viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#101a4b' };
+
 export const metadata = {
-  title: 'SafarOS — B2B OS for Travel Agencies',
-  description: 'Multi-tenant SaaS foundation for travel agencies.',
+  title: 'SafarOS — Run & Grow Your Travel Business',
+  description: 'Bookings, customers, operations, WhatsApp and AI — all in one travel agency workspace.',
   manifest: '/manifest.json',
 }
 
