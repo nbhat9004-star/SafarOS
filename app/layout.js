@@ -1,5 +1,6 @@
 import './globals.css'
 import { Providers } from './providers'
+import PwaRegister from '@/components/safaros/pwa-register'
 
 export const viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#101a4b' };
 
@@ -16,7 +17,7 @@ export default function RootLayout({ children }) {
         <script dangerouslySetInnerHTML={{__html:'window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);'}} />
       </head>
       <body>
-        <Providers>{children}</Providers>
+        <Providers><PwaRegister />{children}</Providers>
       </body>
     </html>
   )
