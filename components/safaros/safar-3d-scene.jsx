@@ -41,6 +41,16 @@ function cubeGeometry(){
  faces.forEach(([normal,corners])=>[0,1,2,0,2,3].forEach(index=>{positions.push(...corners[index]);normals.push(...normal);}));
  return {positions:new Float32Array(positions),normals:new Float32Array(normals),count:36};
 }
+function sphereGeometry(segments=16,rings=10){
+ const positions=[],normals=[];
+ for(let y=0;y<rings;y++)for(let x=0;x<segments;x++){
+  const u=x/segments,v=y/rings,u1=(x+1)/segments,v1=(y+1)/rings;
+  const point=(a,b)=>{const theta=a*Math.PI*2,phi=b*Math.PI;return [Math.sin(phi)*Math.cos(theta),Math.cos(phi),Math.sin(phi)*Math.sin(theta)];};
+  const p=[point(u,v),point(u,v1),point(u1,v1),point(u1,v)];
+  [[0,1,2],[0,2,3]].forEach(tri=>tri.forEach(i=>{positions.push(...p[i]);normals.push(...p[i]);}));
+ }
+ return {positions:new Float32Array(positions),normals:new Float32Array(normals),count:positions.length/3};
+}
 function multiply(a,b){
  const out=new Float32Array(16);
  for(let c=0;c<4;c++)for(let r=0;r<4;r++)out[c*4+r]=a[r]*b[c*4]+a[4+r]*b[c*4+1]+a[8+r]*b[c*4+2]+a[12+r]*b[c*4+3];
@@ -67,7 +77,7 @@ export default function Safar3DScene(){
  useEffect(()=>{
   const canvas=canvasRef.current;if(!canvas)return undefined;
   const gl=canvas.getContext('webgl',{alpha:true,antialias:true,powerPreference:'low-power'});if(!gl)return undefined;
-  let program,raf=0,disposed=false,scroll=0;const buffers=[];
+  let program,raf=0,disposed=false,scroll=0;const buffers=[];const geometries={};
   const resize=()=>{const rect=canvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,1.5);const w=Math.max(1,Math.floor(rect.width*dpr)),h=Math.max(1,Math.floor(rect.height*dpr));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h);}};
   const onScroll=()=>{const max=Math.max(1,document.documentElement.scrollHeight-window.innerHeight);scroll=Math.min(1,Math.max(0,window.scrollY/max));};
   try{
@@ -88,16 +98,16 @@ export default function Safar3DScene(){
     draw(projection,view,[0,-2.3,-3],[12,.5,2],[.12,.2,.42]);
     for(let i=0;i<7;i++){const x=-8+i*2.7,h=2.5+(i%3)*.9;draw(projection,view,[x,-.8,-5],[1.9,h,1.4],[.22,.32,.58],(i%2)*.12);}
     const planeX=-4.6+((t*.62+scroll*3.5)%10),planeY=2.5+Math.sin(t*1.2)*.22+scroll*.7,planeRot=-.08+Math.sin(t*.7)*.035;
-    draw(projection,view,[planeX,planeY,-1.5],[2.25,.22,.28],[.82,.9,1],planeRot);
+    draw(projection,view,[planeX,planeY,-1.5],[2.25,.2,.24],[.82,.9,1],planeRot);\n    draw(projection,view,[planeX+1.05,planeY,-1.5],[.42,.19,.23],[.9,.95,1],planeRot,'sphere');\n    draw(projection,view,[planeX-.98,planeY,-1.5],[.32,.16,.2],[.65,.82,1],planeRot,'sphere');
     draw(projection,view,[planeX-.05,planeY+.02,-1.5],[.65,.055,3],[.34,.78,1],planeRot);
-    draw(projection,view,[planeX-.88,planeY+.18,-1.5],[.42,.34,.48],[.68,.82,1],planeRot);
+    draw(projection,view,[planeX-.88,planeY+.18,-1.5],[.42,.34,.48],[.68,.82,1],planeRot);\n    draw(projection,view,[planeX-.35,planeY-.16,-1.5],[.25,.13,.22],[.28,.48,.72],planeRot,'sphere');\n    draw(projection,view,[planeX+.55,planeY-.16,-1.5],[.25,.13,.22],[.28,.48,.72],planeRot,'sphere');
     draw(projection,view,[planeX-1.02,planeY+.22,-1.5],[.6,.06,.95],[.55,.7,.95],planeRot);
     const trainX=5.8-((t*.42+scroll*2.1)%12);
-    for(let i=0;i<4;i++){const x=trainX+i*.88;draw(projection,view,[x,-.65,-.3],[.82,.48,.65],i===0?[.15,.72,.91]:[.68,.82,.96]);draw(projection,view,[x,-.36,-.3],[.58,.08,.68],[.12,.3,.55]);draw(projection,view,[x-.25,-.94,-.3],[.2,.2,.2],[.035,.055,.11],t*2);draw(projection,view,[x+.25,-.94,-.3],[.2,.2,.2],[.035,.055,.11],t*2);}
+    for(let i=0;i<4;i++){const x=trainX+i*.88;draw(projection,view,[x,-.65,-.3],[.82,.48,.65],i===0?[.15,.72,.91]:[.68,.82,.96]);\n     if(i===0)draw(projection,view,[x+.34,-.65,-.3],[.28,.38,.31],[.22,.82,.96],0,'sphere');draw(projection,view,[x,-.36,-.3],[.58,.08,.68],[.12,.3,.55]);draw(projection,view,[x-.25,-.94,-.3],[.2,.2,.2],[.035,.055,.11],t*2);draw(projection,view,[x+.25,-.94,-.3],[.2,.2,.2],[.035,.055,.11],t*2);}
     const carX=-2.4+Math.sin(t*.42+scroll*2)*2.2;
     draw(projection,view,[carX,-1.2,2.3],[1.65,.48,.82],[.27,.43,.84],Math.sin(t*.42)*.08);
-    draw(projection,view,[carX-.12,-.82,2.3],[.88,.38,.68],[.48,.76,.94],Math.sin(t*.42)*.08);
-    [-.52,.52].forEach(x=>[-.43,.43].forEach(z=>draw(projection,view,[carX+x,-1.55,2.3+z],[.28,.34,.18],[.035,.055,.1],t*2)));
+    draw(projection,view,[carX-.12,-.82,2.3],[.88,.38,.68],[.48,.76,.94],Math.sin(t*.42)*.08);\n    draw(projection,view,[carX+.7,-1.05,2.3],[.18,.16,.28],[.3,.55,.82],0,'sphere');
+    [-.52,.52].forEach(x=>[-.43,.43].forEach(z=>draw(projection,view,[carX+x,-1.55,2.3+z],[.28,.34,.18],[.035,.055,.1],t*2,'sphere')));
     raf=window.requestAnimationFrame(render);
    };
    resize();onScroll();raf=window.requestAnimationFrame(render);
