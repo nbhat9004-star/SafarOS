@@ -71,18 +71,18 @@ function Header() {
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 to-violet-600 shadow-lg shadow-indigo-900/40"><Layers className="h-4 w-4" /></span>
             <span className="text-base font-bold tracking-tight">SafarOS</span>
           </a>
-          <nav className="hidden items-center gap-1 md:flex">
+          <nav className="hidden items-center gap-1 lg:flex">
             {(isArabic ? NAV_AR : NAV).map(([label, id]) => (
               <button key={id} onClick={() => go(id)} data-testid={`nav-${id}`} className="rounded-full px-3.5 py-1.5 text-sm font-medium text-white/70 transition-colors hover:text-white">{label}</button>
             ))}
           </nav>
-          <div className="hidden items-center gap-2 md:flex">
+          <div className="hidden items-center gap-2 lg:flex">
             <a href="/login" data-testid="nav-signin" className="px-3 py-1.5 text-sm font-semibold text-white/85 hover:text-white">{isArabic?'تسجيل الدخول':'Sign in'}</a>
             <button onClick={() => go('early-access')} data-testid="nav-cta" className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-orange-900/30 transition hover:brightness-110">
               {isArabic ? 'احصل على وصول مبكر' : 'Get early access'} <ArrowRight className="h-4 w-4" />
             </button>
           </div>
-          <button onClick={() => setOpen(true)} data-testid="nav-menu" className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-sm font-medium text-white md:hidden" aria-label="Open menu">
+          <button onClick={() => setOpen(true)} data-testid="nav-menu" className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-sm font-medium text-white lg:hidden" aria-label="Open menu">
             {isArabic?'القائمة':'Menu'} <Menu className="h-4 w-4" />
           </button>
         </div>
@@ -91,7 +91,7 @@ function Header() {
       <AnimatePresence>
         {open && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[60] flex flex-col bg-slate-950 md:hidden">
+            className="fixed inset-0 z-[60] flex flex-col bg-slate-950 lg:hidden">
             <div className="flex h-16 items-center justify-between border-b border-white/10 px-4">
               <span className="flex items-center gap-2 text-white"><Layers className="h-5 w-5" /><span className="font-bold">SafarOS</span></span>
               <button onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 text-white" aria-label="Close menu"><X className="h-5 w-5" /></button>
