@@ -48,8 +48,8 @@ function SectionHead({ eyebrow, title, sub, dark = false }) {
 }
 
 /* ---------------------------------------------------- header */
-const NAV = [['Demo', 'demo'], ['Features', 'features'], ['Pricing', 'pricing'], ['Early access', 'early-access'], ['FAQ','/faq'], ['Contact us','/contact'], ['Privacy','/privacy-policy']];
-const NAV_AR = [['العرض التوضيحي','demo'],['المميزات','features'],['الأسعار','pricing'],['التسجيل المبكر','early-access'],['الأسئلة الشائعة','/faq'],['اتصل بنا','/contact'],['الخصوصية','/privacy-policy']];
+const NAV = [['Product', 'demo'], ['Features', 'features'], ['Pricing', 'pricing'], ['Get started', 'early-access']];
+const NAV_AR = [['المنتج','demo'],['المميزات','features'],['الأسعار','pricing'],['ابدأ الآن','early-access']];
 
 function Header() {
   const { locale } = useLocalization();
