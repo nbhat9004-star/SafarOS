@@ -449,3 +449,97 @@ main.so-font .safar-cinema-scroll{bottom:22px}
   main.so-font .safar-cinema-stars,main.so-font .safar-cinema-cloud,main.so-font .safar-plane,main.so-font .safar-moving-train,main.so-font .safar-moving-car{animation:none!important}
 }
 /* ===================================================================================== */
+
+
+/* ===== SafarOS clean single-page landing direction ===== */
+main.so-font{
+  background:#fff!important;color:#101828;
+  --clean-ink:#101828;--clean-muted:#667085;--clean-line:#e7eaf0;--clean-accent:#16856b;
+}
+main.so-font header{
+  background:rgba(255,255,255,.88)!important;border-bottom:1px solid rgba(16,24,40,.07)!important;
+  box-shadow:0 3px 18px rgba(16,24,40,.035);backdrop-filter:blur(18px);
+}
+main.so-font header>div{height:72px;max-width:1240px}
+main.so-font header [data-testid="nav-logo"]{color:#101828!important}
+main.so-font header [data-testid="nav-logo"] span:first-child{background:#101828!important;box-shadow:none!important}
+main.so-font header nav button{color:#667085!important;font-size:13px;font-weight:550}
+main.so-font header nav button:hover{color:#101828!important}
+main.so-font header [data-testid="nav-signin"]{color:#475467!important}
+main.so-font header [data-testid="nav-cta"]{background:#101828!important;color:white!important;box-shadow:none!important;border-radius:999px;padding:10px 18px}
+main.so-font header [data-testid="nav-menu"]{border-color:#e4e7ec;color:#344054}
+main.so-font header>div+div{background:#fff!important}
+main.so-font .safar-cinema-hero,.safar-clean-hero{
+  min-height:0!important;padding:142px 20px 92px!important;background:#fbfcfd!important;color:#101828!important;
+}
+main.so-font .safar-clean-glow{
+  background:radial-gradient(ellipse at 50% 0%,rgba(22,133,107,.075),transparent 42%),
+  radial-gradient(ellipse at 94% 25%,rgba(89,133,210,.055),transparent 28%);
+}
+main.so-font .safar-clean-hero h1{color:#101828!important}
+main.so-font .safar-clean-hero h1 span{color:#16856b!important}
+main.so-font .safar-clean-hero p{color:#667085!important}
+main.so-font .safar-clean-preview{border-color:#e6e9ee!important;border-radius:18px!important;box-shadow:0 30px 85px -48px rgba(16,24,40,.32)!important}
+main.so-font .safar-clean-preview aside{background:#fcfcfd}
+main.so-font .safar-clean-preview aside>div:first-of-type{background:#f2f4f7}
+main.so-font #demo,main.so-font #features,main.so-font #pricing,main.so-font #early-access{
+  padding-block:88px!important;background:#fff!important;color:#101828!important;
+}
+main.so-font #demo:before,main.so-font #features:before,main.so-font #pricing:before,main.so-font #early-access:before{display:none!important}
+main.so-font #demo .text-white,main.so-font #features .text-white,main.so-font #pricing .text-white,main.so-font #early-access .text-white{color:#101828!important}
+main.so-font #demo .text-white\/65,main.so-font #demo .text-white\/70,main.so-font #features .text-white\/65,main.so-font #pricing .text-white\/65,main.so-font #early-access .text-white\/70{color:#667085!important}
+main.so-font #demo .text-amber-300,main.so-font #features .text-amber-300,main.so-font #pricing .text-amber-300,main.so-font #early-access .text-amber-300{color:#16856b!important}
+main.so-font #demo .text-orange-600,main.so-font #features .text-orange-600,main.so-font #pricing .text-orange-600{color:#16856b!important}
+main.so-font #demo .bg-slate-950,main.so-font #demo .bg-slate-900,main.so-font #demo .bg-slate-800{background:#f7f9fa!important}
+main.so-font #demo [data-testid="demo-window"]{border:1px solid #e6e9ee!important;border-radius:18px!important;background:#fff!important;box-shadow:0 24px 70px -42px rgba(16,24,40,.25)!important}
+main.so-font #demo [data-testid="demo-window"]>div:first-child{background:#fafbfc!important;border-color:#edf0f2!important}
+main.so-font #demo [data-testid="demo-window"] .text-white\/45,main.so-font #demo [data-testid="demo-window"] .text-white\/60{color:#667085!important}
+main.so-font #demo [data-testid="demo-window"] .bg-white\/10{background:#f2f4f7!important}
+main.so-font #demo [data-testid="demo-window"] .border-white\/10{border-color:#e7eaf0!important}
+main.so-font #demo [data-testid="demo-steps"] button{border-color:#e4e7ec!important;background:#fff!important;color:#667085!important}
+main.so-font #demo [data-testid="demo-steps"] button.text-white{color:#101828!important}
+main.so-font #demo [data-testid="demo-steps"] button.border-amber-400\/60{border-color:#16856b!important;background:#f0f8f5!important}
+main.so-font #features{background:#fbfcfd!important}
+main.so-font #features .so-lift{border:1px solid #e8ebef!important;border-radius:16px!important;background:#fff!important;box-shadow:0 2px 8px rgba(16,24,40,.025)!important}
+main.so-font #features .so-lift:hover{box-shadow:0 14px 35px rgba(16,24,40,.07)!important;transform:translateY(-3px)}
+main.so-font #features .so-lift h3{color:#101828!important}
+main.so-font #features .so-lift p{color:#667085!important}
+main.so-font #features .so-lift>span{background:#eaf5f1!important;color:#16856b!important;box-shadow:none!important}
+main.so-font #features .so-lift>span svg{color:#16856b!important}
+main.so-font #features img{border-radius:16px}
+main.so-font #pricing{background:#fff!important}
+main.so-font #pricing .bg-slate-50{background:#f8faf9!important;border-color:#e7eaf0!important}
+main.so-font #pricing [data-testid^="plan-card-"]{border:1px solid #e6e9ee!important;border-radius:18px!important;background:#fff!important;color:#101828!important;box-shadow:0 4px 16px rgba(16,24,40,.035)!important}
+main.so-font #pricing [data-testid^="plan-card-"] p,main.so-font #pricing [data-testid^="plan-card-"] li{color:#667085!important}
+main.so-font #pricing [data-testid^="plan-card-"] .text-slate-700{color:#344054!important}
+main.so-font #pricing [data-testid^="plan-card-"] .text-slate-400{color:#98a2b3!important}
+main.so-font #pricing [data-testid^="plan-card-"] a{border-color:#d0d5dd!important;color:#344054!important}
+main.so-font #pricing [data-testid^="plan-card-"] button{background:#101828!important;color:#fff!important}
+main.so-font #pricing [data-testid="plan-card-professional"]{border:1.5px solid #16856b!important;background:#f7fbf9!important;box-shadow:0 12px 34px rgba(22,133,107,.08)!important}
+main.so-font #pricing [data-testid="plan-card-professional"] button{background:#16856b!important}
+main.so-font #pricing [data-testid="plan-card-professional"]>span{background:#16856b!important;color:#fff!important}
+main.so-font #early-access{background:#f7faf8!important}
+main.so-font #early-access>img{display:none!important}
+main.so-font #early-access>div.absolute{display:none!important}
+main.so-font #early-access [data-testid="early-access-card"]{border:1px solid #e6e9ee!important;border-radius:18px!important;background:#fff!important;color:#101828!important;box-shadow:0 12px 40px rgba(16,24,40,.055)!important}
+main.so-font #early-access [data-testid="early-access-card"] h3{color:#101828!important}
+main.so-font #early-access [data-testid="early-access-card"] label{color:#344054!important}
+main.so-font #early-access [data-testid="early-access-card"] input,main.so-font #early-access [data-testid="early-access-card"] select,main.so-font #early-access [data-testid="early-access-card"] textarea{background:#fff!important;border:1px solid #d0d5dd!important;color:#101828!important;border-radius:10px!important}
+main.so-font #early-access [data-testid="ea-submit"]{background:#16856b!important;color:#fff!important;box-shadow:none!important}
+main.so-font footer{background:#fff!important;border-color:#eaecf0!important}
+main.so-font footer,main.so-font footer nav,main.so-font footer p{color:#667085!important}
+main.so-font footer .text-white{color:#101828!important}
+main.so-font footer nav a,main.so-font footer nav button{color:#667085!important}
+main.so-font footer nav a:hover,main.so-font footer nav button:hover{color:#101828!important}
+main.so-font .so-section .text-slate-900{color:#101828!important}
+main.so-font .so-section .text-slate-600{color:#667085!important}
+main.so-font .so-section .text-slate-500{color:#667085!important}
+@media(max-width:760px){
+  main.so-font .safar-clean-hero{padding:116px 16px 66px!important}
+  main.so-font .safar-clean-hero h1{font-size:clamp(38px,10vw,52px)!important}
+  main.so-font .safar-clean-preview{margin-top:40px!important}
+  main.so-font #demo,main.so-font #features,main.so-font #pricing,main.so-font #early-access{padding-block:64px!important}
+  main.so-font header>div{height:64px}
+}
+@media(prefers-reduced-motion:reduce){main.so-font .safar-clean-hero *{animation:none!important;transition:none!important}}
+/* ===== End clean single-page landing direction ===== */
