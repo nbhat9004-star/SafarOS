@@ -81,17 +81,27 @@ export default function Safar3DScene(){
   const resize=()=>{const rect=canvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,1.5);const w=Math.max(1,Math.floor(rect.width*dpr)),h=Math.max(1,Math.floor(rect.height*dpr));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h);}};
   const onScroll=()=>{const max=Math.max(1,document.documentElement.scrollHeight-window.innerHeight);scroll=Math.min(1,Math.max(0,window.scrollY/max));};
   try{
-   program=programFor(gl);gl.useProgram(program);const geometry=cubeGeometry();
-   const pos=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,pos);gl.bufferData(gl.ARRAY_BUFFER,geometry.positions,gl.STATIC_DRAW);buffers.push(pos);
-   const normal=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,normal);gl.bufferData(gl.ARRAY_BUFFER,geometry.normals,gl.STATIC_DRAW);buffers.push(normal);
+   program=programFor(gl);gl.useProgram(program);
+   [['cube',cubeGeometry()],['sphere',sphereGeometry()]].forEach(([name,geometry])=>{
+    const pos=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,pos);gl.bufferData(gl.ARRAY_BUFFER,geometry.positions,gl.STATIC_DRAW);buffers.push(pos);
+    const normal=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,normal);gl.bufferData(gl.ARRAY_BUFFER,geometry.normals,gl.STATIC_DRAW);buffers.push(normal);
+    geometries[name]={pos,normal,count:geometry.count};
+   });
    const aPosition=gl.getAttribLocation(program,'aPosition'),aNormal=gl.getAttribLocation(program,'aNormal');
    const uMvp=gl.getUniformLocation(program,'uMvp'),uModel=gl.getUniformLocation(program,'uModel'),uColor=gl.getUniformLocation(program,'uColor'),uLight=gl.getUniformLocation(program,'uLight');
    gl.enable(gl.DEPTH_TEST);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
-   gl.enableVertexAttribArray(aPosition);gl.bindBuffer(gl.ARRAY_BUFFER,pos);gl.vertexAttribPointer(aPosition,3,gl.FLOAT,false,0,0);
-   gl.enableVertexAttribArray(aNormal);gl.bindBuffer(gl.ARRAY_BUFFER,normal);gl.vertexAttribPointer(aNormal,3,gl.FLOAT,false,0,0);
-   const draw=(projection,view,position,scale,color,rotation=0)=>{const model=modelMatrix(position,scale,rotation),mvp=multiply(projection,multiply(view,model));gl.uniformMatrix4fv(uModel,false,model);gl.uniformMatrix4fv(uMvp,false,mvp);gl.uniform3fv(uColor,color);gl.drawArrays(gl.TRIANGLES,0,geometry.count);};
+   gl.enableVertexAttribArray(aPosition);gl.enableVertexAttribArray(aNormal);
+   const draw=(projection,view,position,scale,color,rotation=0,shape='cube')=>{
+    const geometry=geometries[shape]||geometries.cube;
+    gl.bindBuffer(gl.ARRAY_BUFFER,geometry.pos);gl.vertexAttribPointer(aPosition,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,geometry.normal);gl.vertexAttribPointer(aNormal,3,gl.FLOAT,false,0,0);
+    const model=modelMatrix(position,scale,rotation),mvp=multiply(projection,multiply(view,model));
+    gl.uniformMatrix4fv(uModel,false,model);gl.uniformMatrix4fv(uMvp,false,mvp);gl.uniform3fv(uColor,color);
+    gl.drawArrays(gl.TRIANGLES,0,geometry.count);
+   };
+   const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
    const render=now=>{
-    if(disposed)return;resize();onScroll();const t=window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:now*.001,aspect=canvas.width/Math.max(1,canvas.height),orbit=scroll*.8;
+    if(disposed)return;resize();onScroll();const t=reducedMotion?0:now*.001,aspect=canvas.width/Math.max(1,canvas.height),orbit=scroll*.8;
     gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     const projection=perspective(Math.PI/3.2,aspect,.1,100),view=lookAt([Math.sin(orbit)*8,4.5+scroll*1.1,12-Math.cos(orbit)*1.2],[0,0,0],[0,1,0]);
     gl.uniform3f(uLight,-.45,.9,.55);
@@ -114,7 +124,7 @@ export default function Safar3DScene(){
     draw(projection,view,[carX-.12,-.82,2.3],[.88,.38,.68],[.48,.76,.94],Math.sin(t*.42)*.08);
     draw(projection,view,[carX+.7,-1.05,2.3],[.18,.16,.28],[.3,.55,.82],0,'sphere');
     [-.52,.52].forEach(x=>[-.43,.43].forEach(z=>draw(projection,view,[carX+x,-1.55,2.3+z],[.28,.34,.18],[.035,.055,.1],t*2,'sphere')));
-    if(!window.matchMedia('(prefers-reduced-motion: reduce)').matches)raf=window.requestAnimationFrame(render);
+    if(!reducedMotion)raf=window.requestAnimationFrame(render);
    };
    resize();onScroll();raf=window.requestAnimationFrame(render);
   }catch(error){console.error('SafarOS 3D scene unavailable:',error);}
