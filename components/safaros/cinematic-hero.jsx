@@ -1,37 +1,33 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { ArrowRight, Play, CalendarDays, MessageCircle, Users, ChartNoAxesCombined, Sparkles, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, CalendarDays, Check, Globe2, MessageCircle, Plane, Sparkles, Users, Zap, TrendingUp, MapPinned, Wallet } from 'lucide-react';
 
 const EASE = [0.22, 1, 0.36, 1];
 
-function ProductPreview() {
-  const rows = [
-    { name: 'Alpine escape · 5 nights', client: 'Alex Morgan', date: '12 Dec 2026', status: 'Confirmed', color: 'bg-emerald-50 text-emerald-700' },
-    { name: 'Coastal discovery · 3 nights', client: 'Sara Williams', date: '15 Dec 2026', status: 'Awaiting payment', color: 'bg-amber-50 text-amber-700' },
-    { name: 'City & culture · 7 nights', client: 'Daniel Reed', date: '18 Dec 2026', status: 'In progress', color: 'bg-blue-50 text-blue-700' },
+function DashboardPreview() {
+  const metrics = [
+    { label: 'Bookings', value: '128', delta: '+12.8%', icon: CalendarDays },
+    { label: 'Revenue', value: '₹24,80,000', delta: '+22%', icon: Wallet },
+    { label: 'Trips', value: '56', delta: '+18%', icon: MapPinned },
+    { label: 'Customers', value: '423', delta: '+21%', icon: Users },
   ];
+  const bars = [18,28,24,42,35,48,43,61,56,74,69,88];
   return (
-    <motion.div initial={{ opacity: 0, y: 28 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .24, duration: .8, ease: EASE }}
-      className="safar-clean-preview mx-auto mt-14 w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-[0_28px_90px_-42px_rgba(15,23,42,.28)]">
-      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-7">
-        <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-950 text-sm font-bold text-white">S</span><div><div className="text-sm font-semibold text-slate-900">SafarOS workspace</div><div className="text-xs text-slate-400">Good morning, Alex</div></div></div>
-        <div className="hidden items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 sm:flex"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500"/> All systems operational</div>
+    <motion.div initial={{opacity:0,y:35,rotate:1.5}} animate={{opacity:1,y:0,rotate:0}} transition={{delay:.25,duration:.9,ease:EASE}} className="safar-wow-dashboard">
+      <div className="safar-wow-dash-top">
+        <div className="flex items-center gap-2.5"><span className="safar-wow-mini-mark">S</span><div><b>SafarOS</b><small>AGENCY WORKSPACE</small></div></div>
+        <div className="flex items-center gap-2"><span className="safar-wow-live"><i/> Live workspace</span><span className="safar-wow-avatar">A</span></div>
       </div>
-      <div className="grid gap-0 md:grid-cols-[190px_1fr]">
-        <aside className="hidden border-r border-slate-100 p-4 md:block">
-          <div className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900">Overview</div>
-          {['Enquiries','Bookings','Itineraries','Customers','Messages','Reports'].map((x,i)=><div key={x} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs text-slate-500"><span className={`h-1.5 w-1.5 rounded-full ${i===1?'bg-emerald-500':'bg-slate-300'}`}/>{x}</div>)}
+      <div className="safar-wow-dash-body">
+        <aside className="safar-wow-sidebar">
+          {['Dashboard','Bookings','Customers','Itineraries','WhatsApp','Operations','Reports'].map((label,i)=><div key={label} className={i===0?'active':''}><span>{['▦','▣','♙','⌖','◉','◇','▥'][i]}</span>{label}</div>)}
+          <div className="safar-wow-sidebar-bottom">⚙ &nbsp; Settings</div>
         </aside>
-        <div className="min-w-0 p-4 sm:p-7">
-          <div className="mb-5 flex items-end justify-between gap-3"><div><div className="text-xs text-slate-400">Your business at a glance</div><div className="mt-1 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">Workspace overview</div></div><span className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500">This month⌄</span></div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {[['Active bookings','128','+12.8%'],['New enquiries','64','+8.4%'],['Revenue tracked','₹8.4L','+14.2%'],['Team members','12','+2']].map(([label,value,delta])=><div key={label} className="rounded-xl border border-slate-100 bg-white p-3 sm:p-4"><div className="text-[11px] text-slate-400 sm:text-xs">{label}</div><div className="mt-2 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">{value}</div><div className="mt-1 text-[10px] font-medium text-emerald-600">{delta} this month</div></div>)}
-          </div>
-          <div className="mt-5 overflow-hidden rounded-xl border border-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3"><span className="text-xs font-semibold text-slate-800">Recent bookings</span><span className="text-[11px] font-medium text-slate-500">View all →</span></div>
-            {rows.map(row=><div key={row.name} className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-slate-50 px-4 py-3 last:border-0 sm:grid-cols-[1.3fr_1fr_100px_auto]"><div className="min-w-0"><div className="truncate text-xs font-medium text-slate-800">{row.name}</div><div className="mt-1 text-[10px] text-slate-400 sm:hidden">{row.client} · {row.date}</div></div><div className="hidden text-xs text-slate-500 sm:block">{row.client}</div><div className="hidden text-xs text-slate-500 sm:block">{row.date}</div><span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-medium ${row.color}`}>{row.status}</span></div>)}
-          </div>
+        <div className="safar-wow-dash-content">
+          <div className="flex items-start justify-between gap-3"><div><span className="safar-wow-muted">Tuesday, 25 November 2026</span><h3>Good evening, Alex 👋</h3><p>Here’s what’s happening with your travel business.</p></div><span className="safar-wow-agency">◉ <span>Travel Valley<br/>Agency</span>⌄</span></div>
+          <div className="safar-wow-metrics">{metrics.map(({label,value,delta,icon:Icon})=><div key={label}><span className="safar-wow-metric-icon"><Icon/></span><small>{label}</small><b>{value}</b><em>↗ {delta}</em></div>)}</div>
+          <div className="safar-wow-chart-card"><div className="flex items-center justify-between"><b>Business performance</b><small>Last 12 months⌄</small></div><div className="safar-wow-chart"><div className="safar-wow-ylabels"><span>₹30L</span><span>₹20L</span><span>₹10L</span><span>₹0</span></div><svg viewBox="0 0 620 150" preserveAspectRatio="none" role="img" aria-label="Revenue trend rising over twelve months"><defs><linearGradient id="safarArea" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#a64dff" stopOpacity=".38"/><stop offset="1" stopColor="#a64dff" stopOpacity="0"/></linearGradient></defs>{[25,65,105,145].map(y=><line key={y} x1="0" x2="620" y1={y} y2={y} stroke="#8295c8" strokeOpacity=".16" strokeDasharray="4 5"/>)}<path d="M0 126 C40 116 45 98 82 104 S130 70 166 85 S205 94 248 65 S298 78 330 60 S385 77 420 45 S470 64 500 31 S560 45 620 10 L620 150 L0 150Z" fill="url(#safarArea)"/><path d="M0 126 C40 116 45 98 82 104 S130 70 166 85 S205 94 248 65 S298 78 330 60 S385 77 420 45 S470 64 500 31 S560 45 620 10" fill="none" stroke="#b45cff" strokeWidth="3" strokeLinecap="round"/></svg></div><div className="safar-wow-months"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span></div></div>
         </div>
       </div>
     </motion.div>
@@ -40,33 +36,34 @@ function ProductPreview() {
 
 export default function CinematicHero() {
   return (
-    <section className="safar-clean-hero relative overflow-hidden px-5 pb-20 pt-32 sm:px-8 sm:pt-40">
-      <div className="safar-clean-glow pointer-events-none absolute inset-0" />
-      <div className="relative mx-auto max-w-5xl text-center">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .55 }}
-          className="mx-auto inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3.5 py-2 text-[11px] font-semibold tracking-wide text-slate-600 shadow-sm">
-          <Sparkles className="h-3.5 w-3.5 text-emerald-600"/> THE WORKSPACE BUILT FOR TRAVEL BUSINESSES
-        </motion.div>
-        <motion.h1 initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .08, duration: .7, ease: EASE }}
-          className="mx-auto mt-7 max-w-4xl text-balance text-4xl font-semibold leading-[1.08] tracking-[-.055em] text-slate-950 sm:text-6xl lg:text-[72px]">
-          Run your travel business.<br/><span className="text-emerald-700">All in one place.</span>
-        </motion.h1>
-        <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .16, duration: .65 }}
-          className="mx-auto mt-6 max-w-2xl text-base leading-7 text-slate-500 sm:text-lg sm:leading-8">
-          Bring enquiries, itineraries, bookings, payments and team workflows together in one clear workspace. Spend less time coordinating and more time creating great journeys.
-        </motion.p>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .22, duration: .65 }}
-          className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <a href="/signup" className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 transition hover:-translate-y-0.5 hover:bg-emerald-800">Get started <ArrowRight className="h-4 w-4"/></a>
-          <button onClick={() => document.getElementById('demo')?.scrollIntoView({behavior:'smooth'})} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"><Play className="h-4 w-4"/> See how it works</button>
-        </motion.div>
-        <div className="mt-7 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-slate-400">
-          <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600"/> One connected workspace</span>
-          <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600"/> Built for growing agencies</span>
-          <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600"/> Simple to get started</span>
+    <section className="safar-wow-hero relative overflow-hidden px-4 pb-20 pt-28 sm:px-7 sm:pt-32 lg:px-10">
+      <div className="safar-wow-sky"/>
+      <div className="safar-wow-stars"/>
+      <svg className="safar-wow-landscape" viewBox="0 0 1600 570" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+        <defs><linearGradient id="mountainA" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#d4d8ff"/><stop offset=".42" stopColor="#6678b9"/><stop offset="1" stopColor="#101c49"/></linearGradient><linearGradient id="lakeA" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#324e83"/><stop offset="1" stopColor="#081431"/></linearGradient></defs>
+        <path d="M0 280 130 170 230 250 370 80 500 235 640 100 790 250 930 92 1070 245 1210 115 1360 245 1480 150 1600 230V570H0Z" fill="url(#mountainA)" opacity=".68"/>
+        <path d="m0 355 150-105 130 80 150-170 155 165 130-105 150 110 140-145 130 130 145-90 120 95 100-70v220H0Z" fill="#182b5a"/>
+        <path d="M0 410q230-34 420 4t380-4 400 3 400-2v159H0Z" fill="url(#lakeA)"/>
+        <path d="M0 448q240-28 460 7t430-5 390 4 320-2" fill="none" stroke="#a5c9ff" strokeOpacity=".24" strokeWidth="3"/>
+        <path d="M0 478q250-22 470 5t430-3 390 3 310-2" fill="none" stroke="#a5c9ff" strokeOpacity=".16" strokeWidth="2"/>
+      </svg>
+      <div className="safar-wow-horizon-glow"/>
+      <div className="safar-wow-plane"><Plane/></div>
+      <div className="relative z-10 mx-auto grid max-w-[1440px] items-center gap-9 lg:grid-cols-[.82fr_1.18fr] lg:gap-8">
+        <div className="safar-wow-copy">
+          <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} transition={{duration:.6}} className="safar-wow-kicker"><Sparkles/> TRAVEL AGENCY OPERATING SYSTEM</motion.div>
+          <motion.h1 initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} transition={{delay:.1,duration:.75,ease:EASE}}>Run &amp; grow your travel business with <span>SafarOS</span></motion.h1>
+          <motion.p initial={{opacity:0,y:15}} animate={{opacity:1,y:0}} transition={{delay:.2,duration:.7}}>All-in-one platform to manage bookings, customers, teams, operations and WhatsApp communication — built for modern travel agencies.</motion.p>
+          <motion.div initial={{opacity:0,y:15}} animate={{opacity:1,y:0}} transition={{delay:.3,duration:.7}} className="mt-7 flex flex-wrap gap-3">
+            <a href="/signup" className="safar-wow-cta safar-wow-hero-cta">Start Free Trial <ArrowRight/></a>
+            <a href="#demo" className="safar-wow-watch"><span>▶</span> Watch Demo <small>(2 min)</small></a>
+          </motion.div>
+          <div className="safar-wow-proof"><span><Check/> No credit card</span><span><Check/> Setup in minutes</span><span><Check/> Full access</span></div>
         </div>
+        <DashboardPreview/>
       </div>
-      <div className="relative"><ProductPreview/></div>
+      <div className="safar-wow-stats"><div><Users/><b>500+</b><small>Travel Agencies</small></div><div><CalendarDays/><b>50,000+</b><small>Bookings Monthly</small></div><div><MessageCircle/><b>10M+</b><small>WhatsApp Messages</small></div><div><Globe2/><b>15+</b><small>Countries</small></div><div><Zap/><b>99.9%</b><small>Uptime</small></div></div>
+      <div className="safar-wow-scroll-cue">SCROLL TO EXPLORE <span/></div>
     </section>
   );
 }
