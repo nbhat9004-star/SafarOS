@@ -3000,8 +3000,9 @@ async function testProviderConnection(provider, values = {}) {
       if (missingScopes.length) {
         return { ok: false, message: 'The platform token is missing required WhatsApp permissions: ' + missingScopes.join(', ') + '.' };
       }
-      if (Number(tokenData.expires_at || 0) > 0 && Number(tokenData.expires_at) * 1000 < Date.now() + 7 * 24 * 60 * 60 * 1000) {
-        return { ok: false, message: 'The platform token expires within seven days. Replace it with a long-lived System User token before connecting the live number.' };
+      if (Number(tokenData.expires_at || 0) > 0) {
+        const expiry = new Date(Number(tokenData.expires_at) * 1000).toISOString().slice(0, 10);
+        return { ok: false, message: 'This platform token has an expiry date (' + expiry + '). Generate a System User token with “Never” expiry before connecting the live SafarOS number.' };
       }
 
       const phoneParams = new URLSearchParams({ fields: 'id,display_phone_number,verified_name,quality_rating' });
