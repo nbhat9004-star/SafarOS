@@ -2838,6 +2838,99 @@ async function growthEnquirySubmit(db, body, request) {
 }
 
 // ---- Landing page: early-access / contact requests (public submit, platform admin review) ----
+
+ // ---- Trusted multi-channel Growth intake (server-to-server only) ----
+async function growthChannelIngest(db, body, request) {
+  if (process.env.GROWTH_CHANNEL_INGEST_ENABLED !== 'true') return err('Growth channel intake is not enabled.', 503);
+  const expected = process.env.GROWTH_INGEST_SECRET || '';
+  const supplied = request.headers.get('x-growth-ingest-token') || '';
+  if (expected.length < 32 || supplied.length !== expected.length
+    || !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) return err('unauthorised', 401);
+  const piiSecret = process.env.GROWTH_PII_HASH_SECRET || '';
+  if (piiSecret.length < 32) return err('Enquiry service is temporarily unavailable.', 503);
+
+  const idempotencyKey = String(request.headers.get('idempotency-key') || body?.idempotencyKey || '').trim();
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 180) return err('A valid idempotency key is required.');
+  const sourceChannel = String(body?.sourceChannel || '').toLowerCase();
+  if (!['website', 'whatsapp', 'agency_referral', 'partner'].includes(sourceChannel)) return err('Unsupported Growth source channel.');
+  const evidence = body?.consentEvidence || {};
+  const evidenceText = String(evidence.text || '').trim();
+  const consentVersion = String(evidence.version || '').trim().slice(0, 80);
+  const consentAt = String(evidence.capturedAt || '').trim();
+  if (evidence.accepted !== true || !consentVersion || evidenceText.length < 8 || evidenceText.length > 1000
+    || !Number.isFinite(Date.parse(consentAt))) return err('Explicit, timestamped traveller consent evidence is required.');
+  if (sourceChannel === 'whatsapp' && !String(evidence.messageId || body?.sourceEventId || '').trim()) {
+    return err('A WhatsApp consent message reference is required.');
+  }
+
+  const name = String(body?.name || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+  const phone = String(body?.phone || '').replace(/[\s()-]/g, '');
+  const email = String(body?.email || '').trim().toLowerCase().slice(0, 160);
+  const destination = String(body?.destination || '').trim().slice(0, 120);
+  const travelStart = String(body?.travelStart || '').trim(), travelEnd = String(body?.travelEnd || '').trim();
+  const tripType = String(body?.tripType || '').trim().slice(0, 60);
+  const budgetMax = Number(body?.budgetMax), partySize = Number(body?.partySize);
+  if (name.length < 2) return err('Please provide the traveller name.');
+  if (!GROWTH_PHONE_RE.test(phone)) return err('Please provide a valid phone number with country code.');
+  if (email && !EMAIL_RE.test(email)) return err('Please provide a valid email address.');
+  if (!GROWTH_DESTINATIONS.includes(destination)) return err('Unsupported Kashmir destination.');
+  if (!isRealIsoDate(travelStart)) return err('A valid travel start date is required.');
+  if (travelEnd && (!isRealIsoDate(travelEnd) || travelEnd < travelStart)) return err('Invalid travel end date.');
+  if (String(body?.budgetMax ?? '').trim() === '' || !Number.isFinite(budgetMax) || budgetMax < 0 || budgetMax > 100000000) return err('A valid maximum budget is required.');
+  if (!Number.isInteger(partySize) || partySize < 1 || partySize > 40) return err('A valid group size is required.');
+  if (tripType && !GROWTH_TRIP_TYPES.includes(tripType)) return err('Unsupported trip type.');
+
+  const idempotencyHash = crypto.createHmac('sha256', piiSecret).update(idempotencyKey).digest('hex');
+  await db.collection('growthLeads').createIndex({ idempotencyHash: 1 }, { unique: true, sparse: true, name: 'growth_lead_idempotency_unique' });
+  const prior = await db.collection('growthLeads').findOne({ idempotencyHash }, { projection: { _id: 0, id: 1 } });
+  if (prior) return json({ ok: true, duplicate: true, reference: prior.id }, 200);
+
+  const now = new Date(), phoneHash = crypto.createHmac('sha256', piiSecret).update(phone).digest('hex');
+  const existing = await db.collection('growthLeads').findOne(
+    { phoneHash, createdAt: { $gte: new Date(now.getTime() - 30 * 86400000).toISOString() } },
+    { projection: { id: 1, _id: 0 } });
+  const duplicate = !!existing, leadId = uuidv4(), consentId = uuidv4();
+  const sourceReference = String(body?.sourceEventId || body?.sourceReference || '').trim().slice(0, 180);
+  const consentRecord = {
+    id: consentId, leadId, version: consentVersion, granted: true,
+    purpose: 'Respond to this traveller enquiry and share it with one eligible travel operator for that purpose',
+    disclosure: 'Contact details may be shared with one eligible travel agency only after an exclusive purchase',
+    channel: sourceChannel, source: sourceChannel, evidenceText,
+    evidenceMessageId: String(evidence.messageId || '').slice(0, 180),
+    grantedAt: new Date(consentAt).toISOString(), withdrawn: false,
+  };
+  const lead = {
+    id: leadId, idempotencyHash, title: `Trip enquiry — ${destination}`,
+    name, phone, phoneHash, email,
+    originCity: String(body?.originCity || '').trim().slice(0, 100),
+    destination, market: 'Kashmir', country: 'IN', travelStart, travelEnd, tripType, budgetMax, partySize,
+    source: sourceChannel, sourceChannel, sourceReference,
+    status: 'pending', verificationStatus: 'unverified', phoneOwnershipVerified: false,
+    consent: { granted: true, withdrawn: false, recordId: consentId, version: consentVersion },
+    qualificationSignals: { possibleDuplicate: duplicate, suspiciousSubmission: false },
+    createdAt: now.toISOString(), updatedAt: now.toISOString(),
+  };
+  const scored = scoreGrowthLead(lead, { referenceDate: now.toISOString() });
+  Object.assign(lead, { score: scored.score, quality: scored.quality, scoreBreakdown: scored.breakdown,
+    suggestedPriceInr: scored.suggestedPriceInr, marketplaceEligible: false,
+    reviewFlags: duplicate ? ['possible_duplicate'] : [] });
+  try {
+    await db.collection('growthLeads').insertOne(lead);
+  } catch (e) {
+    if (e?.code === 11000) {
+      const same = await db.collection('growthLeads').findOne({ idempotencyHash }, { projection: { _id: 0, id: 1 } });
+      if (same) return json({ ok: true, duplicate: true, reference: same.id }, 200);
+    }
+    throw e;
+  }
+  await db.collection('growthConsentRecords').insertOne(consentRecord);
+  await db.collection('growthLeadEvents').insertOne({
+    id: uuidv4(), leadId, type: 'enquiry_received', at: now.toISOString(),
+    metadata: { consentRecordId: consentId, sourceChannel, sourceReference, duplicateReviewRequired: duplicate },
+  });
+  return json({ ok: true, reference: leadId, status: 'pending', marketplaceEligible: false }, 201);
+}
+
 const EARLY_ACCESS_STATUSES = ['new', 'contacted', 'converted', 'archived'];
 const EARLY_ACCESS_PLANS = ['trial', 'starter', 'professional', 'enterprise', 'not_sure'];
 const EARLY_ACCESS_TEAM_SIZES = ['1', '2-5', '6-20', '21-50', '50+'];
@@ -3165,7 +3258,7 @@ async function platformGet(db, session, path, sp) {
     const q = {};
     if (status && ['pending', 'available', 'sold', 'rejected', 'withdrawn', 'expired'].includes(status)) q.status = status;
     if (['high', 'medium', 'low'].includes(quality)) q.quality = quality;
-    const leads = await db.collection('growthLeads').find(q, { projection: { _id: 0, id: 1, title: 1, originCity: 1, destination: 1, travelStart: 1, travelEnd: 1, partySize: 1, budgetMin: 1, budgetMax: 1, status: 1, verificationStatus: 1, purchaseStatus: 1, source: 1, quality: 1, score: 1, suggestedPriceInr: 1, createdAt: 1 } }).sort({ createdAt: -1 }).limit(200).toArray();
+    const leads = await db.collection('growthLeads').find(q, { projection: { _id: 0, id: 1, title: 1, originCity: 1, destination: 1, travelStart: 1, travelEnd: 1, partySize: 1, budgetMin: 1, budgetMax: 1, tripType: 1, status: 1, verificationStatus: 1, purchaseStatus: 1, source: 1, sourceChannel: 1, sourceReference: 1, quality: 1, score: 1, suggestedPriceInr: 1, createdAt: 1 } }).sort({ createdAt: -1 }).limit(200).toArray();
     return json({ leads });
   }
   if (path === '/platform/safarcurated') return json(await scPlatformSummary(db));
@@ -4607,6 +4700,7 @@ export async function POST(request, context) {
 
     // ---- Landing page early-access / contact form (public, no auth) ----
     if (path === '/growth/enquiries') return growthEnquirySubmit(db, await readBody(request), request);
+    if (path === '/growth/ingest') return growthChannelIngest(db, await readBody(request), request);
     if (path === '/early-access') return earlyAccessSubmit(db, await readBody(request));
 
     // ---- SafarCurated marketplace (agency-scoped) ----
