@@ -581,12 +581,24 @@ function SafarCuratedView({ admin }) {
 // ---------- SafarOS Growth ----------
 function GrowthView() {
   const [data, setData] = useState(null);
+  const [leads, setLeads] = useState(null);
+  const [leadStatus, setLeadStatus] = useState('all');
   const [error, setError] = useState('');
+  const [leadError, setLeadError] = useState('');
   const load = useCallback(async () => {
     try { setError(''); const d = await api('/growth/overview'); setData(d); }
     catch (e) { setError(e.message); }
   }, []);
+  const loadLeads = useCallback(async () => {
+    try {
+      setLeadError('');
+      const query = leadStatus === 'all' ? '' : `?status=${encodeURIComponent(leadStatus)}`;
+      const d = await api(`/growth/leads${query}`);
+      setLeads(d.leads || []);
+    } catch (e) { setLeadError(e.message); }
+  }, [leadStatus]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadLeads(); }, [loadLeads]);
   if (!data && !error) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
   if (error) return <Card><CardContent className="p-6"><div className="font-medium">Growth data could not be loaded</div><p className="mt-1 text-sm text-muted-foreground">{error}</p><Button className="mt-3" variant="outline" onClick={load}>Retry</Button></CardContent></Card>;
   const stats = data.stats || {};
@@ -598,10 +610,23 @@ function GrowthView() {
       <Stat label="Sold exclusively" value={stats.sold ?? 0} sub="One agency per lead" />
       <Stat label="Gross lead sales" value={money(stats.grossSales || 0, 'INR')} sub="Confirmed purchases only" />
     </div>
+    <Card>
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><CardTitle className="text-base">Lead inbox</CardTitle><p className="mt-1 text-xs text-muted-foreground">Platform-owned Growth enquiries · contact details are deliberately masked</p></div>
+        <div className="flex items-center gap-2">
+          <Select value={leadStatus} onValueChange={setLeadStatus}><SelectTrigger className="w-36"><SelectValue placeholder="All statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="pending">Pending</SelectItem><SelectItem value="available">Available</SelectItem><SelectItem value="sold">Sold</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select>
+          <Button size="sm" variant="outline" onClick={loadLeads}>Refresh</Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {leadError ? <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{leadError}<Button className="ml-2" size="sm" variant="outline" onClick={loadLeads}>Retry</Button></div>
+          : leads === null ? <div className="h-24 animate-pulse rounded-lg border bg-muted/30" />
+          : !leads.length ? <div className="rounded-lg border border-dashed p-8 text-center"><div className="font-medium">No traveller enquiries yet</div><p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">No genuine leads have been captured. The inbox will populate after consent-based enquiry capture is enabled. We do not create sample leads.</p></div>
+          : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Enquiry</TableHead><TableHead>Destination</TableHead><TableHead>Travel window</TableHead><TableHead>Travellers</TableHead><TableHead>Verification</TableHead><TableHead>Status</TableHead><TableHead>Access</TableHead></TableRow></TableHeader><TableBody>{leads.map((lead) => <TableRow key={lead.id}><TableCell><div className="font-medium">{lead.title || 'Traveller enquiry'}</div><div className="text-xs text-muted-foreground">{lead.originCity || 'Origin not set'} · {lead.source || 'Source unknown'}</div></TableCell><TableCell>{lead.destination || 'Kashmir'}</TableCell><TableCell className="text-xs">{lead.travelStart || 'Flexible'}{lead.travelEnd ? ` – ${lead.travelEnd}` : ''}</TableCell><TableCell>{lead.partySize || '—'}</TableCell><TableCell><StatusBadge status={lead.verificationStatus || 'pending'} /></TableCell><TableCell><StatusBadge status={lead.status || 'pending'} /></TableCell><TableCell><Badge variant="outline">{lead.purchaseStatus === 'sold' ? 'Sold' : 'Exclusive'}</Badge></TableCell></TableRow>)}</TableBody></Table></div>}
+      </CardContent>
+    </Card>
     <div className="grid gap-4 xl:grid-cols-3">
-      <Card className="xl:col-span-2"><CardHeader><CardTitle className="text-base">Lead operations</CardTitle></CardHeader><CardContent>
-        {!data.recentLeads?.length ? <div className="rounded-lg border border-dashed p-8 text-center"><div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-violet-50 text-violet-700"><Target className="h-5 w-5" /></div><div className="mt-3 font-medium">No traveller enquiries yet</div><p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">The marketplace is intentionally empty until consent-based Kashmir lead capture and verification are ready. No sample enquiries are presented as real leads.</p></div> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Lead</TableHead><TableHead>Destination</TableHead><TableHead>Travel dates</TableHead><TableHead>Status</TableHead><TableHead>Access</TableHead></TableRow></TableHeader><TableBody>{data.recentLeads.map((lead) => <TableRow key={lead.id}><TableCell><div className="font-medium">{lead.title || 'Traveller enquiry'}</div><div className="text-xs text-muted-foreground">{lead.originCity || 'Origin not set'} · {lead.partySize || '—'} travellers</div></TableCell><TableCell>{lead.destination || 'Kashmir'}</TableCell><TableCell className="text-xs">{lead.travelStart || 'Flexible'}</TableCell><TableCell><StatusBadge status={lead.status || 'pending'} /></TableCell><TableCell><Badge variant="outline">{lead.purchaseStatus === 'sold' ? 'Sold' : 'Exclusive'}</Badge></TableCell></TableRow>)}</TableBody></Table></div>}
-      </CardContent></Card>
+      <Card className="xl:col-span-2"><CardHeader><CardTitle className="text-base">Lead operations & safeguards</CardTitle></CardHeader><CardContent className="space-y-2 text-sm text-muted-foreground"><p>Leads remain unavailable to agencies until consent, phone verification, quality checks and eligibility rules are satisfied.</p><p>Exclusive distribution permits one successful agency purchase per lead.</p><p>Contact information is excluded from this inbox and must remain hidden until a valid purchase backed by traveller consent.</p></CardContent></Card>
       <Card><CardHeader><CardTitle className="text-base">Pilot configuration</CardTitle></CardHeader><CardContent className="space-y-3 text-sm">
         <div className="flex justify-between gap-2"><span className="text-muted-foreground">Market</span><span className="font-medium">Kashmir, India</span></div>
         <div className="flex justify-between gap-2"><span className="text-muted-foreground">Distribution</span><span className="font-medium">Exclusive only</span></div>
@@ -610,7 +635,6 @@ function GrowthView() {
         <div className="border-t pt-3"><div className="font-medium">Next operational gates</div><ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground"><li>Consent and source verification</li><li>Phone verification and duplicate checks</li><li>Agency eligibility and destination matching</li><li>Atomic purchase and wallet ledger</li></ul></div>
       </CardContent></Card>
     </div>
-    <div className="rounded-lg border bg-white p-4 text-xs text-muted-foreground">Privacy guardrail: lead contact details are excluded from this overview. Contact information must remain hidden until a valid exclusive purchase, with documented traveller consent.</div>
   </div>;
 }
 
