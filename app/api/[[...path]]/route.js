@@ -2776,6 +2776,9 @@ function platformReadPerm(path) {
 // ---- SafarOS Growth: consent-first public traveller enquiry capture ----
 const GROWTH_CONSENT_VERSION = 'kashmir-traveller-enquiry-v1';
 const GROWTH_PHONE_RE = /^\+?[1-9]\d{9,14}$/;
+const GROWTH_DESTINATIONS = ['Srinagar', 'Gulmarg', 'Pahalgam', 'Sonamarg', 'Kashmir - multiple destinations', 'Not decided yet'];
+const GROWTH_TRIP_TYPES = ['Leisure', 'Family', 'Honeymoon', 'Adventure', 'Business', 'Religious / spiritual', 'Other'];
+function isRealIsoDate(value) { const d = new Date(value + 'T00:00:00.000Z'); return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value; }
 async function growthEnquirySubmit(db, body, request) {
   if (process.env.GROWTH_PUBLIC_CAPTURE_ENABLED !== 'true') return err('Traveller enquiries are not open yet. Please try again later.', 503);
   const secret = process.env.GROWTH_PII_HASH_SECRET;
@@ -2792,8 +2795,8 @@ async function growthEnquirySubmit(db, body, request) {
   if (!GROWTH_PHONE_RE.test(phone)) return err('Please enter a valid phone number with country code.');
   if (email && !EMAIL_RE.test(email)) return err('Please enter a valid email address.');
   if (!GROWTH_DESTINATIONS.includes(destination)) return err('Please select a supported Kashmir destination.');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(travelStart) || Number.isNaN(Date.parse(travelStart))) return err('Please provide a valid travel start date.');
-  if (travelEnd && (!/^\d{4}-\d{2}-\d{2}$/.test(travelEnd) || Number.isNaN(Date.parse(travelEnd)) || travelEnd < travelStart)) return err('Please provide a valid travel end date.');
+  if (!isRealIsoDate(travelStart)) return err('Please provide a valid travel start date.');
+  if (travelEnd && (!isRealIsoDate(travelEnd) || travelEnd < travelStart)) return err('Please provide a valid travel end date.');
   if (String(body?.budgetMax ?? '').trim() === '' || !Number.isFinite(budgetMax) || budgetMax < 0 || budgetMax > 100000000) return err('Please enter a valid maximum budget.');
   if (!Number.isInteger(partySize) || partySize < 1 || partySize > 40) return err('Please enter a valid group size.');
   if (tripType && !GROWTH_TRIP_TYPES.includes(tripType)) return err('Please select a supported trip type.');
