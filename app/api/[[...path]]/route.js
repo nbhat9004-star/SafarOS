@@ -2819,9 +2819,9 @@ async function growthEnquirySubmit(db, body, request) {
     disclosure: 'Contact details may be shared with one eligible travel agency only after an exclusive purchase',
     channel: 'website_form', source: String(body?.source || 'safaros_public_form').slice(0, 80),
     grantedAt: now.toISOString(), withdrawn: false };
-  const lead = { id: leadId, name, phone, phoneHash, email, destination, market: 'Kashmir', country: 'IN',
-    travelStart, travelEnd, tripType, budgetMax, partySize,
-    source: String(body?.source || 'safaros_public_form').slice(0, 80), status: 'pending',
+  const lead = { id: leadId, title: `Trip enquiry — ${destination}`, name, phone, phoneHash, email, destination, market: 'Kashmir', country: 'IN',
+    originCity: String(body?.originCity || '').trim().slice(0, 100), travelStart, travelEnd, tripType, budgetMax, partySize,
+    source: String(body?.source || 'safaros_public_form').slice(0, 80), sourceChannel: 'website', status: 'pending',
     verificationStatus: 'unverified', phoneOwnershipVerified: false,
     consent: { granted: true, withdrawn: false, recordId: consentId, version: GROWTH_CONSENT_VERSION },
     qualificationSignals: { possibleDuplicate: duplicate, suspiciousSubmission: false },
