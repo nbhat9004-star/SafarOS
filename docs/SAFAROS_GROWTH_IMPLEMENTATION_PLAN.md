@@ -4,7 +4,7 @@
 **Branch:** `feature/safaros-growth-kashmir-exclusive-leads`  
 **Base:** `main`  
 **Pilot:** Kashmir, India  
-**Distribution:** Exclusive leads only (one successful purchase per lead)
+**Distribution:** Exclusive leads only (one successful purchase per lead); all legitimate consented leads classified high/medium/low
 
 ## 1. Product objective
 
@@ -127,13 +127,14 @@ Critical invariants:
 ### Phase 2 — compliant lead capture and verification
 - Build the public enquiry endpoint and Kashmir landing-page form contract.
 - Capture notice/consent evidence and source attribution.
-- Add optional, risk-based OTP (never mandatory for every traveller), rate limiting, duplicate detection and explainable premium quality scoring.
-- Apply the premium-only marketplace gate: score 80+, documented engagement, valid unwithdrawn consent, valid phone format, and no unresolved duplicate/suspicious flag.
-- Use the premium qualification and configurable pilot pricing policy in `docs/SAFAROS_GROWTH_PREMIUM_QUALIFICATION_PRICING.md`.
+- Add optional, risk-based OTP (never mandatory for every traveller), rate limiting, duplicate detection and explainable all-quality scoring.
+- Retain and classify every legitimate enquiry as high (80–100), medium (60–79) or low (0–59); do not reject solely because of a low score.
+- Apply marketplace hard gates independently of score: valid unwithdrawn consent, valid phone format, no unresolved duplicate/suspicious flag, and not expired/withdrawn.
+- Apply configurable category-based exclusive pricing from `docs/SAFAROS_GROWTH_PREMIUM_QUALIFICATION_PRICING.md`.
 - Keep the marketplace unavailable until real consented lead supply exists.
 
 ### Phase 3 — agency marketplace and exclusive purchasing
-- List premium leads only; display evidence-based score band, transparent contact-verification state and configurable exclusive price.
+- List eligible high-, medium- and low-quality leads; display evidence-based category/score band, transparent contact-verification state and category-based exclusive price.
 - Do not expose direct contact identifiers until an atomic exclusive purchase succeeds.
 - Add agency Growth workspace and opt-in/eligibility.
 - Add masked preview, atomic exclusive purchase and PII unlock.
