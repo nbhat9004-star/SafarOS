@@ -3096,8 +3096,11 @@ async function platformGet(db, session, path, sp) {
   }
   if (path === '/platform/growth/leads') {
     const status = String(sp.get('status') || '').slice(0, 40);
-    const q = status ? { status } : {};
-    const leads = await db.collection('growthLeads').find(q, { projection: { _id: 0, id: 1, title: 1, originCity: 1, destination: 1, travelStart: 1, travelEnd: 1, partySize: 1, budgetMin: 1, budgetMax: 1, status: 1, verificationStatus: 1, purchaseStatus: 1, source: 1, createdAt: 1 } }).sort({ createdAt: -1 }).limit(200).toArray();
+    const quality = String(sp.get('quality') || '').toLowerCase();
+    const q = {};
+    if (status && ['pending', 'available', 'sold', 'rejected', 'withdrawn', 'expired'].includes(status)) q.status = status;
+    if (['high', 'medium', 'low'].includes(quality)) q.quality = quality;
+    const leads = await db.collection('growthLeads').find(q, { projection: { _id: 0, id: 1, title: 1, originCity: 1, destination: 1, travelStart: 1, travelEnd: 1, partySize: 1, budgetMin: 1, budgetMax: 1, status: 1, verificationStatus: 1, purchaseStatus: 1, source: 1, quality: 1, score: 1, suggestedPriceInr: 1, createdAt: 1 } }).sort({ createdAt: -1 }).limit(200).toArray();
     return json({ leads });
   }
   if (path === '/platform/safarcurated') return json(await scPlatformSummary(db));
