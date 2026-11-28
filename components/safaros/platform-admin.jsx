@@ -814,7 +814,7 @@ export default function PlatformAdmin() {
       {admin.mustChangePassword && section !== 'settings' && (<div className="mx-4 mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:mx-6">For security, please change your temporary password in <button className="font-medium underline" onClick={() => setSection('settings')}>Platform Settings → Security</button>.</div>)}
       <div className="p-4 sm:p-6">
         {section === 'dashboard' && <DashboardView />}
-        {section === 'growth' && <GrowthView />
+        {section === 'growth' && <GrowthView />}
         {section === 'agencies' && <AgenciesView />}
         {section === 'users' && <UsersView />}
         {section === 'subscriptions' && <SubscriptionsView />}
