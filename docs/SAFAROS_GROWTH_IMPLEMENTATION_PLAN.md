@@ -127,10 +127,14 @@ Critical invariants:
 ### Phase 2 — compliant lead capture and verification
 - Build the public enquiry endpoint and Kashmir landing-page form contract.
 - Capture notice/consent evidence and source attribution.
-- Add OTP verification, rate limiting, duplicate detection and quality review.
+- Add optional, risk-based OTP (never mandatory for every traveller), rate limiting, duplicate detection and explainable premium quality scoring.
+- Apply the premium-only marketplace gate: score 80+, documented engagement, valid unwithdrawn consent, valid phone format, and no unresolved duplicate/suspicious flag.
+- Use the premium qualification and configurable pilot pricing policy in `docs/SAFAROS_GROWTH_PREMIUM_QUALIFICATION_PRICING.md`.
 - Keep the marketplace unavailable until real consented lead supply exists.
 
 ### Phase 3 — agency marketplace and exclusive purchasing
+- List premium leads only; display evidence-based score band, transparent contact-verification state and configurable exclusive price.
+- Do not expose direct contact identifiers until an atomic exclusive purchase succeeds.
 - Add agency Growth workspace and opt-in/eligibility.
 - Add masked preview, atomic exclusive purchase and PII unlock.
 - Add wallet ledger and purchase history.
