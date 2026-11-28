@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '@/lib/db';
+import { scoreGrowthLead } from '@/lib/growth-lead-scoring';
 import { loadEmailSettings, emailSettingsView, validateEmailSettingsInput, sendEmail, emailLayout, EMAIL_ADDR_RE, isEmailConfigured, isAgencyEmailConfigured } from '@/lib/email';
 import { requestPasswordReset, completePasswordReset, sendPasswordChangedNotice, GENERIC_RESET_MESSAGE } from '@/lib/password-reset';
 import {
@@ -2772,6 +2773,66 @@ function platformReadPerm(path) {
   return 'platform:dashboard';
 }
 
+// ---- SafarOS Growth: consent-first public traveller enquiry capture ----
+const GROWTH_CONSENT_VERSION = 'kashmir-traveller-enquiry-v1';
+const GROWTH_PHONE_RE = /^\+?[1-9]\d{9,14}$/;
+async function growthEnquirySubmit(db, body, request) {
+  if (process.env.GROWTH_PUBLIC_CAPTURE_ENABLED !== 'true') return err('Traveller enquiries are not open yet. Please try again later.', 503);
+  const secret = process.env.GROWTH_PII_HASH_SECRET;
+  if (!secret || secret.length < 32) return err('Enquiry service is temporarily unavailable.', 503);
+  if (String(body?.website || '').trim()) return json({ ok: true, message: 'Thank you. Your enquiry has been received.' }, 201);
+  const name = String(body?.name || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+  const phone = String(body?.phone || '').replace(/[\s()-]/g, '');
+  const email = String(body?.email || '').trim().toLowerCase().slice(0, 160);
+  const destination = String(body?.destination || '').trim().slice(0, 120);
+  const travelStart = String(body?.travelStart || '').trim(), travelEnd = String(body?.travelEnd || '').trim();
+  const tripType = String(body?.tripType || '').trim().slice(0, 60);
+  const budgetMax = Number(body?.budgetMax), partySize = Number(body?.partySize);
+  if (name.length < 2) return err('Please enter your name.');
+  if (!GROWTH_PHONE_RE.test(phone)) return err('Please enter a valid phone number with country code.');
+  if (email && !EMAIL_RE.test(email)) return err('Please enter a valid email address.');
+  if (!destination) return err('Please select your destination.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(travelStart) || Number.isNaN(Date.parse(travelStart))) return err('Please provide a valid travel start date.');
+  if (travelEnd && (!/^\d{4}-\d{2}-\d{2}$/.test(travelEnd) || Number.isNaN(Date.parse(travelEnd)) || travelEnd < travelStart)) return err('Please provide a valid travel end date.');
+  if (!Number.isFinite(budgetMax) || budgetMax < 0 || budgetMax > 100000000) return err('Please enter a valid maximum budget.');
+  if (!Number.isInteger(partySize) || partySize < 1 || partySize > 40) return err('Please enter a valid group size.');
+  if (body?.consentAccepted !== true) return err('Please review and accept the traveller enquiry consent to continue.');
+  const now = new Date(), phoneHash = crypto.createHmac('sha256', secret).update(phone).digest('hex');
+  const ipHash = crypto.createHmac('sha256', secret).update(clientIp(request) || 'unknown').digest('hex');
+  const rateId = `${ipHash}:${Math.floor(now.getTime() / 900000)}`;
+  await db.collection('growthRateLimits').createIndex({ expireAt: 1 }, { expireAfterSeconds: 0, name: 'growth_rate_limit_ttl' });
+  const rateResult = await db.collection('growthRateLimits').findOneAndUpdate(
+    { id: rateId }, { $inc: { count: 1 }, $setOnInsert: { id: rateId, expireAt: new Date(now.getTime() + 3600000) } },
+    { upsert: true, returnDocument: 'after' });
+  const rateDoc = rateResult?.value ?? rateResult;
+  if ((rateDoc?.count || 0) > 5) return err('Too many enquiries from this connection. Please try again later.', 429);
+  const existing = await db.collection('growthLeads').findOne(
+    { phoneHash, createdAt: { $gte: new Date(now.getTime() - 30 * 86400000).toISOString() } },
+    { projection: { id: 1, _id: 0 } });
+  const duplicate = !!existing, leadId = uuidv4(), consentId = uuidv4();
+  const consentRecord = { id: consentId, leadId, version: GROWTH_CONSENT_VERSION, granted: true,
+    purpose: 'Respond to this traveller enquiry and share it with one eligible travel operator for that purpose',
+    disclosure: 'Contact details may be shared with one eligible travel agency only after an exclusive purchase',
+    channel: 'website_form', source: String(body?.source || 'safaros_public_form').slice(0, 80),
+    grantedAt: now.toISOString(), withdrawn: false };
+  const lead = { id: leadId, name, phone, phoneHash, email, destination, market: 'Kashmir', country: 'IN',
+    travelStart, travelEnd, tripType, budgetMax, partySize,
+    source: String(body?.source || 'safaros_public_form').slice(0, 80), status: 'pending',
+    verificationStatus: 'unverified', phoneOwnershipVerified: false,
+    consent: { granted: true, withdrawn: false, recordId: consentId, version: GROWTH_CONSENT_VERSION },
+    qualificationSignals: { possibleDuplicate: duplicate, suspiciousSubmission: false },
+    createdAt: now.toISOString(), updatedAt: now.toISOString() };
+  const scored = scoreGrowthLead(lead, { referenceDate: now.toISOString() });
+  Object.assign(lead, { score: scored.score, quality: scored.quality, scoreBreakdown: scored.breakdown,
+    suggestedPriceInr: scored.suggestedPriceInr, marketplaceEligible: false,
+    reviewFlags: duplicate ? ['possible_duplicate'] : [] });
+  await db.collection('growthLeads').insertOne(lead);
+  await db.collection('growthConsentRecords').insertOne(consentRecord);
+  await db.collection('growthLeadEvents').insertOne({ id: uuidv4(), leadId, type: 'enquiry_received', at: now.toISOString(),
+    metadata: { consentRecordId: consentId, source: lead.source, duplicateReviewRequired: duplicate, ipHash } });
+  return json({ ok: true, reference: leadId, message: 'Thank you. Your enquiry has been received for review.' }, 201);
+}
+
 // ---- Landing page: early-access / contact requests (public submit, platform admin review) ----
 const EARLY_ACCESS_STATUSES = ['new', 'contacted', 'converted', 'archived'];
 const EARLY_ACCESS_PLANS = ['trial', 'starter', 'professional', 'enterprise', 'not_sure'];
@@ -4541,6 +4602,7 @@ export async function POST(request, context) {
     }
 
     // ---- Landing page early-access / contact form (public, no auth) ----
+    if (path === '/growth/enquiries') return growthEnquirySubmit(db, await readBody(request), request);
     if (path === '/early-access') return earlyAccessSubmit(db, await readBody(request));
 
     // ---- SafarCurated marketplace (agency-scoped) ----
