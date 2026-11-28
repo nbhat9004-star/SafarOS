@@ -583,6 +583,7 @@ function GrowthView() {
   const [data, setData] = useState(null);
   const [leads, setLeads] = useState(null);
   const [leadStatus, setLeadStatus] = useState('all');
+  const [leadQuality, setLeadQuality] = useState('all');
   const [error, setError] = useState('');
   const [leadError, setLeadError] = useState('');
   const load = useCallback(async () => {
@@ -592,11 +593,14 @@ function GrowthView() {
   const loadLeads = useCallback(async () => {
     try {
       setLeadError('');
-      const query = leadStatus === 'all' ? '' : `?status=${encodeURIComponent(leadStatus)}`;
+      const params = new URLSearchParams();
+      if (leadStatus !== 'all') params.set('status', leadStatus);
+      if (leadQuality !== 'all') params.set('quality', leadQuality);
+      const query = params.toString() ? `?${params.toString()}` : '';
       const d = await api(`/growth/leads${query}`);
       setLeads(d.leads || []);
     } catch (e) { setLeadError(e.message); }
-  }, [leadStatus]);
+  }, [leadStatus, leadQuality]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadLeads(); }, [loadLeads]);
   if (!data && !error) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
@@ -615,6 +619,7 @@ function GrowthView() {
         <div><CardTitle className="text-base">Lead inbox</CardTitle><p className="mt-1 text-xs text-muted-foreground">Platform-owned Growth enquiries · contact details are deliberately masked</p></div>
         <div className="flex items-center gap-2">
           <Select value={leadStatus} onValueChange={setLeadStatus}><SelectTrigger className="w-36"><SelectValue placeholder="All statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="pending">Pending</SelectItem><SelectItem value="available">Available</SelectItem><SelectItem value="sold">Sold</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select>
+          <Select value={leadQuality} onValueChange={setLeadQuality}><SelectTrigger className="w-36"><SelectValue placeholder="All quality" /></SelectTrigger><SelectContent><SelectItem value="all">All quality</SelectItem><SelectItem value="high">High quality</SelectItem><SelectItem value="medium">Medium quality</SelectItem><SelectItem value="low">Low quality</SelectItem></SelectContent></Select>
           <Button size="sm" variant="outline" onClick={loadLeads}>Refresh</Button>
         </div>
       </CardHeader>
