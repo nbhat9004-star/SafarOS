@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus, Target,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -39,6 +39,7 @@ const humanize = (k) => String(k).replace(/([A-Z])/g, ' $1').replace(/^./, (c) =
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'growth', label: 'Growth', icon: Target },
   { id: 'agencies', label: 'Agencies', icon: Building2 },
   { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
@@ -577,6 +578,71 @@ function SafarCuratedView({ admin }) {
   </div>);
 }
 
+// ---------- SafarOS Growth ----------
+function GrowthView() {
+  const [data, setData] = useState(null);
+  const [leads, setLeads] = useState(null);
+  const [leadStatus, setLeadStatus] = useState('all');
+  const [leadQuality, setLeadQuality] = useState('all');
+  const [error, setError] = useState('');
+  const [leadError, setLeadError] = useState('');
+  const load = useCallback(async () => {
+    try { setError(''); const d = await api('/growth/overview'); setData(d); }
+    catch (e) { setError(e.message); }
+  }, []);
+  const loadLeads = useCallback(async () => {
+    try {
+      setLeadError('');
+      const params = new URLSearchParams();
+      if (leadStatus !== 'all') params.set('status', leadStatus);
+      if (leadQuality !== 'all') params.set('quality', leadQuality);
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const d = await api(`/growth/leads${query}`);
+      setLeads(d.leads || []);
+    } catch (e) { setLeadError(e.message); }
+  }, [leadStatus, leadQuality]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadLeads(); }, [loadLeads]);
+  if (!data && !error) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
+  if (error) return <Card><CardContent className="p-6"><div className="font-medium">Growth data could not be loaded</div><p className="mt-1 text-sm text-muted-foreground">{error}</p><Button className="mt-3" variant="outline" onClick={load}>Retry</Button></CardContent></Card>;
+  const stats = data.stats || {};
+  return <div className="space-y-5">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-sm text-muted-foreground">Lafqa lead-generation business</div><h2 className="mt-1 text-xl font-semibold">Growth Control Centre</h2><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Manage verified traveller enquiries and sell exclusive access to eligible travel agencies. Kashmir is the first pilot market.</p></div><Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700">Kashmir pilot · Exclusive</Badge></div>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Stat label="Total enquiries" value={stats.total ?? 0} sub="All recorded Growth leads" />
+      <Stat label="Verified & available" value={stats.available ?? 0} sub="Eligible for exclusive purchase" />
+      <Stat label="Sold exclusively" value={stats.sold ?? 0} sub="One agency per lead" />
+      <Stat label="Gross lead sales" value={money(stats.grossSales || 0, 'INR')} sub="Confirmed purchases only" />
+    </div>
+    <Card>
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><CardTitle className="text-base">Lead inbox</CardTitle><p className="mt-1 text-xs text-muted-foreground">Platform-owned Growth enquiries · contact details are deliberately masked</p></div>
+        <div className="flex items-center gap-2">
+          <Select value={leadStatus} onValueChange={setLeadStatus}><SelectTrigger className="w-36"><SelectValue placeholder="All statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="pending">Pending</SelectItem><SelectItem value="available">Available</SelectItem><SelectItem value="sold">Sold</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select>
+          <Select value={leadQuality} onValueChange={setLeadQuality}><SelectTrigger className="w-36"><SelectValue placeholder="All quality" /></SelectTrigger><SelectContent><SelectItem value="all">All quality</SelectItem><SelectItem value="high">High quality</SelectItem><SelectItem value="medium">Medium quality</SelectItem><SelectItem value="low">Low quality</SelectItem></SelectContent></Select>
+          <Button size="sm" variant="outline" onClick={loadLeads}>Refresh</Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {leadError ? <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{leadError}<Button className="ml-2" size="sm" variant="outline" onClick={loadLeads}>Retry</Button></div>
+          : leads === null ? <div className="h-24 animate-pulse rounded-lg border bg-muted/30" />
+          : !leads.length ? <div className="rounded-lg border border-dashed p-8 text-center"><div className="font-medium">No traveller enquiries yet</div><p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">No genuine leads have been captured. The inbox will populate after consent-based enquiry capture is enabled. We do not create sample leads.</p></div>
+          : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Enquiry</TableHead><TableHead>Destination</TableHead><TableHead>Travel window</TableHead><TableHead>Travellers</TableHead><TableHead>Quality / score</TableHead><TableHead>Indicative price</TableHead><TableHead>Verification</TableHead><TableHead>Status</TableHead><TableHead>Access</TableHead></TableRow></TableHeader><TableBody>{leads.map((lead) => <TableRow key={lead.id}><TableCell><div className="font-medium">{lead.title || 'Traveller enquiry'}</div><div className="text-xs text-muted-foreground">{lead.originCity || 'Origin not set'} · {lead.source || 'Source unknown'}</div></TableCell><TableCell>{lead.destination || 'Kashmir'}</TableCell><TableCell className="text-xs">{lead.travelStart || 'Flexible'}{lead.travelEnd ? ` – ${lead.travelEnd}` : ''}</TableCell><TableCell>{lead.partySize || '—'}</TableCell><TableCell><div className="font-medium capitalize">{lead.quality || 'Not scored'}</div><div className="text-xs text-muted-foreground">{Number.isFinite(Number(lead.score)) ? `${lead.score}/100` : '—'}</div></TableCell><TableCell>{Number.isFinite(Number(lead.suggestedPriceInr)) && Number(lead.suggestedPriceInr) > 0 ? money(lead.suggestedPriceInr, 'INR') : '—'}</TableCell><TableCell><StatusBadge status={lead.verificationStatus || 'pending'} /></TableCell><TableCell><StatusBadge status={lead.status || 'pending'} /></TableCell><TableCell><Badge variant="outline">{lead.purchaseStatus === 'sold' ? 'Sold' : 'Exclusive'}</Badge></TableCell></TableRow>)}</TableBody></Table></div>}
+      </CardContent>
+    </Card>
+    <div className="grid gap-4 xl:grid-cols-3">
+      <Card className="xl:col-span-2"><CardHeader><CardTitle className="text-base">Lead operations & safeguards</CardTitle></CardHeader><CardContent className="space-y-2 text-sm text-muted-foreground"><p>Leads remain unavailable to agencies until consent, phone verification, quality checks and eligibility rules are satisfied.</p><p>Exclusive distribution permits one successful agency purchase per lead.</p><p>Contact information is excluded from this inbox and must remain hidden until a valid purchase backed by traveller consent.</p></CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">Pilot configuration</CardTitle></CardHeader><CardContent className="space-y-3 text-sm">
+        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Market</span><span className="font-medium">Kashmir, India</span></div>
+        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Distribution</span><span className="font-medium">Exclusive only</span></div>
+        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Currency</span><span className="font-medium">INR</span></div>
+        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Lead price</span><span className="font-medium">{data.pricing?.configured ? 'Configured' : 'Not configured'}</span></div>
+        <div className="border-t pt-3"><div className="font-medium">Next operational gates</div><ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground"><li>Consent and source verification</li><li>Phone verification and duplicate checks</li><li>Agency eligibility and destination matching</li><li>Atomic purchase and wallet ledger</li></ul></div>
+      </CardContent></Card>
+    </div>
+  </div>;
+}
+
 // ---------- Analytics ----------
 function AnalyticsView() {
   const [d, setD] = useState(null);
@@ -777,6 +843,7 @@ export default function PlatformAdmin() {
       {admin.mustChangePassword && section !== 'settings' && (<div className="mx-4 mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:mx-6">For security, please change your temporary password in <button className="font-medium underline" onClick={() => setSection('settings')}>Platform Settings → Security</button>.</div>)}
       <div className="p-4 sm:p-6">
         {section === 'dashboard' && <DashboardView />}
+        {section === 'growth' && <GrowthView />}
         {section === 'agencies' && <AgenciesView />}
         {section === 'users' && <UsersView />}
         {section === 'subscriptions' && <SubscriptionsView />}
