@@ -2754,6 +2754,7 @@ const PLATFORM_WEBSITE_THEME_DEFAULTS = [
 ];
 
 function platformReadPerm(path) {
+  if (path.startsWith('/platform/growth')) return 'growth:read';
   if (path.startsWith('/platform/themes')) return 'themes:manage';
   if (path === '/platform/dashboard') return 'platform:dashboard';
   if (path.startsWith('/platform/agencies')) return 'agencies:read';
@@ -3081,6 +3082,24 @@ async function scPlatformAction(db, session, path, request) {
 
 async function platformGet(db, session, path, sp) {
   if (!canPlatform(session.role, platformReadPerm(path))) return err('forbidden', 403);
+  if (path === '/platform/growth/overview') {
+    const [total, available, sold, recentLeads, purchases] = await Promise.all([
+      db.collection('growthLeads').countDocuments({}),
+      db.collection('growthLeads').countDocuments({ status: 'available', verificationStatus: 'verified' }),
+      db.collection('growthLeads').countDocuments({ purchaseStatus: 'sold' }),
+      db.collection('growthLeads').find({}, { projection: { _id: 0, id: 1, title: 1, originCity: 1, destination: 1, travelStart: 1, partySize: 1, status: 1, purchaseStatus: 1, createdAt: 1 } }).sort({ createdAt: -1 }).limit(50).toArray(),
+      db.collection('growthPurchases').find({ status: 'confirmed' }, { projection: { _id: 0, amountInr: 1 } }).toArray(),
+    ]);
+    const grossSales = purchases.reduce((sum, p) => sum + Math.max(0, Number(p.amountInr) || 0), 0);
+    const pricing = await db.collection('growthLeadPrices').countDocuments({ active: true });
+    return json({ stats: { total, available, sold, grossSales }, recentLeads, pricing: { configured: pricing > 0 }, market: { id: 'kashmir', name: 'Kashmir', country: 'IN', currency: 'INR', distribution: 'exclusive' } });
+  }
+  if (path === '/platform/growth/leads') {
+    const status = String(sp.get('status') || '').slice(0, 40);
+    const q = status ? { status } : {};
+    const leads = await db.collection('growthLeads').find(q, { projection: { _id: 0, id: 1, title: 1, originCity: 1, destination: 1, travelStart: 1, travelEnd: 1, partySize: 1, budgetMin: 1, budgetMax: 1, status: 1, verificationStatus: 1, purchaseStatus: 1, source: 1, createdAt: 1 } }).sort({ createdAt: -1 }).limit(200).toArray();
+    return json({ leads });
+  }
   if (path === '/platform/safarcurated') return json(await scPlatformSummary(db));
 
   if (path === '/platform/themes') {
