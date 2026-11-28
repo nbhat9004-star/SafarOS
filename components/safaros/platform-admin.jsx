@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import {
   LayoutDashboard, Building2, Users as UsersIcon, CreditCard, Layers, Bot, Globe,
   BarChart3, ScrollText, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
-  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus,
+  Trash2, Eye, Shield, Plug, Menu, X, KeyRound, CheckCircle2, XCircle, Palette, Plus, Target,
 } from 'lucide-react';
 
 async function api(path, options = {}) {
@@ -39,6 +39,7 @@ const humanize = (k) => String(k).replace(/([A-Z])/g, ' $1').replace(/^./, (c) =
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'growth', label: 'Growth', icon: Target },
   { id: 'agencies', label: 'Agencies', icon: Building2 },
   { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
@@ -577,6 +578,42 @@ function SafarCuratedView({ admin }) {
   </div>);
 }
 
+// ---------- SafarOS Growth ----------
+function GrowthView() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const load = useCallback(async () => {
+    try { setError(''); const d = await api('/growth/overview'); setData(d); }
+    catch (e) { setError(e.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (!data && !error) return <div className="h-40 animate-pulse rounded-lg border bg-muted/30" />;
+  if (error) return <Card><CardContent className="p-6"><div className="font-medium">Growth data could not be loaded</div><p className="mt-1 text-sm text-muted-foreground">{error}</p><Button className="mt-3" variant="outline" onClick={load}>Retry</Button></CardContent></Card>;
+  const stats = data.stats || {};
+  return <div className="space-y-5">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-sm text-muted-foreground">Lafqa lead-generation business</div><h2 className="mt-1 text-xl font-semibold">Growth Control Centre</h2><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Manage verified traveller enquiries and sell exclusive access to eligible travel agencies. Kashmir is the first pilot market.</p></div><Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700">Kashmir pilot · Exclusive</Badge></div>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Stat label="Total enquiries" value={stats.total ?? 0} sub="All recorded Growth leads" />
+      <Stat label="Verified & available" value={stats.available ?? 0} sub="Eligible for exclusive purchase" />
+      <Stat label="Sold exclusively" value={stats.sold ?? 0} sub="One agency per lead" />
+      <Stat label="Gross lead sales" value={money(stats.grossSales || 0, 'INR')} sub="Confirmed purchases only" />
+    </div>
+    <div className="grid gap-4 xl:grid-cols-3">
+      <Card className="xl:col-span-2"><CardHeader><CardTitle className="text-base">Lead operations</CardTitle></CardHeader><CardContent>
+        {!data.recentLeads?.length ? <div className="rounded-lg border border-dashed p-8 text-center"><div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-violet-50 text-violet-700"><Target className="h-5 w-5" /></div><div className="mt-3 font-medium">No traveller enquiries yet</div><p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">The marketplace is intentionally empty until consent-based Kashmir lead capture and verification are ready. No sample enquiries are presented as real leads.</p></div> : <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Lead</TableHead><TableHead>Destination</TableHead><TableHead>Travel dates</TableHead><TableHead>Status</TableHead><TableHead>Access</TableHead></TableRow></TableHeader><TableBody>{data.recentLeads.map((lead) => <TableRow key={lead.id}><TableCell><div className="font-medium">{lead.title || 'Traveller enquiry'}</div><div className="text-xs text-muted-foreground">{lead.originCity || 'Origin not set'} · {lead.partySize || '—'} travellers</div></TableCell><TableCell>{lead.destination || 'Kashmir'}</TableCell><TableCell className="text-xs">{lead.travelStart || 'Flexible'}</TableCell><TableCell><StatusBadge status={lead.status || 'pending'} /></TableCell><TableCell><Badge variant="outline">{lead.purchaseStatus === 'sold' ? 'Sold' : 'Exclusive'}</Badge></TableCell></TableRow>)}</TableBody></Table></div>}
+      </CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">Pilot configuration</CardTitle></CardHeader><CardContent className="space-y-3 text-sm">
+        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Market</span><span className="font-medium">Kashmir, India</span></div>
+        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Distribution</span><span className="font-medium">Exclusive only</span></div>
+        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Currency</span><span className="font-medium">INR</span></div>
+        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Lead price</span><span className="font-medium">{data.pricing?.configured ? 'Configured' : 'Not configured'}</span></div>
+        <div className="border-t pt-3"><div className="font-medium">Next operational gates</div><ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground"><li>Consent and source verification</li><li>Phone verification and duplicate checks</li><li>Agency eligibility and destination matching</li><li>Atomic purchase and wallet ledger</li></ul></div>
+      </CardContent></Card>
+    </div>
+    <div className="rounded-lg border bg-white p-4 text-xs text-muted-foreground">Privacy guardrail: lead contact details are excluded from this overview. Contact information must remain hidden until a valid exclusive purchase, with documented traveller consent.</div>
+  </div>;
+}
+
 // ---------- Analytics ----------
 function AnalyticsView() {
   const [d, setD] = useState(null);
@@ -777,6 +814,7 @@ export default function PlatformAdmin() {
       {admin.mustChangePassword && section !== 'settings' && (<div className="mx-4 mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:mx-6">For security, please change your temporary password in <button className="font-medium underline" onClick={() => setSection('settings')}>Platform Settings → Security</button>.</div>)}
       <div className="p-4 sm:p-6">
         {section === 'dashboard' && <DashboardView />}
+        {section === 'growth' && <GrowthView />
         {section === 'agencies' && <AgenciesView />}
         {section === 'users' && <UsersView />}
         {section === 'subscriptions' && <SubscriptionsView />}
