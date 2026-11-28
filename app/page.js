@@ -46,7 +46,7 @@ function SectionHead({ eyebrow, title, sub, dark = false }) {
 }
 
 /* ---------------------------------------------------- header */
-const NAV = [['Demo', 'demo'], ['Features', 'features'], ['Pricing', 'pricing'], ['Early access', 'early-access']];
+const NAV = [['Demo', 'demo'], ['Features', 'features'], ['Pricing', 'pricing'], ['Plan a trip', 'plan-trip'], ['Early access', 'early-access']];
 
 function Header() {
   const { locale } = useLocalization();
@@ -58,7 +58,7 @@ function Header() {
     onScroll(); window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
-  const go = (id) => { setOpen(false); scrollToId(id); };
+  const go = (id) => { setOpen(false); if (id === 'plan-trip') { window.location.href = '/plan-trip'; return; } scrollToId(id); };
 
   return (
     <>
