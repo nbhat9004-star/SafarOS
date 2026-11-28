@@ -2791,11 +2791,12 @@ async function growthEnquirySubmit(db, body, request) {
   if (name.length < 2) return err('Please enter your name.');
   if (!GROWTH_PHONE_RE.test(phone)) return err('Please enter a valid phone number with country code.');
   if (email && !EMAIL_RE.test(email)) return err('Please enter a valid email address.');
-  if (!destination) return err('Please select your destination.');
+  if (!GROWTH_DESTINATIONS.includes(destination)) return err('Please select a supported Kashmir destination.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(travelStart) || Number.isNaN(Date.parse(travelStart))) return err('Please provide a valid travel start date.');
   if (travelEnd && (!/^\d{4}-\d{2}-\d{2}$/.test(travelEnd) || Number.isNaN(Date.parse(travelEnd)) || travelEnd < travelStart)) return err('Please provide a valid travel end date.');
-  if (!Number.isFinite(budgetMax) || budgetMax < 0 || budgetMax > 100000000) return err('Please enter a valid maximum budget.');
+  if (String(body?.budgetMax ?? '').trim() === '' || !Number.isFinite(budgetMax) || budgetMax < 0 || budgetMax > 100000000) return err('Please enter a valid maximum budget.');
   if (!Number.isInteger(partySize) || partySize < 1 || partySize > 40) return err('Please enter a valid group size.');
+  if (tripType && !GROWTH_TRIP_TYPES.includes(tripType)) return err('Please select a supported trip type.');
   if (body?.consentAccepted !== true) return err('Please review and accept the traveller enquiry consent to continue.');
   const now = new Date(), phoneHash = crypto.createHmac('sha256', secret).update(phone).digest('hex');
   const ipHash = crypto.createHmac('sha256', secret).update(clientIp(request) || 'unknown').digest('hex');
